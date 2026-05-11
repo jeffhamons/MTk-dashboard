@@ -1,0 +1,336 @@
+// Shared UI primitives for the Weekly Review.
+// All visual decisions concentrated here.
+
+const { useState, useEffect, useRef, useMemo } = React;
+
+// ---------- Icons (stroke-based, custom — not generic icon set) ----------
+function Icon({ name, size = 20, stroke = 1.6 }) {
+  const s = size;
+  const sw = stroke;
+  const common = {
+    width: s, height: s, viewBox: "0 0 24 24",
+    fill: "none", stroke: "currentColor",
+    strokeWidth: sw, strokeLinecap: "round", strokeLinejoin: "round",
+  };
+  switch (name) {
+    case "wins":
+      // a small flag/pennant on a pole — wins are claimed territory
+      return (
+        <svg {...common}>
+          <path d="M5 21V4" />
+          <path d="M5 4h12l-3 4 3 4H5" />
+        </svg>
+      );
+    case "outreach":
+      // concentric tiered rings — the tiered focus list
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="5" />
+          <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    case "commitments":
+      // SF cloud / database — activity logged
+      return (
+        <svg {...common}>
+          <path d="M7 17a4 4 0 0 1-1-7.87 5 5 0 0 1 9.7-1.13A4 4 0 0 1 17 17H7z" />
+        </svg>
+      );
+    case "tracker":
+      // closed loop — commitment made and closed
+      return (
+        <svg {...common}>
+          <path d="M4 12a8 8 0 1 0 4-6.93" />
+          <path d="M4 4v4h4" />
+        </svg>
+      );
+    case "check":
+      return (<svg {...common}><path d="M5 12.5l4.5 4.5L19 7" /></svg>);
+    case "arrow-right":
+      return (<svg {...common}><path d="M5 12h14M13 6l6 6-6 6" /></svg>);
+    case "arrow-left":
+      return (<svg {...common}><path d="M19 12H5M11 6l-6 6 6 6" /></svg>);
+    case "external":
+      return (<svg {...common}><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>);
+    case "clock":
+      return (<svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>);
+    case "calendar":
+      return (<svg {...common}><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M4 10h16M9 3v4M15 3v4" /></svg>);
+    case "team":
+      return (<svg {...common}><circle cx="9" cy="9" r="3.5" /><circle cx="17" cy="11" r="2.5" /><path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6" /><path d="M15 19c0-2 1-3.5 2.5-4.2" /></svg>);
+    case "user":
+      return (<svg {...common}><circle cx="12" cy="9" r="3.5" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /></svg>);
+    case "mail":
+      return (<svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 7l9 6 9-6" /></svg>);
+    case "chevron-down":
+      return (<svg {...common}><path d="M6 9l6 6 6-6" /></svg>);
+    case "flag":
+      return (<svg {...common}><path d="M5 21V4" /><path d="M5 4h13l-2 4 2 4H5" /></svg>);
+    case "lock":
+      return (<svg {...common}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>);
+    default: return null;
+  }
+}
+
+// ---------- Avatar ----------
+function Avatar({ rep, size = 36 }) {
+  const fontSize = Math.round(size * 0.36);
+  const bg = `oklch(0.86 0.06 ${rep.hue})`;
+  const fg = `oklch(0.32 0.07 ${rep.hue})`;
+  const isTBD = rep.initials === "—" || rep.name === "TBD";
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%",
+      background: isTBD ? "transparent" : bg,
+      color: isTBD ? "var(--ink-50)" : fg,
+      border: isTBD ? "1.5px dashed var(--ink-30)" : "none",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      fontFamily: "var(--font-display)",
+      fontWeight: 600, fontSize, letterSpacing: "0.02em",
+      flex: "none",
+    }}>{rep.initials}</div>
+  );
+}
+
+// ---------- Pill ----------
+function Pill({ children, tone = "neutral", small = false }) {
+  const tones = {
+    neutral: { bg: "var(--ink-05)", fg: "var(--ink-70)" },
+    sage:    { bg: "var(--sage-15)", fg: "var(--sage-deep)" },
+    coral:   { bg: "var(--coral-15)", fg: "var(--coral-deep)" },
+    open:    { bg: "transparent",     fg: "var(--ink-50)", border: "1px dashed var(--ink-20)" },
+  };
+  const t = tones[tone] || tones.neutral;
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 6,
+      padding: small ? "2px 8px" : "4px 10px",
+      borderRadius: 999,
+      background: t.bg, color: t.fg, border: t.border || "none",
+      fontSize: small ? 11 : 12, fontWeight: 500,
+      letterSpacing: "0.02em",
+      textTransform: "uppercase",
+      fontFamily: "var(--font-ui)",
+    }}>{children}</span>
+  );
+}
+
+// ---------- Big Check toggle ----------
+// The hero interaction. Not a tiny checkbox — a confident toggle that
+// fills with sage when complete. Encouraging, not performative.
+function BigCheck({ checked, onToggle, label, readOnly }) {
+  return (
+    <button
+      type="button"
+      onClick={readOnly ? undefined : onToggle}
+      aria-pressed={checked}
+      aria-label={label}
+      className="bigcheck"
+      data-checked={checked ? "1" : "0"}
+      data-readonly={readOnly ? "1" : "0"}
+      disabled={readOnly}
+      title={readOnly ? "Read only — only the rep can mark this done" : undefined}
+    >
+      <span className="bigcheck__fill" />
+      <span className="bigcheck__icon">
+        <Icon name="check" size={22} stroke={2.4} />
+      </span>
+      <span className="bigcheck__label">{checked ? "Done" : "Mark done"}</span>
+    </button>
+  );
+}
+
+// ---------- Mini status dot (for rollup grid) ----------
+function StatusDot({ checked, size = 14 }) {
+  return (
+    <span
+      className="statusdot"
+      data-checked={checked ? "1" : "0"}
+      style={{ width: size, height: size }}
+      aria-label={checked ? "complete" : "incomplete"}
+    />
+  );
+}
+
+// ---------- Ask for Help ----------
+// Optional flag a rep raises when they want the manager to look. Framed
+// FORWARD ("what I need"), not backward ("why I failed"). Click to expand,
+// type, save. Once raised, persists and shows on the rollup as a small flag.
+function AskForHelp({ rep, weekId, delId, state, onAsk, disabled }) {
+  const askKey = `${rep.id}|${weekId}|${delId}`;
+  const existing = state.asks && state.asks[askKey];
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(existing ? existing.text : "");
+
+  useEffect(() => {
+    setDraft(existing ? existing.text : "");
+  }, [askKey, existing && existing.text]);
+
+  const hasFlag = !!existing;
+
+  if (disabled && !hasFlag) return null;
+
+  // Collapsed: no flag yet — show CTA
+  if (!open && !hasFlag) {
+    return (
+      <button
+        type="button"
+        className="ask ask--cta"
+        onClick={() => setOpen(true)}
+      >
+        <span className="ask__flag" aria-hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 21V4" />
+            <path d="M4 4h12l-2 4 2 4H4" />
+          </svg>
+        </span>
+        <span>Need help on this</span>
+      </button>
+    );
+  }
+
+  // Collapsed: flag is raised — show saved chip with the text, click to edit
+  if (!open && hasFlag) {
+    return (
+      <div className="ask ask--saved" data-flag="1">
+        <span className="ask__flag" aria-hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 21V4" />
+            <path d="M4 4h12l-2 4 2 4H4" />
+          </svg>
+        </span>
+        <div className="ask__saved-body">
+          <div className="ask__saved-label">Flagged · what you need</div>
+          <div className="ask__saved-text">{existing.text}</div>
+        </div>
+        <div className="ask__saved-actions">
+          <button
+            type="button"
+            className="ask__btn ask__btn--ghost"
+            onClick={() => setOpen(true)}
+            disabled={disabled}
+          >Edit</button>
+          <button
+            type="button"
+            className="ask__btn ask__btn--ghost"
+            onClick={() => { onAsk(rep.id, weekId, delId, ""); setDraft(""); }}
+            disabled={disabled}
+            title="Clear flag — issue is resolved"
+          >Resolved</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="ask ask--open" data-flag={hasFlag ? "1" : "0"}>
+      <div className="ask__head">
+        <span className="ask__label">
+          <span className="ask__flag" aria-hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 21V4" />
+              <path d="M4 4h12l-2 4 2 4H4" />
+            </svg>
+          </span>
+          What I need to move this forward
+        </span>
+        {hasFlag && (
+          <button
+            type="button"
+            className="ask__clear"
+            onClick={() => { onAsk(rep.id, weekId, delId, ""); setOpen(false); setDraft(""); }}
+            title="Clear flag"
+          >Clear</button>
+        )}
+      </div>
+      <textarea
+        className="ask__input"
+        placeholder="An intro, a decision, 15 minutes, a thought partner…"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        rows={2}
+        autoFocus={open && !hasFlag}
+      />
+      <div className="ask__foot">
+        <button type="button" className="ask__btn ask__btn--ghost" onClick={() => { setDraft(existing ? existing.text : ""); setOpen(false); }}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="ask__btn ask__btn--primary"
+          onClick={() => {
+            const text = draft.trim();
+            onAsk(rep.id, weekId, delId, text);
+            // Always close the editor after save/update — collapses to saved chip
+            setOpen(false);
+          }}
+          disabled={!draft.trim()}
+        >
+          {hasFlag ? "Update" : "Raise flag"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
+// EmailButton — opens user's default mail client with a Friday recap
+// pre-filled. Two modes:
+//   • "This week"     — current week only, the Friday close-out ritual
+//   • "Whole quarter" — every week, used at end of cycle
+// =====================================================================
+function EmailButton({ rep, week, state }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  const sendThisWeek = async () => {
+    const msg = window.buildWeekEmail(rep, week, state);
+    setOpen(false);
+    await window.openMailto(msg);
+  };
+  const sendQuarter = async () => {
+    const msg = window.buildQuarterEmail(rep, state);
+    setOpen(false);
+    await window.openMailto(msg);
+  };
+
+  return (
+    <div className="emailbtn" ref={ref}>
+      <button
+        className="emailbtn__trigger"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        title="Email this recap to yourself or your manager"
+      >
+        <Icon name="mail" size={15} />
+        <span>Email recap</span>
+        <Icon name="chevron-down" size={13} />
+      </button>
+      {open && (
+        <div className="emailbtn__menu" role="menu">
+          <button className="emailbtn__item" onClick={sendThisWeek}>
+            <div className="emailbtn__item-title">This week only</div>
+            <div className="emailbtn__item-sub">Friday close-out — week of {window.fmtShort(week.monday)}</div>
+          </button>
+          <button className="emailbtn__item" onClick={sendQuarter}>
+            <div className="emailbtn__item-title">Full quarter recap</div>
+            <div className="emailbtn__item-sub">All 10 weeks · status + asks</div>
+          </button>
+          <div className="emailbtn__hint">
+            Opens your mail app in a new draft. Long recaps are copied to your clipboard — just paste.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+Object.assign(window, { Icon, Avatar, Pill, BigCheck, StatusDot, AskForHelp, EmailButton });

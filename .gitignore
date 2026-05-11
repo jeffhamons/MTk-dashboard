@@ -1,0 +1,5 @@
+dist/
+build/_original_template.html
+build/asset-map.json
+.DS_Store
+__pycache__/
