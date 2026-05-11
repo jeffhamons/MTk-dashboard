@@ -161,6 +161,8 @@ document.addEventListener('DOMContentLoaded', async function() {
 
 
 # Outer "loading shell" HTML — what the user sees while we decode the bundle.
+# The splash logo is inlined as a data URI so it can render BEFORE any JS
+# fires (the bundler hasn't materialized blob URLs for the real assets yet).
 SHELL_HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -171,7 +173,7 @@ SHELL_HTML = """<!DOCTYPE html>
     body{{background:#faf9f5;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,sans-serif}}
     #__bundler_loading{{position:fixed;bottom:20px;right:20px;font:13px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;color:#666;background:#fff;padding:8px 14px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,0.12);z-index:10000}}
     #__bundler_thumbnail{{position:fixed;inset:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#faf9f5;z-index:9999}}
-    #__bundler_thumbnail svg{{width:100%;height:100%;object-fit:contain}}
+    #__bundler_thumbnail img{{max-width:240px;max-height:240px;object-fit:contain}}
   </style>
   <noscript>
     <style>#__bundler_loading{{display:none}}</style>
@@ -180,11 +182,7 @@ SHELL_HTML = """<!DOCTYPE html>
 </head>
 <body>
   <div id="__bundler_thumbnail">
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-      <rect width="100" height="100" fill="#5D5BED"/>
-      <circle cx="50" cy="50" r="22" fill="#FDBC00"/>
-      <path d="M 38 56 Q 42 42 46 56 Q 50 42 54 56 Q 58 42 62 56" stroke="#FFFFFF" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
+    <img src="{splash_logo}" alt="Mindtools Kineo">
   </div>
   <div id="__bundler_loading">Unpacking...</div>
   <script type="__bundler/manifest">{manifest_json}</script>
@@ -193,6 +191,16 @@ SHELL_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+# Inline the brand logo as a data URI for the splash screen. This runs at
+# build time so the data is in the outer HTML, paintable immediately on first
+# byte — no waiting for the bundler to materialize blob URLs.
+def splash_logo_data_uri() -> str:
+    logo = REPO_ROOT / "assets" / "mindtools-logo.png"
+    if not logo.is_file():
+        return ""
+    b64 = base64.b64encode(logo.read_bytes()).decode("ascii")
+    return f"data:image/png;base64,{b64}"
 
 
 def collect_assets() -> tuple[dict, str]:
@@ -260,6 +268,7 @@ def main() -> int:
 
     out_html = SHELL_HTML.format(
         title=title,
+        splash_logo=splash_logo_data_uri(),
         manifest_json=js_safe(manifest),
         template_json=js_safe(template),
         loader=LOADER_SCRIPT,

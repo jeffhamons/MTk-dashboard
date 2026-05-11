@@ -96,7 +96,7 @@ function AuthGate({ children }) {
       <div className="auth-screen">
         <div className="auth-card">
           <div className="auth-card__brand">
-            <img src="assets/mindtools-mark.png" alt="" className="auth-card__mark" />
+            <img src={document.getElementById("__logo_src").src} alt="" className="auth-card__mark" />
             <span>Mindtools Kineo</span>
           </div>
           <h1 className="auth-card__title">Sign-in is unavailable.</h1>
@@ -127,7 +127,7 @@ function AuthGate({ children }) {
       <div className="auth-screen">
         <div className="auth-card">
           <div className="auth-card__brand">
-            <img src="assets/mindtools-mark.png" alt="" className="auth-card__mark" />
+            <img src={document.getElementById("__logo_src").src} alt="" className="auth-card__mark" />
             <span>Mindtools Kineo</span>
           </div>
           <h1 className="auth-card__title">Weekly Review</h1>
