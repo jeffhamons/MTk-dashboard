@@ -56,9 +56,17 @@ def encode_asset(path: Path) -> dict:
     }
 
 
-# Loader script — same shape Claude Design uses: read manifest, decode + decompress
-# each asset, materialize a Blob URL per UUID, replace <script>/<link>/<img>/url()
-# references in the inner template, then replaceWith(document.documentElement).
+# Loader script — mirrors the proven Claude Design loader (the one whose
+# original artifact downloads actually worked). Two non-obvious parts:
+#   (a) For text/babel scripts with a src=blob: URL, we fetch the blob and
+#       inline the content. Babel's transformScriptTags does an XHR against
+#       src= and blob URLs created from base64 data don't reliably reach the
+#       transformer — inlining makes each one a plain inline babel script,
+#       which transformScriptTags handles unconditionally.
+#   (b) Babel-standalone hooks DOMContentLoaded to auto-process text/babel
+#       scripts. That already fired on the outer page before we swapped the
+#       document, so we call window.Babel.transformScriptTags() manually
+#       once all scripts are in place.
 LOADER_SCRIPT = r"""
 document.addEventListener('DOMContentLoaded', async function() {
   const loading = document.getElementById('__bundler_loading');
@@ -111,34 +119,42 @@ document.addEventListener('DOMContentLoaded', async function() {
       }
     }));
 
-    // Substitute UUIDs in template
-    for (const [uuid, url] of Object.entries(blobUrls)) {
-      template = template.split(uuid).join(url);
-    }
+    setStatus('Rendering...');
+    for (const uuid of uuids) template = template.split(uuid).join(blobUrls[uuid]);
 
-    setStatus('Mounting...');
-    // Parse the inner template HTML and swap it in
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(template, 'text/html');
-    // Move <head> and <body> contents into the live document
+    // Strip integrity + crossorigin — blob URLs inherit a null origin, so
+    // crossorigin forces a CORS fetch that SRI then rejects.
+    template = template.replace(/\s+integrity="[^"]*"/gi, '').replace(/\s+crossorigin="[^"]*"/gi, '');
+
+    // Swap the document and re-create script tags so they execute (DOMParser
+    // marks them already-started). Order is preserved by awaiting onload for
+    // src= scripts — React must finish before ReactDOM before Babel.
+    const doc = new DOMParser().parseFromString(template, 'text/html');
     document.documentElement.replaceWith(doc.documentElement);
-
-    // After the swap, re-execute every <script> tag that the parser left inert.
-    // (DOMParser-created <script> elements don't run when inserted.)
-    const scripts = Array.from(document.querySelectorAll('script'));
-    for (const old of scripts) {
+    const dead = Array.from(document.scripts);
+    for (const old of dead) {
       const s = document.createElement('script');
       for (const a of old.attributes) s.setAttribute(a.name, a.value);
-      if (old.textContent) s.textContent = old.textContent;
-      old.replaceWith(s);
-      // For src= scripts, wait for load before continuing so Babel parses correctly
-      if (s.src) {
-        await new Promise((res, rej) => { s.onload = res; s.onerror = rej; });
+      s.textContent = old.textContent;
+      // text/babel + src=blob: → inline the fetched text and drop src.
+      if ((s.type === 'text/babel' || s.type === 'text/jsx') && s.src) {
+        const r = await fetch(s.src);
+        s.textContent = await r.text();
+        s.removeAttribute('src');
       }
+      const waitForLoad = s.src ? new Promise(function(r) { s.onload = s.onerror = r; }) : null;
+      old.replaceWith(s);
+      if (waitForLoad) await waitForLoad;
     }
-  } catch (e) {
-    console.error('[bundler] fatal:', e);
-    setStatus('Error: ' + (e.message || String(e)));
+    // Babel.transformScriptTags() auto-fires on DOMContentLoaded, which
+    // already fired on the outer page. Trigger it manually now that the
+    // text/babel scripts are in the live document.
+    if (window.Babel && typeof window.Babel.transformScriptTags === 'function') {
+      window.Babel.transformScriptTags();
+    }
+  } catch (err) {
+    setStatus('Error unpacking: ' + err.message);
+    console.error('Bundle unpack error:', err);
   }
 });
 """.strip()
