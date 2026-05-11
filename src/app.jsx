@@ -202,6 +202,8 @@ function App({ authedUser }) {
                 onPickRep={(id) => setView(id)}
               />
             </div>
+          ) : view === "standup" ? (
+            <StandupView authedUser={authedUser} />
           ) : view === "manager:flags" ? (
             <FlagQueue
               state={state}

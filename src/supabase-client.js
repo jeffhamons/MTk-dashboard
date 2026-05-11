@@ -256,6 +256,55 @@ function getCurrentRep()   { return localStorage.getItem(REP_KEY) || ""; }
 function setCurrentRep(id) { id ? localStorage.setItem(REP_KEY, id) : localStorage.removeItem(REP_KEY); }
 
 // ============================================================
+// STANDUP — Tue/Thu intake. One row per (date, rep_id) with 4 prompt fields
+// + parsed mentions[]. RLS: read all, write own row (manager writes any).
+// ============================================================
+
+// Load all entries for a given YYYY-MM-DD date. Returns { rep_id: row } map.
+async function loadStandupForDate(dateStr) {
+  const sb = client();
+  const { data, error } = await sb.from("standup_entries").select("*").eq("date", dateStr);
+  if (error) { console.error("loadStandupForDate", error); return {}; }
+  const out = {};
+  for (const r of (data || [])) out[r.rep_id] = r;
+  return out;
+}
+
+// Save one field of one rep's standup row. Upserts on (date, rep_id).
+// `mentions` is the full mentions array for the row across all 4 fields,
+// computed by the caller from the merged text (so it stays consistent even
+// when only one field is being edited).
+async function saveStandupField(dateStr, repId, field, value, mentions, updatedByEmail) {
+  const allowed = new Set(["what_moved", "pushing_next", "whats_slowing", "what_i_need"]);
+  if (!allowed.has(field)) throw new Error("invalid standup field: " + field);
+  const sb = client();
+  const row = {
+    date: dateStr,
+    rep_id: repId,
+    [field]: value || "",
+    mentions: mentions || [],
+    updated_at: new Date().toISOString(),
+    updated_by: updatedByEmail || null,
+  };
+  const { error } = await sb.from("standup_entries").upsert(row, { onConflict: "date,rep_id" });
+  if (error) console.error("saveStandupField", error);
+}
+
+// Subscribe to all changes on a single date. Callback fires with the new row
+// any time someone else updates an entry for that day.
+function subscribeStandupChanges(dateStr, onRow) {
+  const sb = client();
+  const channel = sb.channel(`standup-${dateStr}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "standup_entries", filter: `date=eq.${dateStr}` },
+      (payload) => { if (payload.new) onRow(payload.new); }
+    )
+    .subscribe();
+  return () => sb.removeChannel(channel);
+}
+
+// ============================================================
 // EXPORT GLOBALS
 // ============================================================
 Object.assign(window, {
@@ -274,4 +323,7 @@ Object.assign(window, {
   sendMagicLink,
   signOut,
   onAuthChange,
+  loadStandupForDate,
+  saveStandupField,
+  subscribeStandupChanges,
 });
