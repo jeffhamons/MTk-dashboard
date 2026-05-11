@@ -232,10 +232,20 @@ def main() -> int:
     if args.check:
         return 0
 
+    # Escape `</` to `<\/` in JSON output: the browser's HTML parser eagerly
+    # closes a <script> tag at the FIRST `</script>` it sees, even inside JSON
+    # content. The template embeds the dashboard's <script> tags as data, so
+    # without this escape the HTML parser truncates the template at its first
+    # nested `</script>` and JSON.parse fails on the unterminated string.
+    # JSON spec allows `\/` as a valid escape for `/` (json.dumps doesn't emit
+    # it by default), so this is a no-op for any JSON parser.
+    def js_safe(obj):
+        return json.dumps(obj).replace("</", "<\\/")
+
     out_html = SHELL_HTML.format(
         title=title,
-        manifest_json=json.dumps(manifest),
-        template_json=json.dumps(template),
+        manifest_json=js_safe(manifest),
+        template_json=js_safe(template),
         loader=LOADER_SCRIPT,
     )
 
