@@ -213,7 +213,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
         <div className="cadence__item cadence__item--note">
           <div>
             <div className="cadence__label">Why this exists</div>
-            <div className="cadence__value">Follow Up — the F in CHEF. One visible system, every week.</div>
+            <div className="cadence__value">Closing loops, every week — one visible system the whole team sees.</div>
           </div>
         </div>
       </div>

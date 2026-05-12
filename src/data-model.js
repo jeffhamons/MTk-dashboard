@@ -67,7 +67,7 @@ const DELIVERABLES = [
     id: "commitments",
     title: "Weekly Tracker",
     short: "What you committed last week, what you delivered, what's still open.",
-    why: "Follow-up is the F in CHEF. This is the loop that closes — it's how trust gets built between us, in both directions.",
+    why: "Follow-up is what turns a commitment into a result. Closing the loop is how trust gets built — in both directions, every week.",
     docLabel: "Open the tracker",
     docHref: "#commitments-doc",
     icon: "tracker",

@@ -221,8 +221,8 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
       <div className="repfoot">
         <div className="repfoot__rule" />
         <p>
-          This isn't a leash. It's the loop. <strong>Clarify · Help · Execute · Follow Up.</strong>
-          Three things, every week. Green when shut. Quiet when not.
+          This isn't a leash. It's the loop. <strong>Change comes by putting in the reps</strong>, every week.
+          Green when shut. Quiet when not.
         </p>
       </div>
     </div>
