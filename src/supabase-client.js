@@ -37,8 +37,11 @@ function client() {
               { mode: "exclusive", signal: AbortSignal.timeout(acquireTimeout) },
               fn
             );
-          } catch {
-            return fn();
+          } catch (err) {
+            if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) {
+              return fn();
+            }
+            throw err;
           }
         },
         persistSession: true,
