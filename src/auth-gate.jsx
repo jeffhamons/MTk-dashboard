@@ -25,37 +25,25 @@ function AuthGate({ children }) {
   const [msg, setMsg]     = React.useState(null);
   const [errDetail, setErrDetail] = React.useState(null);
 
-  // Initial session check + listen for changes
+  // Supabase v2 fires INITIAL_SESSION on subscription, so onAuthChange covers
+  // both the first-load case and subsequent sign-in/sign-out transitions.
+  // Previously there was also an explicit getSession() + getMyUser() call here,
+  // but that caused both paths to call getMyUser() concurrently on first load —
+  // both raced on sb.auth.getUser()'s network call and one would time out.
   React.useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const session = await withTimeout(window.getSession(), AUTH_TIMEOUT_MS, "getSession");
-        if (cancelled) return;
-        if (session) {
-          const u = await withTimeout(window.getMyUser(), AUTH_TIMEOUT_MS, "getMyUser");
-          if (cancelled) return;
-          setUser(u);
-          setPhase("signed-in");
-        } else {
-          setPhase("signed-out");
-        }
-      } catch (e) {
-        console.error("auth boot", e);
-        if (cancelled) return;
-        setErrDetail(e && e.message ? e.message : String(e));
-        setPhase("error");
-      }
-    })();
 
     const unsub = window.onAuthChange(async (session) => {
+      if (cancelled) return;
       if (session) {
         try {
-          const u = await withTimeout(window.getMyUser(), AUTH_TIMEOUT_MS, "getMyUser");
+          const u = await withTimeout(window.getMyUser(session.user), AUTH_TIMEOUT_MS, "getMyUser");
+          if (cancelled) return;
           setUser(u);
           setPhase("signed-in");
         } catch (e) {
           console.error("auth change → getMyUser", e);
+          if (cancelled) return;
           setErrDetail(e && e.message ? e.message : String(e));
           setPhase("error");
         }

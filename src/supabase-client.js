@@ -266,9 +266,11 @@ async function getSession() {
   return data.session || null;
 }
 
-async function getMyUser() {
+async function getMyUser(sessionUser) {
   const sb = client();
-  const { data: { user } } = await sb.auth.getUser();
+  // Accept sessionUser from the caller to skip the sb.auth.getUser() network
+  // round-trip when we already have the user from an onAuthStateChange event.
+  const user = sessionUser || (await sb.auth.getUser()).data.user;
   if (!user) return null;
   const { data, error } = await sb.from("users").select("*").eq("auth_id", user.id).maybeSingle();
   if (error) console.error("getMyUser", error);
