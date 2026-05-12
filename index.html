@@ -1450,6 +1450,41 @@ button { font: inherit; color: inherit; }
 }
 .home__sub { margin: 8px 0 0; font-size: 15px; color: var(--ink-70); }
 
+.home__quote {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin: 28px 0 32px;
+  padding: 16px 20px;
+  background: var(--card);
+  border: 1px solid var(--ink-10);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-card);
+}
+.home__quote-mark {
+  font-size: 32px;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.4;
+  font-family: Georgia, serif;
+  flex-shrink: 0;
+  margin-top: -4px;
+}
+.home__quote-body { flex: 1; }
+.home__quote-text {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1.55;
+}
+.home__quote-attr {
+  font-size: 12px;
+  color: var(--ink-50);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .home__cards {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1635,6 +1670,78 @@ if (!window.loadStandupForDate) {
   };
 }
 
+// ── Daily quotes — rotates by calendar day so everyone sees the same one ─────
+const DAILY_QUOTES = [
+  // Motivational
+  { text: "Every no gets me closer to a yes.", attr: "Unknown" },
+  { text: "The secret of getting ahead is getting started.", attr: "Mark Twain" },
+  { text: "Your attitude, not your aptitude, will determine your altitude.", attr: "Zig Ziglar" },
+  { text: "Don't watch the clock; do what it does. Keep going.", attr: "Sam Levenson" },
+  { text: "Success is not final, failure is not fatal — it is the courage to continue that counts.", attr: "Winston Churchill" },
+  { text: "The harder the battle, the sweeter the victory.", attr: "Les Brown" },
+  { text: "Difficult roads often lead to beautiful destinations.", attr: "Zig Ziglar" },
+  { text: "Fall seven times, stand up eight.", attr: "Japanese Proverb" },
+  { text: "You miss 100% of the shots you don't take.", attr: "Wayne Gretzky (via Michael Scott)" },
+  { text: "The only place success comes before work is in the dictionary.", attr: "Vidal Sassoon" },
+  // Outcomes / Craft
+  { text: "Make a customer, not a sale.", attr: "Katherine Barchetti" },
+  { text: "Selling is not something you do to someone. It's something you do for someone.", attr: "Zig Ziglar" },
+  { text: "Stop selling. Start helping.", attr: "Zig Ziglar" },
+  { text: "You don't close a sale, you open a relationship.", attr: "Patricia Fripp" },
+  { text: "The best salespeople know they're the best. They have a quiet confidence.", attr: "Unknown" },
+  { text: "Pipeline is truth. Everything else is opinion.", attr: "Unknown" },
+  { text: "Activity is not the same as progress.", attr: "Unknown" },
+  { text: "Follow up or fall behind.", attr: "Unknown" },
+  { text: "A goal without a plan is just a wish.", attr: "Antoine de Saint-Exupéry" },
+  { text: "Revenue is the applause you get for taking care of your customers.", attr: "Jeffrey Gitomer" },
+  { text: "Your most unhappy customers are your greatest source of learning.", attr: "Bill Gates" },
+  { text: "The sale begins when the customer says no.", attr: "Unknown" },
+  { text: "Consistency beats talent when talent isn't consistent.", attr: "Unknown" },
+  { text: "Discipline is choosing between what you want now and what you want most.", attr: "Abraham Lincoln" },
+  { text: "Every call is a chance to learn something.", attr: "Unknown" },
+  // Funny / Dry
+  { text: "I'm not a salesperson, I'm a revenue-generating relationship architect.", attr: "Unknown" },
+  { text: "Coffee is for closers. Decaf is for everyone else.", attr: "Inspired by Glengarry Glen Ross" },
+  { text: "My CRM doesn't have a field for 'vibes,' but that's basically what I'm tracking.", attr: "Unknown" },
+  { text: "Sales tip: smile more. It confuses people.", attr: "Unknown" },
+  { text: "The best time to follow up was yesterday. The second best time is now.", attr: "Unknown" },
+  { text: "I didn't lose the deal. I found a prospect who wasn't ready yet.", attr: "Unknown" },
+  { text: "On the eighth day, God made a to-do list and called it a pipeline.", attr: "Unknown" },
+  { text: "Rejection builds character. So I must have tremendous character.", attr: "Unknown" },
+  { text: "I've been told 'no' so many times I'm starting to think it's my name.", attr: "Unknown" },
+  { text: "Not every lead is a nail. But I do own a hammer.", attr: "Unknown" },
+  { text: "Sales: the only job where you can be told to go to hell and consider it a warm lead.", attr: "Unknown" },
+  { text: "My quota doesn't care about my feelings.", attr: "Unknown" },
+  // Movies
+  { text: "Always be closing.", attr: "Blake — Glengarry Glen Ross (1992)" },
+  { text: "Put that coffee down. Coffee's for closers only.", attr: "Blake — Glengarry Glen Ross (1992)" },
+  { text: "First prize: Cadillac Eldorado. Second prize: set of steak knives. Third prize: you're fired.", attr: "Blake — Glengarry Glen Ross (1992)" },
+  { text: "A-B-C. Always. Be. Closing.", attr: "Blake — Glengarry Glen Ross (1992)" },
+  { text: "The leads are weak? You're weak.", attr: "Blake — Glengarry Glen Ross (1992)" },
+  { text: "Greed, for lack of a better word, is good.", attr: "Gordon Gekko — Wall Street (1987)" },
+  { text: "Money never sleeps, pal.", attr: "Gordon Gekko — Wall Street (1987)" },
+  { text: "The most valuable commodity I know of is information.", attr: "Gordon Gekko — Wall Street (1987)" },
+  { text: "Show me the money!", attr: "Rod Tidwell — Jerry Maguire (1996)" },
+  { text: "Help me help you.", attr: "Jerry Maguire (1996)" },
+  { text: "You had me at hello.", attr: "Jerry Maguire (1996)" },
+  { text: "The key to this business is personal relationships.", attr: "Jerry Maguire (1996)" },
+  { text: "Act as if. Act as if you're a wealthy man, rich already, and you will become rich.", attr: "Boiler Room (2000)" },
+  { text: "They say money can't buy happiness. Look at the smile on my face.", attr: "Boiler Room (2000)" },
+  { text: "Sell me this pen.", attr: "Jordan Belfort — The Wolf of Wall Street (2013)" },
+  { text: "I can get a good look at a T-bone by sticking my head up a bull's ass, but I'd rather take the butcher's word for it.", attr: "Tommy Boy (1995)" },
+  { text: "Don't ever let somebody tell you you can't do something. You got a dream, you gotta protect it.", attr: "The Pursuit of Happyness (2006)" },
+  { text: "The first guy through the wall always gets bloody.", attr: "Moneyball (2011)" },
+  { text: "If you're not first, you're last.", attr: "Ricky Bobby — Talladega Nights (2006)" },
+  { text: "A million dollars isn't cool. You know what's cool? A billion dollars.", attr: "The Social Network (2010)" },
+];
+
+function todayQuote() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  return DAILY_QUOTES[dayOfYear % DAILY_QUOTES.length];
+}
+
 // ── HomeView ─────────────────────────────────────────────────────────────────
 // Landing screen: greeting + two role-aware hero cards.
 // Reps: Weekly Review + Standup.
@@ -1685,8 +1792,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
     : authedUser ? authedUser.authEmail.split("@")[0]
     : "there";
 
-  // Hours of day for greeting
-  const hour = today.getHours();
+  const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   return (
@@ -1703,6 +1809,16 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
             : `Week ${week.index} of ${WEEKS.length} · ${fmtRange(week.monday, week.friday)}`}
         </p>
       </div>
+
+      {(() => { const q = todayQuote(); return (
+        <div className="home__quote">
+          <div className="home__quote-mark">"</div>
+          <div className="home__quote-body">
+            <p className="home__quote-text">{q.text}</p>
+            <div className="home__quote-attr">{q.attr}</div>
+          </div>
+        </div>
+      ); })()}
 
       <div className="home__cards">
         {isManager ? (
