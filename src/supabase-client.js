@@ -23,15 +23,30 @@ function client() {
     _client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
       realtime: { params: { eventsPerSecond: 5 } },
       auth: {
-        // Bypass navigator.locks. This is an internal single-tab dashboard,
-        // so cross-tab serialization of auth refreshes isn't worth the
-        // deadlock risk we hit in prod: a dead Web Lock client held the
-        // `lock:sb-<project>-auth-token` exclusive lock forever and every
-        // subsequent sb.auth.getSession() call queued behind it and never
-        // resolved, leaving the auth screen stuck on "Loading…".
-        lock: (_name, _acquireTimeout, fn) => fn(),
+        // Bounded navigator.locks wrapper. Keeps cross-tab serialization of
+        // token refreshes (so two tabs don't race and burn each other's
+        // single-use refresh tokens — the symptom that was logging users out)
+        // while guaranteeing the lock can never wedge: if it's held longer
+        // than acquireTimeout, AbortSignal fires and we fall through to an
+        // uncoordinated run rather than queueing forever behind a dead
+        // Web Lock client (the deadlock we hit in prod).
+        lock: async (name, acquireTimeout, fn) => {
+          try {
+            return await navigator.locks.request(
+              name,
+              { mode: "exclusive", signal: AbortSignal.timeout(acquireTimeout) },
+              fn
+            );
+          } catch {
+            return fn();
+          }
+        },
         persistSession: true,
         autoRefreshToken: true,
+        // Implicit flow: magic-link tokens land in the URL hash, so the user
+        // can request the link on laptop and click it on phone (PKCE would
+        // require the code_verifier from the laptop's localStorage).
+        flowType: "implicit",
       },
     });
   }
@@ -240,7 +255,10 @@ async function sendMagicLink(email) {
 
 async function signOut() {
   const sb = client();
-  await sb.auth.signOut();
+  // scope: 'local' — only sign out this device. Default 'global' invalidates
+  // every device's session for this user, which surprises people who have
+  // the app open on phone + laptop.
+  await sb.auth.signOut({ scope: "local" });
   location.reload();
 }
 
