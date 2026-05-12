@@ -69,6 +69,10 @@ function Icon({ name, size = 20, stroke = 1.6 }) {
       return (<svg {...common}><path d="M5 21V4" /><path d="M5 4h13l-2 4 2 4H5" /></svg>);
     case "lock":
       return (<svg {...common}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>);
+    case "home":
+      return (<svg {...common}><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V10.5z" /><path d="M9 21V13h6v8" /></svg>);
+    case "standup":
+      return (<svg {...common}><circle cx="12" cy="7" r="3" /><path d="M5 21c0-4 3-7 7-7s7 3 7 7" /><path d="M12 14v4" /><path d="M10 17h4" /></svg>);
     default: return null;
   }
 }

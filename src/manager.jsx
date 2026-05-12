@@ -10,10 +10,10 @@
 // Filtered at render by user role. Append to extend.
 // =====================================================================
 const APP_PAGES = [
-  { id: "rollup",        label: "Team rollup", icon: "team",     requires: "any"     },
-  { id: "standup",       label: "Standup",     icon: "checklist", requires: "any"    },
-  { id: "manager:flags", label: "Open flags",  icon: "flag",     requires: "manager" },
-  // Future: { id: "manager:queue", label: "1:1 prep", requires: "manager" }
+  { id: "home",          label: "Home",        icon: "home",    requires: "any"     },
+  { id: "rollup",        label: "Team",        icon: "team",    requires: "any"     },
+  { id: "standup",       label: "Standup",     icon: "standup", requires: "any"     },
+  { id: "manager:flags", label: "Open flags",  icon: "flag",    requires: "manager" },
 ];
 
 // =====================================================================
