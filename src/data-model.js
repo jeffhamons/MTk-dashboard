@@ -98,9 +98,13 @@ function buildWeeks() {
 }
 const WEEKS = buildWeeks();
 
-// "Today" anchor — May 4, 2026 per system info. Used to determine current
-// week and to seed which weeks have historical data populated.
-const TODAY = new Date(2026, 4, 4); // May 4, 2026 (Monday of week 2)
+// "Today" anchor — real clock time, snapped to local midnight so the week
+// containment check (today >= weeks[i].monday && today <= weeks[i].sunday)
+// is stable across the day. Resolved once at script load; if the tab is
+// left open across midnight the value won't roll forward, but a reload
+// fixes it. Was hardcoded to a fixed dev date — that wedged the home
+// page and nav header on the build-time week forever.
+const TODAY = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
 
 function currentWeekIndex(weeks = WEEKS, today = TODAY) {
   for (let i = 0; i < weeks.length; i++) {

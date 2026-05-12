@@ -396,7 +396,14 @@ function StandupView({ authedUser }) {
 
   const dateLabel = formatStandupDate(date);
   const today = new Date(); today.setHours(0,0,0,0);
-  const isTodayStandup = isStandupDay(today) && ymd(today) === ymd(date);
+  const todayYmd = ymd(today), dateYmd = ymd(date);
+  const isTodayStandup = isStandupDay(today) && todayYmd === dateYmd;
+  const isFutureStandup = dateYmd > todayYmd;
+  const dateSubLabel = isTodayStandup
+    ? "Today's standup"
+    : isFutureStandup
+      ? "Upcoming standup"
+      : "Past standup";
 
   return (
     <div className="standup" data-screen-label="03 Standup">
@@ -422,7 +429,7 @@ function StandupView({ authedUser }) {
           >‹</button>
           <div className="standup__date-label">
             <div className="standup__date-main">{dateLabel}</div>
-            <div className="standup__date-sub">{isTodayStandup ? "Today's standup" : "Past standup"}</div>
+            <div className="standup__date-sub">{dateSubLabel}</div>
           </div>
           <button
             type="button"
