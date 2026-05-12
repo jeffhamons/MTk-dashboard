@@ -161,17 +161,29 @@ function StatusDot({ checked, size = 14 }) {
 // Optional flag a rep raises when they want the manager to look. Framed
 // FORWARD ("what I need"), not backward ("why I failed"). Click to expand,
 // type, save. Once raised, persists and shows on the rollup as a small flag.
-function AskForHelp({ rep, weekId, delId, state, onAsk, disabled }) {
+//
+// Two-way: when a manager is viewing a raised flag they can write a short
+// response inline. The response is stored on the same row and is visible
+// to the rep (closing the loop without scheduling a separate conversation).
+function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager, disabled }) {
   const askKey = `${rep.id}|${weekId}|${delId}`;
   const existing = state.asks && state.asks[askKey];
+  const response = existing && existing.response;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(existing ? existing.text : "");
+  const [respOpen, setRespOpen] = useState(false);
+  const [respDraft, setRespDraft] = useState(response ? response.text : "");
 
   useEffect(() => {
     setDraft(existing ? existing.text : "");
   }, [askKey, existing && existing.text]);
 
+  useEffect(() => {
+    setRespDraft(response ? response.text : "");
+  }, [askKey, response && response.text]);
+
   const hasFlag = !!existing;
+  const hasResp = !!response;
 
   if (disabled && !hasFlag) return null;
 
@@ -194,35 +206,118 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, disabled }) {
     );
   }
 
+  // Response block — visible to both rep and manager whenever a response
+  // exists. Manager can edit or clear from this block.
+  const responseBlock = hasResp && !respOpen && (
+    <div className="ask__response">
+      <div className="ask__response-head">
+        <span className="ask__response-tag">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          Manager response
+          {response.byName ? ` · ${response.byName}` : ""}
+          {response.at ? ` · ${new Date(response.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : ""}
+        </span>
+        {isManager && onAskResponse && (
+          <button
+            type="button"
+            className="ask__btn ask__btn--ghost"
+            onClick={() => setRespOpen(true)}
+          >Edit</button>
+        )}
+      </div>
+      <div className="ask__response-text">{response.text}</div>
+    </div>
+  );
+
+  // Response composer — manager-only, only when viewing a raised flag.
+  const responseComposer = isManager && onAskResponse && hasFlag && (respOpen || !hasResp) && (
+    <div className="ask__response ask__response--editing">
+      <div className="ask__response-head">
+        <span className="ask__response-tag">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+          {hasResp ? "Edit response" : "Respond to this flag"}
+        </span>
+      </div>
+      <textarea
+        className="ask__input"
+        placeholder="Two sentences. What you can offer, when, or what you need from them next."
+        value={respDraft}
+        onChange={e => setRespDraft(e.target.value)}
+        rows={2}
+        autoFocus={respOpen}
+      />
+      <div className="ask__foot">
+        {hasResp && (
+          <button
+            type="button"
+            className="ask__btn ask__btn--ghost"
+            onClick={() => { setRespDraft(response.text); setRespOpen(false); }}
+          >Cancel</button>
+        )}
+        {hasResp && (
+          <button
+            type="button"
+            className="ask__btn ask__btn--ghost"
+            onClick={() => { onAskResponse(rep.id, weekId, delId, ""); setRespOpen(false); setRespDraft(""); }}
+            title="Clear response"
+          >Clear</button>
+        )}
+        <button
+          type="button"
+          className="ask__btn ask__btn--primary"
+          onClick={() => {
+            const text = respDraft.trim();
+            if (!text) return;
+            onAskResponse(rep.id, weekId, delId, text);
+            setRespOpen(false);
+          }}
+          disabled={!respDraft.trim() || (hasResp && respDraft.trim() === response.text)}
+        >
+          {hasResp ? "Update" : "Send response"}
+        </button>
+      </div>
+    </div>
+  );
+
   // Collapsed: flag is raised — show saved chip with the text, click to edit
   if (!open && hasFlag) {
     return (
       <div className="ask ask--saved" data-flag="1">
-        <span className="ask__flag" aria-hidden>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 21V4" />
-            <path d="M4 4h12l-2 4 2 4H4" />
-          </svg>
-        </span>
-        <div className="ask__saved-body">
-          <div className="ask__saved-label">Flagged · what you need</div>
-          <div className="ask__saved-text">{existing.text}</div>
+        <div className="ask__saved-main">
+          <span className="ask__flag" aria-hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 21V4" />
+              <path d="M4 4h12l-2 4 2 4H4" />
+            </svg>
+          </span>
+          <div className="ask__saved-body">
+            <div className="ask__saved-label">Flagged · what you need</div>
+            <div className="ask__saved-text">{existing.text}</div>
+          </div>
+          <div className="ask__saved-actions">
+            <button
+              type="button"
+              className="ask__btn ask__btn--ghost"
+              onClick={() => setOpen(true)}
+              disabled={disabled}
+            >Edit</button>
+            <button
+              type="button"
+              className="ask__btn ask__btn--ghost"
+              onClick={() => { onAsk(rep.id, weekId, delId, ""); setDraft(""); }}
+              disabled={disabled}
+              title="Clear flag — issue is resolved"
+            >Resolved</button>
+          </div>
         </div>
-        <div className="ask__saved-actions">
-          <button
-            type="button"
-            className="ask__btn ask__btn--ghost"
-            onClick={() => setOpen(true)}
-            disabled={disabled}
-          >Edit</button>
-          <button
-            type="button"
-            className="ask__btn ask__btn--ghost"
-            onClick={() => { onAsk(rep.id, weekId, delId, ""); setDraft(""); }}
-            disabled={disabled}
-            title="Clear flag — issue is resolved"
-          >Resolved</button>
-        </div>
+        {responseBlock}
+        {responseComposer}
       </div>
     );
   }

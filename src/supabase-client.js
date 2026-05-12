@@ -89,7 +89,16 @@ async function loadStateFromSupabase() {
   }
   for (const r of (asks || [])) {
     const wid = idxToWeekId(r.week_index);
-    out.asks[checkKeyOf(r.rep_id, wid, r.deliverable_id)] = { text: r.body, at: r.created_at };
+    const ask = { text: r.body, at: r.created_at };
+    if (r.response) {
+      ask.response = {
+        text: r.response,
+        byEmail: r.response_by_email || null,
+        byName: r.response_by_name || null,
+        at: r.response_at || null,
+      };
+    }
+    out.asks[checkKeyOf(r.rep_id, wid, r.deliverable_id)] = ask;
   }
   for (const r of (notes || [])) {
     const wid = idxToWeekId(r.week_index);
@@ -162,6 +171,28 @@ async function setAskSupabase(rep, weekId, del, text) {
     );
     if (error) console.error("ask set error", error);
   }
+}
+
+// ============================================================
+// WRITE — set / clear a manager response on an existing ask (manager only;
+// RLS enforces). UPDATE-only (not upsert) — we never create asks on behalf
+// of a rep here; the response lives on the row the rep already raised.
+// ============================================================
+async function setAskResponseSupabase(rep, weekId, del, responseText, markedBy) {
+  const sb = client();
+  const week_index = weekIdToIdx(weekId);
+  const trimmed = (responseText || "").trim();
+  const patch = trimmed
+    ? {
+        response: trimmed,
+        response_by_email: markedBy && markedBy.email || null,
+        response_by_name:  markedBy && markedBy.name  || null,
+        response_at: new Date().toISOString(),
+      }
+    : { response: null, response_by_email: null, response_by_name: null, response_at: null };
+  const { error } = await sb.from("asks").update(patch)
+    .match({ rep_id: rep, week_index, deliverable_id: del });
+  if (error) console.error("ask response set error", error);
 }
 
 // ============================================================
@@ -331,6 +362,7 @@ Object.assign(window, {
   loadStateFromSupabase,
   toggleCheckSupabase,
   setAskSupabase,
+  setAskResponseSupabase,
   setManagerNoteSupabase,
   subscribeRealtime,
   migrateLocalToSupabase,

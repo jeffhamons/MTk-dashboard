@@ -1,7 +1,7 @@
 // Per-rep view: shows three deliverables for a selected week, with check toggles.
 // Includes week navigator and a 10-week timeline strip.
 
-function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onSaveNote, onBack, readOnly, isManager }) {
+function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const skips = rep.skips || [];
@@ -195,6 +195,8 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onSaveNote, 
                   delId={d.id}
                   state={state}
                   onAsk={onAsk}
+                  onAskResponse={onAskResponse}
+                  isManager={isManager}
                   disabled={checked || readOnly}
                 />
               </div>

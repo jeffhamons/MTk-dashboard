@@ -1124,10 +1124,32 @@ button { font: inherit; color: inherit; }
   border: 1.5px solid var(--flag);
   border-radius: 12px;
   padding: 10px 12px;
-  display: flex; align-items: flex-start; gap: 10px;
+  display: flex; flex-direction: column; gap: 10px;
   color: var(--ink);
 }
+.ask__saved-main { display: flex; align-items: flex-start; gap: 10px; }
 .ask--saved .ask__flag { color: var(--flag-deep); flex: none; padding-top: 2px; }
+.ask__response {
+  border-top: 1px dashed var(--flag);
+  padding-top: 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.ask__response--editing { gap: 8px; }
+.ask__response-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.ask__response-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font: 600 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--flag-deep);
+}
+.ask__response-tag svg { color: var(--flag-deep); }
+.ask__response-text {
+  font-size: 14px; line-height: 1.45; color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}
 .ask__saved-body { flex: 1; min-width: 0; }
 .ask__saved-label {
   font: 600 11px/1 var(--font-mono);
@@ -1941,11 +1963,48 @@ function App({ authedUser }) {
     setState(s => {
       const asks = { ...(s.asks || {}) };
       if (!text) delete asks[k];
-      else asks[k] = { text, at: new Date().toISOString() };
+      else {
+        // Preserve the manager response across rep edits of the ask body
+        const prev = asks[k];
+        asks[k] = { text, at: new Date().toISOString() };
+        if (prev && prev.response) asks[k].response = prev.response;
+      }
       return { ...s, asks };
     });
     if (useCloud) {
       window.setAskSupabase(repId, weekId, delId, text).catch(console.error);
+    }
+  };
+
+  const onAskResponse = (repId, weekId, delId, text) => {
+    if (!isManager) return; // RLS blocks anyway; bail early
+    const k = `${repId}|${weekId}|${delId}`;
+    const trimmed = (text || "").trim();
+    const markedBy = authedUser
+      ? { email: authedUser.authEmail, name: authedUser.authEmail.split("@")[0] }
+      : null;
+    setState(s => {
+      const asks = { ...(s.asks || {}) };
+      const existing = asks[k];
+      if (!existing) return s; // can only respond to an existing flag
+      if (!trimmed) {
+        const { response, ...rest } = existing;
+        asks[k] = rest;
+      } else {
+        asks[k] = {
+          ...existing,
+          response: {
+            text: trimmed,
+            byEmail: markedBy ? markedBy.email : null,
+            byName:  markedBy ? markedBy.name  : null,
+            at: new Date().toISOString(),
+          },
+        };
+      }
+      return { ...s, asks };
+    });
+    if (useCloud) {
+      window.setAskResponseSupabase(repId, weekId, delId, trimmed, markedBy).catch(console.error);
     }
   };
 
@@ -2079,6 +2138,7 @@ function App({ authedUser }) {
                 setWeekIdx={setWeekIdx}
                 onCheck={onCheck}
                 onAsk={onAsk}
+                onAskResponse={onAskResponse}
                 onSaveNote={onSaveNote}
                 onBack={() => setView("home")}
                 readOnly={isReadOnly}
