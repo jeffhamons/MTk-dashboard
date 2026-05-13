@@ -418,8 +418,11 @@ function StandupView({ authedUser }) {
       {sendoff && (
         <div className="standup-sendoff" onClick={() => setSendoff(false)} role="dialog" aria-label="Standup complete">
           <div className="standup-sendoff__inner">
-            <div className="standup-sendoff__line standup-sendoff__line--1">Now go sell some shit.</div>
+            <div className="standup-sendoff__line standup-sendoff__line--1">Now,</div>
+            <div className="standup-sendoff__line standup-sendoff__line--2">go sell</div>
+            <div className="standup-sendoff__line standup-sendoff__line--3">some shit.</div>
           </div>
+          <div className="standup-sendoff__hint">tap or press any key to dismiss</div>
         </div>
       )}
 
@@ -676,58 +679,78 @@ const __STANDUP_STYLE = `
     }
   }
 
-  /* End-standup button + sendoff overlay */
+  /* End standup button */
   .standup__sendoff-wrap {
     display: flex; justify-content: center;
-    margin-top: 28px;
+    margin-top: 40px; padding-bottom: 16px;
   }
   .standup__end-btn {
-    appearance: none; border: 1px solid rgba(0,0,0,.15); background: #fff;
-    padding: 10px 22px; border-radius: 999px;
-    font-size: 13px; font-weight: 600; color: rgba(0,0,0,.7);
-    cursor: pointer; transition: all 140ms;
-    letter-spacing: .02em;
-  }
-  .standup__end-btn:hover {
-    background: #000; color: #fff; border-color: #000;
-  }
-
-  .standup-sendoff {
-    position: fixed; inset: 0;
-    background: #0a0a0a;
-    display: flex; align-items: center; justify-content: center;
-    z-index: 9999;
+    appearance: none;
+    background: #000; color: #fff;
+    border: none; border-radius: 12px;
+    padding: 14px 36px;
+    font-size: 14px; font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase;
     cursor: pointer;
-    animation: sendoff-in 360ms ease-out;
+    transition: background 140ms, transform 140ms;
+  }
+  .standup__end-btn:hover { background: #1a1a1a; transform: translateY(-1px); }
+  .standup__end-btn:active { transform: translateY(0); }
+
+  /* Sendoff overlay */
+  .standup-sendoff {
+    position: fixed; inset: 0; z-index: 9999;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    cursor: pointer;
+    animation: sendoff-in 0.3s ease-out forwards;
   }
   @keyframes sendoff-in {
     from { opacity: 0; }
     to   { opacity: 1; }
   }
   .standup-sendoff__inner {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 4px;
     text-align: center;
-    color: #fff;
-    font-family: inherit;
   }
   .standup-sendoff__line {
-    font-weight: 600;
+    font-family: "Inter", -apple-system, sans-serif;
+    font-weight: 700;
+    font-size: clamp(52px, 10vw, 112px);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    text-transform: uppercase;
     opacity: 0;
-    transform: translateY(8px);
-    animation: sendoff-word 700ms cubic-bezier(.2,.7,.2,1) forwards;
+    transform: translateY(24px);
   }
   .standup-sendoff__line--1 {
+    color: rgba(255,255,255,0.5);
     font-size: clamp(28px, 5vw, 56px);
-    letter-spacing: -.01em;
-    animation-delay: 250ms;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    animation: sendoff-word 0.5s cubic-bezier(0.16,1,0.3,1) 0.2s forwards;
   }
   .standup-sendoff__line--2 {
-    font-size: clamp(20px, 3.6vw, 38px);
-    margin-top: 14px;
-    color: rgba(255,255,255,.7);
-    animation-delay: 1100ms;
+    color: #fff;
+    animation: sendoff-word 0.5s cubic-bezier(0.16,1,0.3,1) 0.55s forwards;
+  }
+  .standup-sendoff__line--3 {
+    color: #FF8200;
+    animation: sendoff-word 0.5s cubic-bezier(0.16,1,0.3,1) 0.85s forwards;
   }
   @keyframes sendoff-word {
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .standup-sendoff__hint {
+    position: absolute; bottom: 32px;
+    font-size: 12px; color: rgba(255,255,255,0.25);
+    letter-spacing: 0.06em; text-transform: uppercase;
+    animation: sendoff-word 0.5s cubic-bezier(0.16,1,0.3,1) 1.4s forwards;
+    opacity: 0;
   }
 `;
 
