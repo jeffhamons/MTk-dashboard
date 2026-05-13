@@ -72,18 +72,24 @@ const checkKeyOf   = (rep, weekId, del) => `${rep}|${weekId}|${del}`;
 // ============================================================
 async function loadStateFromSupabase() {
   const sb = client();
-  const out = { checks: {}, asks: {}, managerNotes: {} };
+  const out = { checks: {}, asks: {}, resolvedAsks: {}, managerNotes: {} };
 
   // Try manager_notes — may RLS-block for reps; that's expected.
-  const [{ data: checks, error: ce }, { data: asks, error: ae }, { data: notes }] =
+  const [{ data: checks, error: ce }, { data: asks, error: ae }, { data: resolved, error: re }, { data: notes }] =
     await Promise.all([
       sb.from("checks").select("*"),
       sb.from("asks").select("*").is("resolved_at", null),
+      // Resolved history: newest first, capped so the payload stays bounded.
+      sb.from("asks").select("*")
+        .not("resolved_at", "is", null)
+        .order("resolved_at", { ascending: false })
+        .limit(200),
       sb.from("manager_notes").select("*").then(r => r, () => ({ data: [] })),
     ]);
 
   if (ce) console.error("checks load error", ce);
   if (ae) console.error("asks load error", ae);
+  if (re) console.error("resolved asks load error", re);
 
   for (const r of (checks || [])) {
     const wid = idxToWeekId(r.week_index);
@@ -107,6 +113,30 @@ async function loadStateFromSupabase() {
       };
     }
     out.asks[checkKeyOf(r.rep_id, wid, r.deliverable_id)] = ask;
+  }
+  for (const r of (resolved || [])) {
+    const wid = idxToWeekId(r.week_index);
+    const entry = {
+      text: r.body,
+      raisedAt: r.created_at,
+      resolvedAt: r.resolved_at,
+      resolvedBy: r.resolved_by_email
+        ? {
+            email: r.resolved_by_email,
+            name:  r.resolved_by_name || null,
+            role:  r.resolved_by_role || "rep",
+          }
+        : null,
+    };
+    if (r.response) {
+      entry.response = {
+        text: r.response,
+        byEmail: r.response_by_email || null,
+        byName:  r.response_by_name  || null,
+        at: r.response_at || null,
+      };
+    }
+    out.resolvedAsks[checkKeyOf(r.rep_id, wid, r.deliverable_id)] = entry;
   }
   for (const r of (notes || [])) {
     const wid = idxToWeekId(r.week_index);
@@ -163,22 +193,60 @@ async function setManagerNoteSupabase(rep, weekId, del, note, updatedByEmail) {
 }
 
 // ============================================================
-// WRITE — set / clear an ask
+// WRITE — set / clear an ask.
+//
+// Clearing is a SOFT resolve, not a DELETE: we stamp resolved_at + who
+// resolved it, so the row survives for the resolved-flags history view.
+// Re-raising the same (rep, week, deliverable) reopens the existing row
+// via the resolved_at: null in the upsert payload.
 // ============================================================
-async function setAskSupabase(rep, weekId, del, text) {
+async function setAskSupabase(rep, weekId, del, text, resolvedBy) {
   const sb = client();
   const week_index = weekIdToIdx(weekId);
   if (!text || !text.trim()) {
-    const { error } = await sb.from("asks").delete()
-      .match({ rep_id: rep, week_index, deliverable_id: del });
-    if (error) console.error("ask clear error", error);
+    // Soft-resolve. Only stamp resolved_* if the row is currently open;
+    // a second click shouldn't overwrite an earlier resolution.
+    const patch = {
+      resolved_at: new Date().toISOString(),
+      resolved_by_email: resolvedBy && resolvedBy.email || null,
+      resolved_by_name:  resolvedBy && resolvedBy.name  || null,
+      resolved_by_role:  resolvedBy && resolvedBy.role  || "rep",
+    };
+    const { error } = await sb.from("asks")
+      .update(patch)
+      .match({ rep_id: rep, week_index, deliverable_id: del })
+      .is("resolved_at", null);
+    if (error) console.error("ask resolve error", error);
   } else {
     const { error } = await sb.from("asks").upsert(
-      { rep_id: rep, week_index, deliverable_id: del, body: text.trim(), resolved_at: null },
+      {
+        rep_id: rep, week_index, deliverable_id: del,
+        body: text.trim(),
+        resolved_at: null,
+        resolved_by_email: null,
+        resolved_by_name:  null,
+        resolved_by_role:  null,
+      },
       { onConflict: "rep_id,week_index,deliverable_id" }
     );
     if (error) console.error("ask set error", error);
   }
+}
+
+// ============================================================
+// WRITE — reopen a previously resolved ask (manager action).
+// Clears resolved_at + attribution; the row reappears in the open queue.
+// ============================================================
+async function reopenAskSupabase(rep, weekId, del) {
+  const sb = client();
+  const week_index = weekIdToIdx(weekId);
+  const { error } = await sb.from("asks").update({
+    resolved_at: null,
+    resolved_by_email: null,
+    resolved_by_name:  null,
+    resolved_by_role:  null,
+  }).match({ rep_id: rep, week_index, deliverable_id: del });
+  if (error) console.error("ask reopen error", error);
 }
 
 // ============================================================
@@ -372,6 +440,7 @@ Object.assign(window, {
   loadStateFromSupabase,
   toggleCheckSupabase,
   setAskSupabase,
+  reopenAskSupabase,
   setAskResponseSupabase,
   setManagerNoteSupabase,
   subscribeRealtime,

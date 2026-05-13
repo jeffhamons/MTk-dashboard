@@ -1379,6 +1379,46 @@ button { font: inherit; color: inherit; }
 .flagq__empty-mark { width: 56px; height: 56px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-deep); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .flagq__empty-text { font-size: 14px; color: var(--ink-60); line-height: 1.5; }
 
+/* Resolved flags (collapsed section at the bottom of FlagQueue) */
+.resolved { margin-top: 28px; }
+.resolved__toggle { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; background: var(--paper-deep); border: 1px solid var(--ink-15); border-radius: 10px; text-align: left; font: inherit; cursor: pointer; transition: background 120ms, border-color 120ms; }
+.resolved__toggle:hover { background: var(--ink-10); border-color: var(--ink-30); }
+.resolved__toggle-chevron { color: var(--ink-50); display: flex; align-items: center; flex: none; transition: transform 200ms ease; }
+.resolved__toggle-chevron.is-open { transform: rotate(90deg); }
+.resolved__toggle-label { font-size: 14px; font-weight: 600; color: var(--ink-70); flex: 1; }
+.resolved__toggle-count { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 6px; background: var(--done-tint); color: var(--done-deep); border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+.resolved__body { margin-top: 6px; border: 1px solid var(--ink-15); border-radius: 10px; overflow: hidden; background: var(--card); box-shadow: var(--shadow-sm); }
+.resolved__filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 9px 14px; border-bottom: 1px solid var(--ink-10); background: var(--paper); }
+.resolved__filters-label { font-size: 11px; color: var(--ink-50); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; flex: none; }
+.resolved__rep-chips { display: flex; align-items: center; gap: 5px; }
+.resolved__rep-chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px 3px 5px; background: transparent; border: 1px solid var(--ink-15); border-radius: 999px; font: inherit; font-size: 12px; font-weight: 500; color: var(--ink-70); cursor: pointer; transition: all 120ms; }
+.resolved__rep-chip.chip-all { padding: 3px 9px; }
+.resolved__rep-chip.is-active { background: var(--brand-tint); border-color: var(--brand-light); color: var(--brand-deep); }
+.resolved__rep-chip:hover:not(.is-active) { border-color: var(--ink-30); background: var(--ink-05); }
+.resolved__filters-sep { width: 1px; height: 18px; background: var(--ink-15); flex: none; }
+.resolved__time-select { padding: 3px 8px; background: transparent; border: 1px solid var(--ink-15); border-radius: 6px; font: inherit; font-size: 12px; color: var(--ink-70); outline: none; cursor: pointer; }
+.resolved__time-select:hover { border-color: var(--ink-30); }
+.resolved__log { display: flex; flex-direction: column; }
+.resolved__row { display: grid; grid-template-columns: minmax(160px, 185px) 1fr 46px 124px 148px; align-items: center; gap: 14px; padding: 9px 0; border-bottom: 1px solid var(--ink-10); border-left: 3px solid var(--done); background: var(--card); transition: background 100ms; }
+.resolved__row:last-child { border-bottom: none; }
+.resolved__row:hover { background: var(--done-tint); }
+.resolved__row-id { display: flex; align-items: center; gap: 9px; padding-left: 12px; }
+.resolved__row-rep { font-weight: 600; font-size: 13px; color: var(--ink); line-height: 1.3; }
+.resolved__row-meta { font-size: 11px; color: var(--ink-50); margin-top: 1px; }
+.resolved__row-ask { font-size: 13px; color: var(--ink-70); font-style: italic; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dur { display: inline-flex; align-items: center; justify-content: center; padding: 2px 7px; border-radius: 999px; font-family: var(--font-mono); font-size: 11px; font-weight: 600; white-space: nowrap; }
+.dur--fast   { background: var(--done-tint); color: var(--done-deep); }
+.dur--medium { background: var(--ink-10);    color: var(--ink-70); }
+.dur--slow   { background: var(--flag-tint); color: var(--flag); }
+.resolved__row-stamp { font-size: 11px; color: var(--ink-50); display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.5; }
+.resolved__row-stamp strong { color: var(--ink-70); font-weight: 600; font-size: 12px; }
+.resolved__row-stamp-who { display: flex; align-items: center; gap: 3px; }
+.resolved__row-actions { display: flex; gap: 5px; align-items: center; justify-content: flex-end; padding-right: 12px; }
+.res-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; border: 1px solid var(--ink-15); border-radius: 999px; background: transparent; font: inherit; font-size: 11px; font-weight: 500; color: var(--ink-60); white-space: nowrap; cursor: pointer; transition: all 120ms; }
+.res-btn:hover { border-color: var(--brand-light); color: var(--brand-deep); background: var(--brand-tint); }
+.res-btn--reopen:hover { border-color: #f4b87a; color: var(--flag); background: var(--flag-tint); }
+.resolved__empty { padding: 24px 16px; text-align: center; font-size: 13px; color: var(--ink-50); }
+
 /* Manager note (per-deliverable, private) */
 .mgrnote { margin-top: 14px; font-size: 13px; }
 .mgrnote--add { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; background: transparent; border: 1px dashed var(--ink-20); color: var(--ink-60); border-radius: 999px; font: inherit; font-size: 12px; cursor: pointer; }
@@ -2078,17 +2118,66 @@ function App({ authedUser }) {
     const k = `${repId}|${weekId}|${delId}`;
     setState(s => {
       const asks = { ...(s.asks || {}) };
-      if (!text) delete asks[k];
-      else {
+      const resolvedAsks = { ...(s.resolvedAsks || {}) };
+      if (!text) {
+        // Soft-resolve locally: move the open ask into resolvedAsks so the
+        // history view updates instantly; realtime will then reconcile.
+        const prev = asks[k];
+        if (prev) {
+          resolvedAsks[k] = {
+            text: prev.text,
+            raisedAt: prev.at,
+            resolvedAt: new Date().toISOString(),
+            resolvedBy: authedUser
+              ? {
+                  email: authedUser.authEmail,
+                  name: authedUser.authEmail.split("@")[0],
+                  role: isManager ? "manager" : "rep",
+                }
+              : null,
+            response: prev.response,
+          };
+        }
+        delete asks[k];
+      } else {
         // Preserve the manager response across rep edits of the ask body
         const prev = asks[k];
         asks[k] = { text, at: new Date().toISOString() };
         if (prev && prev.response) asks[k].response = prev.response;
+        // Re-raising clears any prior resolution in the local mirror;
+        // the upsert in setAskSupabase clears resolved_at server-side.
+        delete resolvedAsks[k];
       }
-      return { ...s, asks };
+      return { ...s, asks, resolvedAsks };
     });
     if (useCloud) {
-      window.setAskSupabase(repId, weekId, delId, text).catch(console.error);
+      const resolvedBy = authedUser
+        ? {
+            email: authedUser.authEmail,
+            name: authedUser.authEmail.split("@")[0],
+            role: isManager ? "manager" : "rep",
+          }
+        : null;
+      window.setAskSupabase(repId, weekId, delId, text, resolvedBy).catch(console.error);
+    }
+  };
+
+  const onReopenAsk = (repId, weekId, delId) => {
+    if (!isManager) return; // manager-only action
+    const k = `${repId}|${weekId}|${delId}`;
+    setState(s => {
+      const asks = { ...(s.asks || {}) };
+      const resolvedAsks = { ...(s.resolvedAsks || {}) };
+      const prev = resolvedAsks[k];
+      if (prev) {
+        asks[k] = { text: prev.text, at: prev.raisedAt || new Date().toISOString() };
+        if (prev.response) asks[k].response = prev.response;
+        delete resolvedAsks[k];
+      }
+      return { ...s, asks, resolvedAsks };
+    });
+    if (useCloud && window.reopenAskSupabase) {
+      window.reopenAskSupabase(repId, weekId, delId).catch(console.error);
     }
   };
 
@@ -2237,6 +2326,7 @@ function App({ authedUser }) {
                 }
                 setView(repId);
               }}
+              onReopenAsk={onReopenAsk}
             />
           ) : (
             <div data-screen-label={`02 Rep · ${activeRep.name}`}>

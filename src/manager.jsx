@@ -20,7 +20,7 @@ const APP_PAGES = [
 // FlagQueue — landing list of every open ask across the team, oldest first.
 // The manager's "what needs attention right now" view.
 // =====================================================================
-function FlagQueue({ state, onPickRep }) {
+function FlagQueue({ state, onPickRep, onReopenAsk }) {
   // Collect all open asks: state.asks is { "repId|weekId|delId": {text, at} }
   const open = React.useMemo(() => {
     const out = [];
@@ -64,6 +64,7 @@ function FlagQueue({ state, onPickRep }) {
             They'll show up here, oldest first.
           </div>
         </div>
+        <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} />
       </div>
     );
   }
@@ -101,6 +102,172 @@ function FlagQueue({ state, onPickRep }) {
           </div>
         ))}
       </div>
+
+      <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} />
+    </div>
+  );
+}
+
+// =====================================================================
+// ResolvedSection — collapsed log of dismissed flags. Lives at the bottom
+// of the FlagQueue. Filter by rep + time range; reopen or jump to the
+// rep's week view from any row.
+// =====================================================================
+function ResolvedSection({ state, onPickRep, onReopenAsk }) {
+  const [open, setOpen] = React.useState(false);
+  const [repFilter, setRepFilter] = React.useState("all");
+  const [timeFilter, setTimeFilter] = React.useState("all");
+
+  // Build hydrated rows from state.resolvedAsks.
+  const all = React.useMemo(() => {
+    const out = [];
+    const src = state.resolvedAsks || {};
+    for (const k of Object.keys(src)) {
+      const entry = src[k];
+      if (!entry || !entry.text) continue;
+      const [repId, weekId, delId] = k.split("|");
+      const rep = REPS.find(r => r.id === repId);
+      const week = WEEKS.find(w => w.id === weekId);
+      const del = DELIVERABLES.find(d => d.id === delId);
+      if (!rep || !week || !del) continue;
+      const hadNote = !!(state.managerNotes && state.managerNotes[k] && state.managerNotes[k].note);
+      out.push({ key: k, repId, weekId, delId, rep, week, del, entry, hadNote });
+    }
+    // Newest first
+    out.sort((a, b) => (b.entry.resolvedAt || "").localeCompare(a.entry.resolvedAt || ""));
+    return out;
+  }, [state.resolvedAsks, state.managerNotes]);
+
+  const repsPresent = React.useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const r of all) {
+      if (!seen.has(r.repId)) { seen.add(r.repId); out.push(r.rep); }
+    }
+    return out;
+  }, [all]);
+
+  const filtered = React.useMemo(() => {
+    let out = all;
+    if (repFilter !== "all") out = out.filter(r => r.repId === repFilter);
+    if (timeFilter === "30d") {
+      const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
+      out = out.filter(r => (r.entry.resolvedAt || "") >= cutoff);
+    } else if (timeFilter === "quarter") {
+      const now = new Date();
+      const qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1).toISOString();
+      out = out.filter(r => (r.entry.resolvedAt || "") >= qStart);
+    }
+    return out;
+  }, [all, repFilter, timeFilter]);
+
+  if (all.length === 0) return null;
+
+  const durHours = (a, b) => Math.round((new Date(b) - new Date(a)) / 3600000);
+  const fmtDur = h => h < 24 ? `${h}h` : `${Math.round(h / 24)}d`;
+  const durClass = h => h <= 8 ? "fast" : h <= 72 ? "medium" : "slow";
+  const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+  return (
+    <div className="resolved">
+      <button className="resolved__toggle" onClick={() => setOpen(o => !o)}>
+        <span className={"resolved__toggle-chevron" + (open ? " is-open" : "")}>
+          <Icon name="chevron-right" size={13} stroke={2.4} />
+        </span>
+        <span className="resolved__toggle-label">Resolved flags</span>
+        <span className="resolved__toggle-count">{all.length}</span>
+      </button>
+
+      {open && (
+        <div className="resolved__body">
+          <div className="resolved__filters">
+            <span className="resolved__filters-label">Rep</span>
+            <div className="resolved__rep-chips">
+              <button
+                className={"resolved__rep-chip chip-all" + (repFilter === "all" ? " is-active" : "")}
+                onClick={() => setRepFilter("all")}
+              >All</button>
+              {repsPresent.map(rep => (
+                <button
+                  key={rep.id}
+                  className={"resolved__rep-chip" + (repFilter === rep.id ? " is-active" : "")}
+                  onClick={() => setRepFilter(rep.id)}
+                >
+                  <Avatar rep={rep} size={14} />
+                  {rep.name.split(" ")[0]}
+                </button>
+              ))}
+            </div>
+            <div className="resolved__filters-sep"></div>
+            <select
+              className="resolved__time-select"
+              value={timeFilter}
+              onChange={e => setTimeFilter(e.target.value)}
+            >
+              <option value="all">All time</option>
+              <option value="30d">Last 30 days</option>
+              <option value="quarter">This quarter</option>
+            </select>
+          </div>
+
+          <div className="resolved__log">
+            {filtered.length === 0 ? (
+              <div className="resolved__empty">No resolved flags match this filter.</div>
+            ) : (
+              filtered.map(f => {
+                const hours = durHours(f.entry.raisedAt, f.entry.resolvedAt);
+                const role = f.entry.resolvedBy && f.entry.resolvedBy.role;
+                const byName = f.entry.resolvedBy && (f.entry.resolvedBy.name || (f.entry.resolvedBy.email || "").split("@")[0]);
+                return (
+                  <div key={f.key} className="resolved__row">
+                    <div className="resolved__row-id">
+                      <Avatar rep={f.rep} size={26} />
+                      <div>
+                        <div className="resolved__row-rep">{f.rep.name}</div>
+                        <div className="resolved__row-meta">Wk {f.week.index} · {f.del.title}</div>
+                      </div>
+                    </div>
+                    <div className="resolved__row-ask">"{f.entry.text}"</div>
+                    <div><span className={"dur dur--" + durClass(hours)}>{fmtDur(hours)}</span></div>
+                    <div className="resolved__row-stamp">
+                      <strong>{fmtDate(f.entry.resolvedAt)}</strong>
+                      <span className="resolved__row-stamp-who">
+                        {role === "manager"
+                          ? <>by {byName || "manager"}</>
+                          : <>self-resolved</>}
+                        {f.hadNote && (
+                          <span style={{ color: "var(--brand)", opacity: 0.65 }} title="Manager note on file">
+                            <Icon name="lock" size={10} stroke={2} />
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="resolved__row-actions">
+                      {onReopenAsk && (
+                        <button
+                          className="res-btn res-btn--reopen"
+                          onClick={() => onReopenAsk(f.repId, f.weekId, f.delId)}
+                          title="Move back to open flags"
+                        >
+                          <Icon name="rotate-ccw" size={10} stroke={2.2} />
+                          Reopen
+                        </button>
+                      )}
+                      <button
+                        className="res-btn"
+                        onClick={() => onPickRep(f.repId, f.weekId)}
+                        title={`Open ${f.rep.name}'s week ${f.week.index}`}
+                      >
+                        Wk {f.week.index} <Icon name="arrow-right" size={10} stroke={2.2} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
