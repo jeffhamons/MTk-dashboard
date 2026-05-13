@@ -418,8 +418,7 @@ function StandupView({ authedUser }) {
       {sendoff && (
         <div className="standup-sendoff" onClick={() => setSendoff(false)} role="dialog" aria-label="Standup complete">
           <div className="standup-sendoff__inner">
-            <div className="standup-sendoff__line standup-sendoff__line--1">Standup complete.</div>
-            <div className="standup-sendoff__line standup-sendoff__line--2">Go make the week.</div>
+            <div className="standup-sendoff__line standup-sendoff__line--1">Now go sell some shit.</div>
           </div>
         </div>
       )}
