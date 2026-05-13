@@ -1351,6 +1351,13 @@ button { font: inherit; color: inherit; }
 .me-badge__dot.is-live { background: var(--done); }
 .me-badge__dot.is-loading { background: var(--orange-bright); animation: me-pulse 1.2s ease-in-out infinite; }
 .me-badge__signout { background: none; border: none; color: var(--ink-60); font: inherit; font-size: 12px; cursor: pointer; padding: 0 4px; text-decoration: underline; }
+.viewas__btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px; background: var(--ink-05); border: 1px solid var(--ink-15); font: inherit; font-size: 13px; font-weight: 500; color: var(--ink-80); cursor: pointer; transition: all 120ms; }
+.viewas__btn:hover { background: var(--ink-10); border-color: var(--ink-30); }
+.viewas__menu { position: absolute; top: calc(100% + 6px); right: 0; background: var(--card); border: 1px solid var(--ink-15); border-radius: 10px; box-shadow: var(--shadow-md); padding: 6px; min-width: 180px; z-index: 200; }
+.viewas__menu-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-40); padding: 4px 8px 6px; }
+.viewas__item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border-radius: 7px; background: transparent; border: none; font: inherit; font-size: 13px; color: var(--ink-80); cursor: pointer; text-align: left; transition: background 100ms; }
+.viewas__item:hover { background: var(--ink-05); }
+.viewas__item.is-active { background: var(--brand-tint); color: var(--brand-deep); font-weight: 600; }
 .peer-banner { display: flex; align-items: center; gap: 10px; padding: 10px 16px; background: var(--brand-tint); color: var(--brand-deep); border-radius: 10px; font-size: 13px; margin-bottom: 16px; }
 .peer-banner strong { font-weight: 600; }
 .peer-banner__back { margin-left: auto; background: none; border: 1px solid var(--brand); color: var(--brand-deep); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 999px; cursor: pointer; }
@@ -2020,11 +2027,23 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "showWhy": true
 }/*EDITMODE-END*/;
 
+// Preview/demo bypass — also gates the View-as pill so non-managers can use it
+// on localhost or the preview sandbox without an authed session.
+const isPreview = window.location.hostname.includes('claudeusercontent.com')
+  || window.location.hostname === 'localhost'
+  || new URLSearchParams(window.location.search).get('demo') === 'true';
+
 function App({ authedUser, preloadedState }) {
   // Supabase-backed when configured; falls back to localStorage otherwise.
   const useCloud = !!window.SUPABASE_CONFIGURED;
-  const isManager = authedUser && authedUser.role === "manager";
-  const myRepId = authedUser ? (authedUser.rep_id || "") : "";
+
+  // Dev "view as" — switch perspective without signing out.
+  const [devViewAs, setDevViewAs] = React.useState(null);
+  const [viewAsOpen, setViewAsOpen] = React.useState(false);
+  const effectiveUser = devViewAs || authedUser;
+
+  const isManager = effectiveUser && effectiveUser.role === "manager";
+  const myRepId = effectiveUser ? (effectiveUser.rep_id || "") : "";
 
   // Seed from AuthGate's parallel preload when available, else localStorage.
   const [state, setState] = useState(() => preloadedState || loadState());
@@ -2037,7 +2056,7 @@ function App({ authedUser, preloadedState }) {
   const [cloudReady, setCloudReady] = useState(!useCloud || !!preloadedState);
 
   // Read-only when viewing someone else's week (not your own, not manager)
-  const isReadOnly = authedUser && view !== "rollup" && view !== myRepId && !isManager;
+  const isReadOnly = effectiveUser && view !== "rollup" && view !== myRepId && !isManager;
 
   // Boot: if cloud, migrate-once → (load unless prefetched) → subscribe to realtime
   useEffect(() => {
@@ -2078,17 +2097,17 @@ function App({ authedUser, preloadedState }) {
   }, [tweaks]);
 
   const onCheck = (repId, weekId, delId) => {
-    if (authedUser && !isManager && repId !== myRepId) return; // peer view = read-only
+    if (effectiveUser && !isManager && repId !== myRepId) return; // peer view = read-only
     const k = checkKey(repId, weekId, delId);
     const wasChecked = !!state.checks[k];
     const now = new Date().toISOString();
     // Build markedBy attribution from current auth
     let markedBy = undefined;
-    if (authedUser) {
+    if (effectiveUser) {
       const meRep = REPS.find(r => r.id === myRepId);
       markedBy = {
-        email: authedUser.authEmail,
-        name: isManager ? (authedUser.authEmail.split("@")[0]) : (meRep ? meRep.name : authedUser.authEmail),
+        email: effectiveUser.authEmail,
+        name: isManager ? (effectiveUser.authEmail.split("@")[0]) : (meRep ? meRep.name : effectiveUser.authEmail),
         role: isManager ? "manager" : "rep",
       };
     }
@@ -2120,7 +2139,7 @@ function App({ authedUser, preloadedState }) {
   };
 
   const onAsk = (repId, weekId, delId, text) => {
-    if (authedUser && !isManager && repId !== myRepId) return; // peer view = read-only
+    if (effectiveUser && !isManager && repId !== myRepId) return; // peer view = read-only
     const k = `${repId}|${weekId}|${delId}`;
     setState(s => {
       const asks = { ...(s.asks || {}) };
@@ -2234,7 +2253,33 @@ function App({ authedUser, preloadedState }) {
           <small>Weekly Review · NA BD</small>
         </div>
         <div className="shell-nav__right">
-          {authedUser ? (
+          {(isManager || isPreview) && (
+            <div className="viewas" style={{ position: "relative" }}>
+              <button className="viewas__btn" onClick={() => setViewAsOpen(o => !o)}>
+                {isManager
+                  ? <><span className="me-badge__role" style={{marginRight:4}}>Manager</span>Jeff</>
+                  : (() => { const r = REPS.find(x => x.id === myRepId); return r ? <><Avatar rep={r} size={18}/><span style={{marginLeft:5}}>{r.name.split(" ")[0]}</span></> : "You"; })()
+                }
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft:4}}><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              {viewAsOpen && (
+                <div className="viewas__menu">
+                  <div className="viewas__menu-label">View as</div>
+                  <button className={"viewas__item" + (!devViewAs && isManager ? " is-active" : "")}
+                    onClick={() => { setDevViewAs({ role:"manager", rep_id:"", authEmail:"jeff.hamons@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
+                    <span className="me-badge__role" style={{fontSize:10}}>MGR</span> Jeff Hamons
+                  </button>
+                  {REPS.filter(r => r.name !== "TBD").map(r => (
+                    <button key={r.id} className={"viewas__item" + (myRepId === r.id && !isManager ? " is-active" : "")}
+                      onClick={() => { setDevViewAs({ role:"rep", rep_id: r.id, authEmail: r.id+"@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
+                      <Avatar rep={r} size={16}/> {r.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {effectiveUser ? (
             <div className="me-badge">
               {isManager ? (
                 <><span className="me-badge__role">Manager</span><strong>{authedUser.authEmail}</strong></>
@@ -2305,7 +2350,7 @@ function App({ authedUser, preloadedState }) {
                 weekIdx={weekIdx}
                 isManager={isManager}
                 myRepId={myRepId}
-                authedUser={authedUser}
+                authedUser={effectiveUser}
                 setView={setView}
               />
             </div>
@@ -2320,7 +2365,7 @@ function App({ authedUser, preloadedState }) {
             </div>
           ) : view === "standup" ? (
             <div data-screen-label="02 Standup">
-              <StandupView authedUser={authedUser} />
+              <StandupView authedUser={effectiveUser} />
             </div>
           ) : view === "manager:flags" ? (
             <FlagQueue
@@ -2409,11 +2454,7 @@ function App({ authedUser, preloadedState }) {
 }
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
-// Skip auth in the preview sandbox or when ?demo=true — keeps production auth intact.
-const isPreview = window.location.hostname.includes('claudeusercontent.com')
-  || window.location.hostname === 'localhost'
-  || new URLSearchParams(window.location.search).get('demo') === 'true';
-
+// isPreview is declared above App so the View-as pill can read it via closure.
 if (!isPreview && window.SUPABASE_CONFIGURED && window.AuthGate) {
   root.render(<AuthGate>{({ user, preloadedState }) => <App authedUser={user} preloadedState={preloadedState} />}</AuthGate>);
 } else {

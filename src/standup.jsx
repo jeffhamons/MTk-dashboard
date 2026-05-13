@@ -181,6 +181,14 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
     if (!dirtyRef.current) setLocal(value || "");
   }, [value]);
 
+  // Auto-grow: keep textarea height matched to content on mount + external updates
+  useStandupEffect(() => {
+    if (taRef.current) {
+      taRef.current.style.height = "auto";
+      taRef.current.style.height = taRef.current.scrollHeight + "px";
+    }
+  }, [local]);
+
   // Debounced save: 500ms after last keystroke OR on blur, whichever comes first.
   const saveTimerRef = useStandupRef(null);
   const flush = () => {
@@ -196,6 +204,8 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
     const v = e.target.value;
     setLocal(v);
     dirtyRef.current = true;
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(flush, 500);
     // Update mention state based on caret.
@@ -532,6 +542,17 @@ const __STANDUP_STYLE = `
     background: hsl(var(--accent-h, 250), 40%, 97%);
   }
 
+  /* Alternating row shading on standup data rows (header excluded). */
+  .standup__row:not(.standup__row--head):nth-child(odd) .standup__cell {
+    background: #f7f7fb;
+  }
+  .standup__row:not(.standup__row--head):nth-child(even) .standup__cell {
+    background: #ffffff;
+  }
+  .standup__row.is-mine .standup__cell {
+    background: hsl(var(--accent-h, 250), 40%, 97%) !important;
+  }
+
   .standup-cell { position: relative; flex: 1; display: flex; flex-direction: column; }
   .standup-cell__ta {
     width: 100%;
@@ -543,7 +564,7 @@ const __STANDUP_STYLE = `
     border-radius: 6px;
     outline: none;
     min-height: 60px;
-    field-sizing: content;
+    overflow: hidden;
     line-height: 1.4;
   }
   .standup-cell__ta:hover:not([readonly]) { background: rgba(0,0,0,.02); border-color: rgba(0,0,0,.06); }

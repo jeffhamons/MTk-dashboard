@@ -51,14 +51,14 @@ No build step, no npm install, no environment variables — the Supabase keys ar
 ---
 
 ## Auth
-Uses Supabase magic-link email auth. The `AuthGate` wrapper in `auth-gate.jsx` handles sign-in/out. Users are matched to reps via the `user_roles` table in Supabase (`email → role + rep_id`).
+Uses Supabase magic-link email auth. The `AuthGate` wrapper in `auth-gate.jsx` handles sign-in/out. Users are matched to reps via the `users` table in Supabase, keyed on `auth_id` (FK → `auth.users.id`).
 
-To add a new user: insert a row into `user_roles`:
+To add a new user, first invite them via Supabase Auth so they get an `auth.users.id`, then:
 ```sql
-insert into user_roles (email, role, rep_id)
-values ('newrep@company.com', 'rep', 'cammy');
+insert into users (auth_id, email, role, rep_id)
+values ('<auth_id>', 'newrep@company.com', 'rep', 'cammy');
 -- role: 'manager' | 'rep'
--- rep_id: matches id field in data-model.js REPS array
+-- rep_id: matches id field in data-model.js REPS array (null for managers)
 ```
 
 ---

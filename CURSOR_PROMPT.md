@@ -68,8 +68,8 @@ db/
 ### `FlagQueue` (manager.jsx)
 - Shows all open asks sorted oldest-first
 - Each row expands inline to show a response textarea + "Mark resolved" button
-- Resolving calls `onAsk(repId, weekId, delId, "")` — this clears the ask from state, which removes it from the rep's page automatically
-- Resolved flags tracked in local React state this session (not persisted to DB)
+- Resolving calls `onAsk(repId, weekId, delId, "")` which sets `resolved_at` on the `asks` row (soft-delete) plus resolver attribution columns
+- A `ResolvedSection` below the open list reads from `state.resolvedAsks` (DB-persisted, last 200 rows by `resolved_at desc`). It has rep + time-range filters, duration badges, the response thread on expand, and a Reopen action (manager-only, clears `resolved_at`).
 
 ### `AskForHelp` (components.jsx)
 - The flag button on each deliverable card in rep-view
@@ -107,13 +107,15 @@ Rep `links` = map of `delId → url` for their specific doc links.
 
 | Table | Key columns |
 |-------|-------------|
-| `checks` | rep_id, week_id, del_id, checked_at, marked_by_email, marked_by_name, marked_by_role |
-| `asks` | rep_id, week_id, del_id, text, created_at, resolved_at, resolved_by_email, resolved_by_name, resolved_by_role |
+| `checks` | rep_id, week_index, deliverable_id, checked_at, marked_by_email, marked_by_name, marked_by_role |
+| `asks` | rep_id, week_index, deliverable_id, text, created_at, resolved_at, resolved_by_email, resolved_by_name, resolved_by_role, response, response_by_email, response_by_name, response_at |
 | `manager_notes` | rep_id, week_id, del_id, note, updated_by, updated_at |
-| `standup_entries` | ymd (YYYY-MM-DD), rep_id, what_moved, pushing_next, whats_slowing, what_i_need, mentions[], updated_at, updated_by |
-| `user_roles` | email, role ('manager'|'rep'), rep_id |
+| `standup_entries` | date (YYYY-MM-DD), rep_id, what_moved, pushing_next, whats_slowing, what_i_need, mentions[], updated_at, updated_by |
+| `users` | auth_id (FK → auth.users.id), email, role ('manager'\|'rep'), rep_id |
 
 RLS policies ensure reps can only write their own rows. Managers can read/write all.
+
+> Note: `checks` and `asks` are keyed by `week_index` (integer 1–10), not the string `week_id`. The supabase-client.js layer translates between them via `weekIdToIdx()`. `manager_notes` is the exception — it uses `week_id`/`del_id` strings directly.
 
 ---
 
@@ -121,7 +123,7 @@ RLS policies ensure reps can only write their own rows. Managers can read/write 
 
 **Add a new rep:**
 1. Add to `REPS[]` in `data-model.js` with a unique `id`, `hue` (0–360), `initials`
-2. Insert into `user_roles` in Supabase: `(email, 'rep', repId)`
+2. Insert into `users` in Supabase: `(auth_id, email, 'rep', repId)` — `auth_id` must match the user's `auth.users.id` from Supabase Auth
 
 **Add a new deliverable:**
 1. Add to `DELIVERABLES[]` in `data-model.js`
