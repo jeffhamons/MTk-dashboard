@@ -33,8 +33,20 @@ function AuthGate({ children }) {
   React.useEffect(() => {
     let cancelled = false;
 
+    // Watchdog: if onAuthChange never fires its INITIAL_SESSION callback
+    // (e.g. Supabase auth construction threw, the network is wedged, etc.),
+    // surface an error instead of leaving the user on "Checking sign-in
+    // status…" forever. Cleared as soon as we get any callback.
+    const watchdog = setTimeout(() => {
+      if (cancelled) return;
+      console.error("auth init watchdog fired — onAuthChange never delivered a session");
+      setErrDetail("auth init timed out — onAuthChange never fired");
+      setPhase("error");
+    }, AUTH_TIMEOUT_MS);
+
     const unsub = window.onAuthChange(async (session) => {
       if (cancelled) return;
+      clearTimeout(watchdog);
       if (session) {
         try {
           const u = await withTimeout(window.getMyUser(session.user), AUTH_TIMEOUT_MS, "getMyUser");
@@ -52,7 +64,7 @@ function AuthGate({ children }) {
         setPhase("signed-out");
       }
     });
-    return () => { cancelled = true; unsub && unsub(); };
+    return () => { cancelled = true; clearTimeout(watchdog); unsub && unsub(); };
   }, []);
 
   async function onSubmit(e) {

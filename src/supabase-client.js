@@ -30,13 +30,18 @@ function client() {
         // than acquireTimeout, AbortSignal fires and we fall through to an
         // uncoordinated run rather than queueing forever behind a dead
         // Web Lock client (the deadlock we hit in prod).
+        //
+        // gotrue-js passes acquireTimeout = -1 to mean "no timeout, wait
+        // forever." AbortSignal.timeout(-1) throws synchronously ("value
+        // outside unsigned long long"), so only attach the signal for
+        // positive timeouts. Without this guard every auth call rejects
+        // before INITIAL_SESSION can fire and the app hangs on
+        // "Checking sign-in status…".
         lock: async (name, acquireTimeout, fn) => {
+          const opts = { mode: "exclusive" };
+          if (acquireTimeout > 0) opts.signal = AbortSignal.timeout(acquireTimeout);
           try {
-            return await navigator.locks.request(
-              name,
-              { mode: "exclusive", signal: AbortSignal.timeout(acquireTimeout) },
-              fn
-            );
+            return await navigator.locks.request(name, opts, fn);
           } catch (err) {
             if (err instanceof DOMException && (err.name === "AbortError" || err.name === "TimeoutError")) {
               return fn();
