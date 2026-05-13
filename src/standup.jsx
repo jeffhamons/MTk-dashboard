@@ -177,6 +177,16 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
   // user edit; if so, ignore prop updates so realtime echoes don't clobber.
   const dirtyRef = useStandupRef(false);
 
+  // Refs mirror state/props so the debounced flush always reads current values,
+  // not a snapshot captured in the render that scheduled the timer. Fast typing
+  // + a realtime echo arriving between keystrokes could otherwise save stale text.
+  const localRef    = useStandupRef(local);
+  const valueRef    = useStandupRef(value || "");
+  const onChangeRef = useStandupRef(onChange);
+  useStandupEffect(() => { localRef.current    = local;       }, [local]);
+  useStandupEffect(() => { valueRef.current    = value || ""; }, [value]);
+  useStandupEffect(() => { onChangeRef.current = onChange;    }, [onChange]);
+
   useStandupEffect(() => {
     if (!dirtyRef.current) setLocal(value || "");
   }, [value]);
@@ -191,23 +201,26 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
 
   // Debounced save: 500ms after last keystroke OR on blur, whichever comes first.
   const saveTimerRef = useStandupRef(null);
-  const flush = () => {
+  function flush() {
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
-    if (dirtyRef.current && local !== value) {
+    if (dirtyRef.current && localRef.current !== valueRef.current) {
       dirtyRef.current = false;
-      onChange(local);
+      onChangeRef.current(localRef.current);
     }
-  };
+  }
+  const flushRef = useStandupRef(flush);
+  useStandupEffect(() => { flushRef.current = flush; });
   useStandupEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
   function handleInput(e) {
     const v = e.target.value;
+    localRef.current = v;
     setLocal(v);
     dirtyRef.current = true;
     e.target.style.height = "auto";
     e.target.style.height = e.target.scrollHeight + "px";
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(flush, 500);
+    saveTimerRef.current = setTimeout(() => flushRef.current(), 500);
     // Update mention state based on caret.
     const caret = e.target.selectionStart;
     setMention(activeMentionAtCursor(v, caret));
@@ -225,6 +238,7 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
     const after = local.slice(mention.start + 1 + mention.query.length);
     const insertion = `@${participant.id} `;
     const next = before + insertion + after;
+    localRef.current = next;
     setLocal(next);
     dirtyRef.current = true;
     setMention(null);
@@ -237,7 +251,7 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
       }
     });
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(flush, 500);
+    saveTimerRef.current = setTimeout(() => flushRef.current(), 500);
   }
 
   return (
@@ -249,7 +263,7 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
         value={local}
         onChange={handleInput}
         onKeyUp={handleKeyUp}
-        onBlur={flush}
+        onBlur={() => flushRef.current()}
         placeholder={placeholder}
         readOnly={readOnly}
         rows={3}
@@ -386,9 +400,29 @@ function StandupView({ authedUser }) {
   const today = new Date(); today.setHours(0,0,0,0);
   const isTodayStandup = isStandupDay(today) && ymd(today) === ymd(date);
 
+  // End-standup sendoff overlay: full-screen blackout with animated text,
+  // auto-dismisses after 4.2s or on any keypress / click.
+  const [sendoff, setSendoff] = useStandupState(false);
+  useStandupEffect(() => {
+    if (!sendoff) return;
+    const t = setTimeout(() => setSendoff(false), 4200);
+    const onKey = () => setSendoff(false);
+    window.addEventListener("keydown", onKey);
+    return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
+  }, [sendoff]);
+
   return (
     <div className="standup" data-screen-label="03 Standup">
       <style>{__STANDUP_STYLE}</style>
+
+      {sendoff && (
+        <div className="standup-sendoff" onClick={() => setSendoff(false)} role="dialog" aria-label="Standup complete">
+          <div className="standup-sendoff__inner">
+            <div className="standup-sendoff__line standup-sendoff__line--1">Standup complete.</div>
+            <div className="standup-sendoff__line standup-sendoff__line--2">Go make the week.</div>
+          </div>
+        </div>
+      )}
 
       <header className="standup__head">
         <div className="standup__date-nav">
@@ -474,6 +508,18 @@ function StandupView({ authedUser }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {isTodayStandup && !loading && (
+        <div className="standup__sendoff-wrap">
+          <button
+            type="button"
+            className="standup__end-btn"
+            onClick={() => setSendoff(true)}
+          >
+            End standup
+          </button>
         </div>
       )}
     </div>
@@ -629,6 +675,60 @@ const __STANDUP_STYLE = `
       font-size: 11px; font-weight: 600; text-transform: uppercase;
       color: rgba(0,0,0,.5); letter-spacing: .04em; margin-bottom: 4px;
     }
+  }
+
+  /* End-standup button + sendoff overlay */
+  .standup__sendoff-wrap {
+    display: flex; justify-content: center;
+    margin-top: 28px;
+  }
+  .standup__end-btn {
+    appearance: none; border: 1px solid rgba(0,0,0,.15); background: #fff;
+    padding: 10px 22px; border-radius: 999px;
+    font-size: 13px; font-weight: 600; color: rgba(0,0,0,.7);
+    cursor: pointer; transition: all 140ms;
+    letter-spacing: .02em;
+  }
+  .standup__end-btn:hover {
+    background: #000; color: #fff; border-color: #000;
+  }
+
+  .standup-sendoff {
+    position: fixed; inset: 0;
+    background: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999;
+    cursor: pointer;
+    animation: sendoff-in 360ms ease-out;
+  }
+  @keyframes sendoff-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  .standup-sendoff__inner {
+    text-align: center;
+    color: #fff;
+    font-family: inherit;
+  }
+  .standup-sendoff__line {
+    font-weight: 600;
+    opacity: 0;
+    transform: translateY(8px);
+    animation: sendoff-word 700ms cubic-bezier(.2,.7,.2,1) forwards;
+  }
+  .standup-sendoff__line--1 {
+    font-size: clamp(28px, 5vw, 56px);
+    letter-spacing: -.01em;
+    animation-delay: 250ms;
+  }
+  .standup-sendoff__line--2 {
+    font-size: clamp(20px, 3.6vw, 38px);
+    margin-top: 14px;
+    color: rgba(255,255,255,.7);
+    animation-delay: 1100ms;
+  }
+  @keyframes sendoff-word {
+    to { opacity: 1; transform: translateY(0); }
   }
 `;
 
