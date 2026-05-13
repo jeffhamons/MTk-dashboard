@@ -15,15 +15,46 @@ function withTimeout(promise, ms, label) {
     )),
   ]);
 }
+
+// One transient retry with a short backoff. Absorbs single-blip network flakes
+// before they reach the user as the "Sign-in is unavailable" error screen.
+async function withRetry(fn, label, retries = 1, backoffMs = 500) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (attempt < retries) {
+        console.warn(`${label} attempt ${attempt + 1} failed, retrying in ${backoffMs}ms:`, e && e.message);
+        await new Promise(r => setTimeout(r, backoffMs));
+      }
+    }
+  }
+  throw lastErr;
+}
 const AUTH_TIMEOUT_MS = 8000;
+
+// Hold the loading paint briefly. Cached-session resolutions are usually
+// <200ms; flashing "Checking sign-in status…" for one paint frame before the
+// App mounts feels worse than showing nothing.
+const LOADING_PAINT_DELAY_MS = 250;
 
 function AuthGate({ children }) {
   const [phase, setPhase] = React.useState("loading"); // loading | signed-out | signed-in | error
   const [user, setUser]   = React.useState(null);
+  const [preloadedState, setPreloadedState] = React.useState(null);
   const [email, setEmail] = React.useState("");
   const [busy, setBusy]   = React.useState(false);
   const [msg, setMsg]     = React.useState(null);
   const [errDetail, setErrDetail] = React.useState(null);
+  const [showLoading, setShowLoading] = React.useState(false);
+
+  // Defer the loading-card paint so fast resolutions never flash UI.
+  React.useEffect(() => {
+    const t = setTimeout(() => setShowLoading(true), LOADING_PAINT_DELAY_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // Supabase v2 fires INITIAL_SESSION on subscription, so onAuthChange covers
   // both the first-load case and subsequent sign-in/sign-out transitions.
@@ -49,9 +80,26 @@ function AuthGate({ children }) {
       clearTimeout(watchdog);
       if (session) {
         try {
-          const u = await withTimeout(window.getMyUser(session.user), AUTH_TIMEOUT_MS, "getMyUser");
+          // Parallel: the user-row query and the state queries both need
+          // only the JWT (already attached to the client at this point).
+          // Running them concurrently saves one full RTT on cold load.
+          const userPromise = withTimeout(
+            withRetry(() => window.getMyUser(session.user), "getMyUser"),
+            AUTH_TIMEOUT_MS,
+            "getMyUser"
+          );
+          // Preload is best-effort; if it fails App's own boot effect will
+          // retry. Never let a preload error block sign-in.
+          const statePromise = window.SUPABASE_CONFIGURED && window.loadStateFromSupabase
+            ? window.loadStateFromSupabase().catch(e => {
+                console.warn("state preload failed (App will retry):", e && e.message);
+                return null;
+              })
+            : Promise.resolve(null);
+          const [u, preloaded] = await Promise.all([userPromise, statePromise]);
           if (cancelled) return;
           setUser(u);
+          setPreloadedState(preloaded);
           setPhase("signed-in");
         } catch (e) {
           console.error("auth change → getMyUser", e);
@@ -61,6 +109,7 @@ function AuthGate({ children }) {
         }
       } else {
         setUser(null);
+        setPreloadedState(null);
         setPhase("signed-out");
       }
     });
@@ -82,6 +131,9 @@ function AuthGate({ children }) {
   }
 
   if (phase === "loading") {
+    // Hold blank for one short tick so cached-session resolutions don't flash
+    // a loading card before the App mounts.
+    if (!showLoading) return null;
     return (
       <div className="auth-screen">
         <div className="auth-card">
@@ -164,20 +216,24 @@ function AuthGate({ children }) {
     );
   }
 
-  // Signed in but allowlist mismatch (shouldn't happen — trigger blocks it — but defensive)
-  if (!user) {
+  // Signed in but no matched rep row (allowlist mismatch). getMyUser always
+  // returns the synthesized fallback { rep_id: null, role: "rep" } when no
+  // users-table row exists for this auth_id, so `!user` is unreachable here —
+  // the real signal is "no rep_id and not a manager."
+  const unmatched = !user || (!user.rep_id && user.role !== "manager");
+  if (unmatched) {
     return (
       <div className="auth-screen">
         <div className="auth-card">
           <h1 className="auth-card__title">Hmm.</h1>
-          <p className="auth-card__sub">You're signed in but we can't find your account. Try signing out and back in.</p>
+          <p className="auth-card__sub">You're signed in but we can't find your account. Try signing out and back in, or ask Jeff to add your email to the allowlist.</p>
           <button className="auth-form__btn" onClick={() => window.signOut()}>Sign out</button>
         </div>
       </div>
     );
   }
 
-  return children({ user });
+  return children({ user, preloadedState });
 }
 
 window.AuthGate = AuthGate;

@@ -2020,23 +2020,26 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "showWhy": true
 }/*EDITMODE-END*/;
 
-function App({ authedUser }) {
+function App({ authedUser, preloadedState }) {
   // Supabase-backed when configured; falls back to localStorage otherwise.
   const useCloud = !!window.SUPABASE_CONFIGURED;
   const isManager = authedUser && authedUser.role === "manager";
   const myRepId = authedUser ? (authedUser.rep_id || "") : "";
 
-  const [state, setState] = useState(() => loadState());
+  // Seed from AuthGate's parallel preload when available, else localStorage.
+  const [state, setState] = useState(() => preloadedState || loadState());
   // Everyone lands on the home screen
   const [view, setView] = useState("home");
   const [weekIdx, setWeekIdx] = useState(currentWeekIndex());
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
-  const [cloudReady, setCloudReady] = useState(!useCloud);
+  // If preloadedState is already in hand, we don't need a second cloud fetch
+  // to consider the app "ready."
+  const [cloudReady, setCloudReady] = useState(!useCloud || !!preloadedState);
 
   // Read-only when viewing someone else's week (not your own, not manager)
   const isReadOnly = authedUser && view !== "rollup" && view !== myRepId && !isManager;
 
-  // Boot: if cloud, migrate-once → load → subscribe to realtime
+  // Boot: if cloud, migrate-once → (load unless prefetched) → subscribe to realtime
   useEffect(() => {
     if (!useCloud) return;
     let unsubscribe = () => {};
@@ -2044,9 +2047,12 @@ function App({ authedUser }) {
     (async () => {
       try {
         await window.migrateLocalToSupabase();
-        const fresh = await window.loadStateFromSupabase();
-        if (cancelled) return;
-        setState(fresh);
+        // Skip the initial fetch if AuthGate already preloaded it.
+        if (!preloadedState) {
+          const fresh = await window.loadStateFromSupabase();
+          if (cancelled) return;
+          setState(fresh);
+        }
         setCloudReady(true);
         unsubscribe = window.subscribeRealtime(async () => {
           const next = await window.loadStateFromSupabase();
@@ -2409,7 +2415,7 @@ const isPreview = window.location.hostname.includes('claudeusercontent.com')
   || new URLSearchParams(window.location.search).get('demo') === 'true';
 
 if (!isPreview && window.SUPABASE_CONFIGURED && window.AuthGate) {
-  root.render(<AuthGate>{({ user }) => <App authedUser={user} />}</AuthGate>);
+  root.render(<AuthGate>{({ user, preloadedState }) => <App authedUser={user} preloadedState={preloadedState} />}</AuthGate>);
 } else {
   root.render(<App />);
 }
