@@ -362,6 +362,20 @@ async function sendMagicLink(email) {
   return { ok: !error, error: error && error.message };
 }
 
+// Verify the 6-digit OTP code from the magic-link email. Used when corporate
+// link scanners (Microsoft Safe Links / Teams) consume the URL token before
+// the human can click it — same token, just delivered to verifyOtp instead of
+// /verify via the URL fragment.
+async function verifyEmailOtp(email, code) {
+  const sb = client();
+  const { error } = await sb.auth.verifyOtp({
+    email,
+    token: String(code || "").trim(),
+    type: "email",
+  });
+  return { ok: !error, error: error && error.message };
+}
+
 async function signOut() {
   const sb = client();
   // scope: 'local' — only sign out this device. Default 'global' invalidates
@@ -450,6 +464,7 @@ Object.assign(window, {
   getSession,
   getMyUser,
   sendMagicLink,
+  verifyEmailOtp,
   signOut,
   onAuthChange,
   loadStandupForDate,

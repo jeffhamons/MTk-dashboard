@@ -35,6 +35,15 @@ async function withRetry(fn, label, retries = 1, backoffMs = 500) {
 }
 const AUTH_TIMEOUT_MS = 8000;
 
+// Users whose corporate tenant runs link scanners (Microsoft Safe Links via
+// Teams/Outlook) that consume single-use magic-link tokens before the human
+// can click them. For these emails we keep the same signInWithOtp call but
+// finish the flow by entering the 6-digit token from the email body into a
+// verifyOtp form, so no URL fragment is ever touched by a bot.
+const OTP_CODE_USERS = new Set([
+  "brenda.bravener@mindtools-kineo.com",
+]);
+
 // Hold the loading paint briefly. Cached-session resolutions are usually
 // <200ms; flashing "Checking sign-in status…" for one paint frame before the
 // App mounts feels worse than showing nothing.
@@ -49,6 +58,11 @@ function AuthGate({ children }) {
   const [msg, setMsg]     = React.useState(null);
   const [errDetail, setErrDetail] = React.useState(null);
   const [showLoading, setShowLoading] = React.useState(false);
+  // OTP-code path: once the email has been sent for an OTP_CODE_USERS address,
+  // flip to a "paste the 6-digit code" form. Successful verifyOtp triggers
+  // onAuthChange → phase becomes signed-in, so this view unmounts naturally.
+  const [otpStage, setOtpStage] = React.useState("email"); // "email" | "code"
+  const [code, setCode] = React.useState("");
 
   // Defer the loading-card paint so fast resolutions never flash UI.
   React.useEffect(() => {
@@ -118,16 +132,45 @@ function AuthGate({ children }) {
 
   async function onSubmit(e) {
     e.preventDefault();
-    if (!email.trim()) return;
+    const normalized = email.trim().toLowerCase();
+    if (!normalized) return;
     setBusy(true);
     setMsg(null);
-    const { ok, error } = await window.sendMagicLink(email.trim().toLowerCase());
+    const { ok, error } = await window.sendMagicLink(normalized);
+    setBusy(false);
+    if (!ok) {
+      setMsg({ kind: "err", text: error || "Couldn't send link. Try again or check the email is on the allowlist." });
+      return;
+    }
+    if (OTP_CODE_USERS.has(normalized)) {
+      setOtpStage("code");
+      setMsg({ kind: "ok", text: `Email sent to ${normalized}. Enter the 6-digit code from the email — don't click the link.` });
+    } else {
+      setMsg({ kind: "ok", text: `Magic link sent to ${email}. Check your inbox — click the link to sign in.` });
+    }
+  }
+
+  async function onSubmitCode(e) {
+    e.preventDefault();
+    const normalized = email.trim().toLowerCase();
+    const cleaned = code.replace(/\D/g, "").slice(0, 6);
+    if (!normalized || cleaned.length !== 6) return;
+    setBusy(true);
+    setMsg(null);
+    const { ok, error } = await window.verifyEmailOtp(normalized, cleaned);
     setBusy(false);
     if (ok) {
-      setMsg({ kind: "ok", text: `Magic link sent to ${email}. Check your inbox — click the link to sign in.` });
+      setMsg({ kind: "ok", text: "Signing you in…" });
+      // onAuthChange will lift us into phase=signed-in on success.
     } else {
-      setMsg({ kind: "err", text: error || "Couldn't send link. Try again or check the email is on the allowlist." });
+      setMsg({ kind: "err", text: error || "Code didn't verify. Double-check it or request a fresh one." });
     }
+  }
+
+  function resetToEmailStage() {
+    setOtpStage("email");
+    setCode("");
+    setMsg(null);
   }
 
   if (phase === "loading") {
@@ -185,23 +228,55 @@ function AuthGate({ children }) {
           <h1 className="auth-card__title">Weekly Review</h1>
           <p className="auth-card__sub">Sign in with your work email — we'll send you a magic link.</p>
 
-          <form onSubmit={onSubmit} className="auth-form">
-            <label className="auth-form__label" htmlFor="auth-email">Work email</label>
-            <input
-              id="auth-email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@mindtools-kineo.com"
-              className="auth-form__input"
-              disabled={busy}
-            />
-            <button type="submit" className="auth-form__btn" disabled={busy || !email.trim()}>
-              {busy ? "Sending…" : "Send magic link"}
-            </button>
-          </form>
+          {otpStage === "email" ? (
+            <form onSubmit={onSubmit} className="auth-form">
+              <label className="auth-form__label" htmlFor="auth-email">Work email</label>
+              <input
+                id="auth-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@mindtools-kineo.com"
+                className="auth-form__input"
+                disabled={busy}
+              />
+              <button type="submit" className="auth-form__btn" disabled={busy || !email.trim()}>
+                {busy ? "Sending…" : "Send magic link"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={onSubmitCode} className="auth-form">
+              <label className="auth-form__label" htmlFor="auth-code">6-digit code</label>
+              <input
+                id="auth-code"
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                required
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="123456"
+                className="auth-form__input"
+                disabled={busy}
+                autoFocus
+              />
+              <button type="submit" className="auth-form__btn" disabled={busy || code.length !== 6}>
+                {busy ? "Verifying…" : "Sign in"}
+              </button>
+              <button
+                type="button"
+                className="auth-card__alt"
+                onClick={resetToEmailStage}
+                disabled={busy}
+              >
+                Use a different email
+              </button>
+            </form>
+          )}
 
           {msg && (
             <div className={`auth-msg auth-msg--${msg.kind}`}>{msg.text}</div>
