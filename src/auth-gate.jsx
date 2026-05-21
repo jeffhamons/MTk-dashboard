@@ -245,6 +245,21 @@ function AuthGate({ children }) {
               <button type="submit" className="auth-form__btn" disabled={busy || !email.trim()}>
                 {busy ? "Sending…" : "Send magic link"}
               </button>
+              {/* OTP_CODE_USERS may have their address on Supabase's managed-email
+                  suppression list (legacy bounces), in which case signInWithOtp
+                  returns email_address_invalid and the code-stage flip in onSubmit
+                  never fires. This escape hatch lets them reach the code form
+                  with an admin-generated OTP relayed out-of-band. */}
+              {OTP_CODE_USERS.has(email.trim().toLowerCase()) && (
+                <button
+                  type="button"
+                  className="auth-card__alt"
+                  onClick={() => { setOtpStage("code"); setMsg(null); }}
+                  disabled={busy}
+                >
+                  I already have a code
+                </button>
+              )}
             </form>
           ) : (
             <form onSubmit={onSubmitCode} className="auth-form">
