@@ -1,7 +1,7 @@
 // Per-rep view: shows three deliverables for a selected week, with check toggles.
 // Includes week navigator and a 10-week timeline strip.
 
-function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager }) {
+function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager, onOpenWins }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const skips = rep.skips || [];
@@ -156,6 +156,19 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
                   <p>{d.why}</p>
                 </div>
                 {(() => {
+                  // Wins deliverable → navigate in-app instead of opening spreadsheet
+                  if (d.id === "wins" && onOpenWins) {
+                    return (
+                      <button
+                        className="deliverable__link"
+                        onClick={onOpenWins}
+                        style={{ background:"none", border:"none", cursor:"pointer", padding:0, font:"inherit", textAlign:"left" }}
+                      >
+                        <Icon name="wins" size={14} />
+                        <span>Open Weekly Wins form</span>
+                      </button>
+                    );
+                  }
                   const href = (rep.links && rep.links[d.id]) || d.docHref;
                   const isReal = href && typeof href === "string" && href.startsWith("http");
                   // No-link deliverable — show a note instead (e.g. "tracked in Apollo")

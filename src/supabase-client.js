@@ -445,6 +445,65 @@ function subscribeStandupChanges(dateStr, onRow) {
   return () => sb.removeChannel(channel);
 }
 
+// ── WINS ─────────────────────────────────────────────────────────────────────
+// weekIndex is a plain integer (Apr 27 2026 = 1). NOT a "w1" string.
+
+async function loadWins(weekIndex, repId) {
+  const sb = client();
+  const { data, error } = await sb
+    .from("wins").select("*")
+    .eq("rep_id", repId).eq("week_index", weekIndex).maybeSingle();
+  if (error) { console.error("loadWins", error); return null; }
+  if (!data) return null;
+  return {
+    worked_on:  data.worked_on  || [],
+    invisible:  data.invisible  || [],
+    big_win:    data.big_win    || { win: "", why: "" },
+    hype:       data.hype       || [],
+    updated_at: data.updated_at || null,
+    updated_by: data.updated_by || null,
+  };
+}
+
+async function loadAllWinsForWeek(weekIndex) {
+  const sb = client();
+  const { data, error } = await sb.from("wins").select("*").eq("week_index", weekIndex);
+  if (error) { console.error("loadAllWinsForWeek", error); return {}; }
+  const out = {};
+  for (const row of (data || [])) {
+    out[row.rep_id] = {
+      worked_on: row.worked_on || [], invisible: row.invisible || [],
+      big_win: row.big_win || { win:"", why:"" }, hype: row.hype || [],
+      updated_at: row.updated_at || null, updated_by: row.updated_by || null,
+    };
+  }
+  return out;
+}
+
+async function saveWins(weekIndex, repId, formData, updatedByEmail) {
+  const sb = client();
+  const { error } = await sb.from("wins").upsert(
+    {
+      rep_id: repId, week_index: weekIndex,
+      worked_on: formData.worked_on || [], invisible: formData.invisible || [],
+      big_win: formData.big_win || {}, hype: formData.hype || [],
+      updated_at: new Date().toISOString(), updated_by: updatedByEmail || null,
+    },
+    { onConflict: "rep_id,week_index" }
+  );
+  if (error) { console.error("saveWins", error); throw error; }
+}
+
+function subscribeWinsChanges(weekIndex, onRow) {
+  const sb = client();
+  const channel = sb.channel(`wins-wi${weekIndex}`)
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "wins", filter: `week_index=eq.${weekIndex}` },
+      (payload) => { if (payload.new) onRow(payload.new); })
+    .subscribe();
+  return () => sb.removeChannel(channel);
+}
+
 // ============================================================
 // EXPORT GLOBALS
 // ============================================================
@@ -470,4 +529,8 @@ Object.assign(window, {
   loadStandupForDate,
   saveStandupField,
   subscribeStandupChanges,
+  loadWins,
+  loadAllWinsForWeek,
+  saveWins,
+  subscribeWinsChanges,
 });

@@ -1694,6 +1694,7 @@ button { font: inherit; color: inherit; }
 <script type="text/babel" src="src/rep-view.jsx"></script>
 <script type="text/babel" src="src/tweaks-panel.jsx"></script>
 <script type="text/babel" src="src/standup.jsx"></script>
+<script type="text/babel" src="src/wins-form.jsx"></script>
 <script type="text/babel" src="src/auth-gate.jsx"></script>
 
 <script type="text/babel">
@@ -1940,7 +1941,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
         ) : (
           <>
             {/* Rep hero 1: Weekly Review */}
-            <div className={"home__card home__card--primary" + (clean ? " is-clean" : "")} onClick={() => setView(myRepId)}>
+            <div className={"home__card home__card--primary" + (clean ? " is-clean" : "")} onClick={() => setView(myRepId || REPS.find(r => r.name !== "TBD")?.id || "rollup")}>
               <div className="home__card-header">
                 <div>
                   <div className="home__card-label">Weekly Review</div>
@@ -2367,6 +2368,10 @@ function App({ authedUser, preloadedState }) {
             <div data-screen-label="02 Standup">
               <StandupView authedUser={effectiveUser} />
             </div>
+          ) : view === "wins" ? (
+            <div data-screen-label="04 Weekly Wins">
+              <WinsFormView authedUser={effectiveUser} />
+            </div>
           ) : view === "manager:flags" ? (
             <FlagQueue
               state={state}
@@ -2379,7 +2384,7 @@ function App({ authedUser, preloadedState }) {
               }}
               onReopenAsk={onReopenAsk}
             />
-          ) : (
+          ) : activeRep ? (
             <div data-screen-label={`02 Rep · ${activeRep.name}`}>
               {isReadOnly && (
                 <div className="peer-banner">
@@ -2400,9 +2405,10 @@ function App({ authedUser, preloadedState }) {
                 onBack={() => setView("home")}
                 readOnly={isReadOnly}
                 isManager={isManager}
+                onOpenWins={() => setView("wins")}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </main>
 
