@@ -1657,6 +1657,121 @@ button { font: inherit; color: inherit; }
 }
 .home__team-link:hover { color: var(--ink); }
 
+/* ── LEADERBOARD VIEW (inline) ── */
+.lb-view { padding-bottom: 60px; }
+.lb-header { margin-bottom: 28px; }
+.lb-title { font-family: var(--font-display); font-size: clamp(28px, 3vw, 42px); font-weight: 500; letter-spacing: -0.022em; line-height: 1.05; margin: 6px 0 8px; }
+.lb-title em { font-style: italic; font-weight: 300; color: var(--brand-deep); }
+.lb-sub { font-size: 13px; color: var(--ink-70); margin: 0; }
+.lb-period-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+.lb-toggle { display: inline-flex; background: var(--ink-05); border: 1px solid var(--ink-15); border-radius: var(--radius-pill); padding: 3px; gap: 2px; }
+.lb-toggle__btn { background: none; border: none; cursor: pointer; padding: 6px 18px; border-radius: var(--radius-pill); font: 600 13px/1 var(--font-ui); color: var(--ink-70); letter-spacing: 0.03em; transition: all 150ms; }
+.lb-toggle__btn--active { background: var(--card); color: var(--brand-deep); box-shadow: 0 1px 4px rgba(0,0,0,0.08), 0 0 0 1px var(--ink-15); }
+.lb-toggle__btn:hover:not(.lb-toggle__btn--active) { color: var(--ink); }
+.lb-period-label { font-size: 13px; color: var(--ink-50); font-family: var(--font-mono); letter-spacing: 0.02em; }
+.lb-team { background: var(--card); border: 1px solid var(--ink-10); border-radius: var(--radius-card); padding: 22px 26px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; box-shadow: var(--shadow-sm); }
+.lb-team__left { display: flex; flex-direction: column; gap: 5px; }
+.lb-team__label { font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-50); }
+.lb-team__title { font-size: 20px; font-weight: 500; letter-spacing: -0.012em; }
+.lb-team__bar-wrap { margin-top: 8px; }
+.lb-team__track { height: 7px; background: var(--ink-10); border-radius: 4px; overflow: hidden; }
+.lb-team__fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--brand) 0%, var(--brand-deep) 100%); transition: width 600ms cubic-bezier(0.4,0,0.2,1); }
+.lb-fill--done { background: linear-gradient(90deg, var(--done) 0%, var(--done-deep) 100%) !important; }
+.lb-fill--risk { background: linear-gradient(90deg, var(--flag) 0%, var(--orange-dark) 100%) !important; }
+.lb-team__bar-labels { display: flex; justify-content: space-between; margin-top: 4px; font-size: 11px; color: var(--ink-50); font-family: var(--font-mono); }
+.lb-team__bar-center { color: var(--ink); font-weight: 600; }
+.lb-team__kpis { display: flex; gap: 12px; }
+.lb-kpi { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--ink-10); }
+.lb-kpi--active { background: var(--brand-tint); border-color: var(--brand-light); }
+.lb-kpi__val { font-family: var(--font-mono); font-size: 20px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; }
+.lb-kpi--active .lb-kpi__val { color: var(--brand-deep); }
+.lb-kpi__label { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-50); }
+.lb-boards { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+@media (max-width: 680px) { .lb-boards { grid-template-columns: 1fr; } }
+.lb-board { background: var(--card); border: 1px solid var(--ink-10); border-radius: var(--radius-card); overflow: hidden; box-shadow: var(--shadow-sm); }
+.lb-board__header { padding: 16px 20px 14px; border-bottom: 1px solid var(--ink-10); display: flex; align-items: center; justify-content: space-between; }
+.lb-board__title { font-size: 12px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-70); display: flex; align-items: center; gap: 7px; }
+.lb-board__dot { width: 8px; height: 8px; border-radius: 50%; }
+.lb-board__dot--nb { background: var(--brand); }
+.lb-board__dot--cs { background: var(--teal-bright); }
+.lb-board__avg { font-size: 12px; color: var(--ink-50); font-family: var(--font-mono); }
+.lb-board__body { padding: 6px 0; }
+.lb-row { display: grid; grid-template-columns: 24px 32px 1fr 90px 48px; align-items: center; gap: 10px; padding: 11px 18px; border-bottom: 1px solid var(--ink-05); transition: background 120ms; }
+.lb-row:last-child { border-bottom: none; }
+.lb-row:hover { background: var(--ink-05); }
+.lb-row__rank { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--ink-30); text-align: center; }
+.lb-row__rank--1 { color: var(--brand-deep); }
+.lb-row__rank--2 { color: var(--ink-70); }
+.lb-row__rank--3 { color: var(--ink-50); }
+.lb-row__avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+.lb-row__avatar--nb { background: var(--brand-tint); color: var(--brand-deep); }
+.lb-row__avatar--cs { background: var(--done-tint); color: var(--done-deep); }
+.lb-row__name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-row__track { height: 5px; background: var(--ink-10); border-radius: 3px; overflow: hidden; }
+.lb-row__fill { height: 100%; border-radius: 3px; transition: width 600ms cubic-bezier(0.4,0,0.2,1); }
+.lb-row__fill--over  { background: var(--done); }
+.lb-row__fill--on    { background: var(--brand); }
+.lb-row__fill--close { background: var(--orange-bright); }
+.lb-row__fill--risk  { background: var(--flag); }
+.lb-row__over-label { font-size: 9px; color: var(--done-deep); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-top: 2px; }
+.lb-row__pct { font-family: var(--font-mono); font-size: 15px; font-weight: 600; letter-spacing: -0.02em; text-align: right; }
+.lb-row__pct--over  { color: var(--done-deep); }
+.lb-row__pct--on    { color: var(--brand-deep); }
+.lb-row__pct--close { color: var(--flag); }
+.lb-row__pct--risk  { color: #E03C3C; }
+.lb-cs-bars { display: flex; flex-direction: column; gap: 3px; }
+.lb-cs-row { display: flex; align-items: center; gap: 5px; }
+.lb-cs-tag { font-size: 9px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-50); width: 20px; flex-shrink: 0; }
+.lb-cs-fill--ren { background: var(--teal-bright); }
+.lb-cs-fill--exp { background: var(--brand); }
+.lb-cs-val { font-family: var(--font-mono); font-size: 10px; font-weight: 600; width: 28px; text-align: right; }
+.lb-cs-val--ren { color: var(--done-deep); }
+.lb-cs-val--exp { color: var(--brand-deep); }
+.lb-footnote { margin-top: 24px; padding: 14px 18px; background: var(--ink-05); border-radius: 10px; font-size: 12px; color: var(--ink-50); line-height: 1.6; display: flex; gap: 10px; align-items: flex-start; }
+
+/* ── ATTAINMENT STRIP ── */
+.att-strip {
+  margin-top: 16px;
+  background: var(--card);
+  border: 1px solid var(--ink-10);
+  border-radius: 12px;
+  padding: 14px 18px;
+  display: flex; align-items: stretch; gap: 0;
+  box-shadow: var(--shadow-sm);
+}
+.att-strip__section {
+  flex: 1;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.att-strip__section + .att-strip__section {
+  border-left: 1px solid var(--ink-10);
+  padding-left: 18px; margin-left: 18px;
+}
+.att-strip__label {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--ink-50);
+}
+.att-strip__row { display: flex; align-items: center; gap: 14px; }
+.att-strip__sub-label {
+  font-size: 11px; font-weight: 600; color: var(--ink-50);
+  min-width: 24px;
+}
+.att-strip__kpis { display: flex; gap: 14px; }
+.att-strip__kpi { display: flex; align-items: baseline; gap: 4px; }
+.att-strip__kpi-period {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-50);
+}
+.att-strip__kpi-val {
+  font-family: var(--font-mono); font-size: 18px; font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1;
+}
+.att-strip__kpi-val--over  { color: var(--done-deep); }
+.att-strip__kpi-val--on    { color: var(--brand-deep); }
+.att-strip__kpi-val--close { color: var(--flag); }
+.att-strip__kpi-val--risk  { color: #E03C3C; }
+.att-strip__kpi-val--neutral { color: var(--ink-70); }
+
 </style>
 <template id="__bundler_thumbnail">
   <svg viewBox="0 0 100 70" xmlns="http://www.w3.org/2000/svg">
@@ -1680,8 +1795,8 @@ button { font: inherit; color: inherit; }
 <div id="root"></div>
 
 <script src="vendor/react.development.js"></script>
-<script src="vendor/react-dom.development.js"></script>
-<script src="vendor/babel-standalone.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
 <!-- Supabase UMD (load BEFORE supabase-client.js) -->
 <script src="vendor/supabase-js.min.js"></script>
@@ -1696,6 +1811,7 @@ button { font: inherit; color: inherit; }
 <script type="text/babel" src="src/standup.jsx"></script>
 <script type="text/babel" src="src/wins-form.jsx"></script>
 <script type="text/babel" src="src/auth-gate.jsx"></script>
+<script type="text/babel" src="src/leaderboard.jsx"></script>
 
 <script type="text/babel">
 const { useState, useEffect } = React;
@@ -1788,6 +1904,107 @@ function todayQuote() {
   const start = new Date(now.getFullYear(), 0, 0);
   const dayOfYear = Math.floor((now - start) / 86400000);
   return DAILY_QUOTES[dayOfYear % DAILY_QUOTES.length];
+}
+
+// ── Attainment sample data (Phase 1: replace with Supabase query) ────────────
+const SAMPLE_ATTAINMENT = {
+  cammy:  { type: "newbiz", mtd: 112, qtd: 94  },
+  brenda: { type: "newbiz", mtd: 94,  qtd: 88  },
+  farah:  { type: "newbiz", mtd: 71,  qtd: 67  },
+  don:    { type: "newbiz", mtd: 0,   qtd: 0   },
+  dwayne: { type: "cs", ren_mtd: 98, ren_qtd: 102, exp_mtd: 87, exp_qtd: 91, mtd: 96, qtd: 99 },
+  meri:   { type: "cs", ren_mtd: 91, ren_qtd: 88,  exp_mtd: 82, exp_qtd: 81, mtd: 88, qtd: 86 },
+};
+
+function attTier(pct) {
+  if (pct >= 100) return "over";
+  if (pct >= 80)  return "on";
+  if (pct >= 60)  return "close";
+  if (pct === 0)  return "neutral";
+  return "risk";
+}
+
+function teamAttainmentFrom(data) {
+  const active = Object.entries(data).filter(([id, v]) => id !== "don" && v && (v.mtd || v.qtd));
+  if (!active.length) return { mtd: 0, qtd: 0 };
+  const mtd = Math.round(active.reduce((s, [, v]) => s + v.mtd, 0) / active.length);
+  const qtd = Math.round(active.reduce((s, [, v]) => s + v.qtd, 0) / active.length);
+  return { mtd, qtd };
+}
+
+function AttKpi({ period, val }) {
+  const tier = attTier(val);
+  return (
+    <div className="att-strip__kpi">
+      <span className="att-strip__kpi-period">{period}</span>
+      <span className={`att-strip__kpi-val att-strip__kpi-val--${tier}`}>
+        {val > 0 ? `${val}%` : "—"}
+      </span>
+    </div>
+  );
+}
+
+function AttainmentStrip({ repId, isManager }) {
+  const [liveData, setLiveData] = React.useState(null);
+
+  React.useEffect(() => {
+    if (!window.SUPABASE_CONFIGURED || !window.loadAttainment) return;
+    let cancelled = false;
+    window.loadAttainment().then(rows => {
+      if (cancelled) return;
+      const map = {};
+      for (const row of rows) {
+        const pcts = window.deriveAttainmentPcts(row);
+        if (pcts) map[row.rep_id] = pcts;
+      }
+      if (Object.keys(map).length > 0) setLiveData(map);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const data = liveData || SAMPLE_ATTAINMENT;
+  const team = teamAttainmentFrom(data);
+  const rep = repId ? data[repId] : null;
+
+  return (
+    <div className="att-strip">
+      {rep && (
+        <div className="att-strip__section">
+          <div className="att-strip__label">Your attainment</div>
+          {rep.type === "cs" ? (
+            <>
+              <div className="att-strip__row">
+                <span className="att-strip__sub-label">Ren</span>
+                <div className="att-strip__kpis">
+                  <AttKpi period="MTD" val={rep.ren_mtd} />
+                  <AttKpi period="QTD" val={rep.ren_qtd} />
+                </div>
+              </div>
+              <div className="att-strip__row">
+                <span className="att-strip__sub-label">Exp</span>
+                <div className="att-strip__kpis">
+                  <AttKpi period="MTD" val={rep.exp_mtd} />
+                  <AttKpi period="QTD" val={rep.exp_qtd} />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="att-strip__kpis">
+              <AttKpi period="MTD" val={rep.mtd} />
+              <AttKpi period="QTD" val={rep.qtd} />
+            </div>
+          )}
+        </div>
+      )}
+      <div className="att-strip__section">
+        <div className="att-strip__label">{isManager ? "Team attainment" : "Team"}</div>
+        <div className="att-strip__kpis">
+          <AttKpi period="MTD" val={team.mtd} />
+          <AttKpi period="QTD" val={team.qtd} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ── HomeView ─────────────────────────────────────────────────────────────────
@@ -1996,6 +2213,9 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
           </>
         )}
       </div>
+
+      {/* Attainment strip */}
+      <AttainmentStrip repId={myRepId} isManager={isManager} />
 
       {/* Team quick-status for reps */}
       {!isManager && (
@@ -2327,19 +2547,21 @@ function App({ authedUser, preloadedState }) {
             );
           })
         }
-        {/* Divider before rep tabs */}
-        <span className="tabs__divider" aria-hidden="true" />
-        {REPS.map(rep => (
-          <button
-            key={rep.id}
-            className="tabs__tab"
-            data-active={view === rep.id ? "1" : "0"}
-            onClick={() => setView(rep.id)}
-          >
-            <Avatar rep={rep} size={22} />
-            {rep.name.split(" ")[0]}
-          </button>
-        ))}
+        {/* Rep tabs — only shown in weekly review context */}
+        {(view === "rollup" || REPS.some(r => r.id === view)) && (<>
+          <span className="tabs__divider" aria-hidden="true" />
+          {REPS.map(rep => (
+            <button
+              key={rep.id}
+              className="tabs__tab"
+              data-active={view === rep.id ? "1" : "0"}
+              onClick={() => setView(rep.id)}
+            >
+              <Avatar rep={rep} size={22} />
+              {rep.name.split(" ")[0]}
+            </button>
+          ))}
+        </>)}
       </div>
 
       <main className="app__main">
@@ -2364,13 +2586,17 @@ function App({ authedUser, preloadedState }) {
                 onPickRep={(id) => setView(id)}
               />
             </div>
+          ) : view === "leaderboard" ? (
+            <LeaderboardView />
           ) : view === "standup" ? (
             <div data-screen-label="02 Standup">
               <StandupView authedUser={effectiveUser} />
             </div>
           ) : view === "wins" ? (
             <div data-screen-label="04 Weekly Wins">
-              <WinsFormView authedUser={effectiveUser} />
+              <WinsFormView
+                authedUser={effectiveUser}
+              />
             </div>
           ) : view === "manager:flags" ? (
             <FlagQueue

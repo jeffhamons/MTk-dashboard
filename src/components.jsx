@@ -73,6 +73,8 @@ function Icon({ name, size = 20, stroke = 1.6 }) {
       return (<svg {...common}><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V10.5z" /><path d="M9 21V13h6v8" /></svg>);
     case "standup":
       return (<svg {...common}><circle cx="12" cy="7" r="3" /><path d="M5 21c0-4 3-7 7-7s7 3 7 7" /><path d="M12 14v4" /><path d="M10 17h4" /></svg>);
+    case "leaderboard":
+      return (<svg {...common}><rect x="3" y="13" width="4" height="7" rx="1" /><rect x="9" y="8" width="4" height="12" rx="1" /><rect x="15" y="4" width="4" height="16" rx="1" /></svg>);
     default: return null;
   }
 }

@@ -505,6 +505,74 @@ function subscribeWinsChanges(weekIndex, onRow) {
 }
 
 // ============================================================
+// ATTAINMENT — load latest snapshot per rep
+// Returns array of rows, one per rep, sorted by rep_id.
+// ============================================================
+async function loadAttainment() {
+  const sb = client();
+  const { data, error } = await sb
+    .from("attainment_snapshot")
+    .select("*")
+    .order("rep_id", { ascending: true })
+    .order("synced_at", { ascending: false });
+
+  if (error) { console.error("loadAttainment", error); return []; }
+
+  const seen = new Set();
+  const latest = [];
+  for (const row of (data || [])) {
+    if (!seen.has(row.rep_id)) {
+      seen.add(row.rep_id);
+      latest.push(row);
+    }
+  }
+  return latest;
+}
+
+// ============================================================
+// ATTAINMENT — derive % values from raw snapshot row
+// Returns { type: "newbiz" | "cs", mtd, qtd, ytd, ... } or null.
+// CS branch falls back to renewal-only when expansion target is
+// missing, so a half-populated row doesn't poison the blend.
+// ============================================================
+function deriveAttainmentPcts(row) {
+  if (!row) return null;
+
+  if (row.nb_annual_target) {
+    const target = row.nb_annual_target;
+    const mtdTarget = target / 12;
+    const qtdTarget = target / 4;
+    return {
+      type: "newbiz",
+      mtd: Math.round((row.nb_mtd_won / mtdTarget) * 100),
+      qtd: Math.round((row.nb_qtd_won / qtdTarget) * 100),
+      ytd: Math.round((row.nb_ytd_won / target)    * 100),
+    };
+  }
+
+  const renMtd = Math.round(row.ren_mtd_pct || 0);
+  const renQtd = Math.round(row.ren_qtd_pct || 0);
+  const renYtd = Math.round(row.ren_ytd_pct || 0);
+
+  const hasExp = row.exp_annual_target && row.exp_annual_target > 0;
+  const expMtd = hasExp ? Math.round((row.exp_mtd_won / (row.exp_annual_target / 12)) * 100) : 0;
+  const expQtd = hasExp ? Math.round((row.exp_qtd_won / (row.exp_annual_target / 4))  * 100) : 0;
+  const expYtd = hasExp ? Math.round((row.exp_ytd_won /  row.exp_annual_target)       * 100) : 0;
+
+  const wRen = hasExp ? 0.7 : 1.0;
+  const wExp = hasExp ? 0.3 : 0.0;
+
+  return {
+    type: "cs",
+    mtd: Math.round(renMtd * wRen + expMtd * wExp),
+    qtd: Math.round(renQtd * wRen + expQtd * wExp),
+    ytd: Math.round(renYtd * wRen + expYtd * wExp),
+    ren_mtd: renMtd, ren_qtd: renQtd, ren_ytd: renYtd,
+    exp_mtd: expMtd, exp_qtd: expQtd, exp_ytd: expYtd,
+  };
+}
+
+// ============================================================
 // EXPORT GLOBALS
 // ============================================================
 Object.assign(window, {
@@ -533,4 +601,6 @@ Object.assign(window, {
   loadAllWinsForWeek,
   saveWins,
   subscribeWinsChanges,
+  loadAttainment,
+  deriveAttainmentPcts,
 });
