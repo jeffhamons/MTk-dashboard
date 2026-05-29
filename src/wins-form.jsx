@@ -179,7 +179,7 @@ function WinsFormView({ authedUser }) {
     isManager ? (activeReps[0]?.id || null) : (myRepId || activeReps[0]?.id || null)
   );
 
-  const canEdit = !isManager;
+  const canEdit = !isManager && viewingRepId === myRepId;
 
   // Self-contained week navigation over the extended WF_WEEKS list
   const [wfIdx, setWfIdx] = useWFState(() => currentWFWeekIdx());
@@ -189,7 +189,8 @@ function WinsFormView({ authedUser }) {
   const [loading, setLoading] = useWFState(true);
   const [status,  setStatus ] = useWFState("saved");
 
-  const saveTimer = useWFRef(null);
+  // Map of week|rep -> timeout ID, to preserve pending saves across switches
+  const saveTimers = useWFRef({});
 
   // Load + subscribe on week/rep change
   useWFEffect(() => {
@@ -217,15 +218,17 @@ function WinsFormView({ authedUser }) {
     return () => { cancelled = true; unsub && unsub(); };
   }, [week?.weekIndex, viewingRepId]);
 
-  // Debounced save
+  // Debounced save — keyed per week|rep so switches don't drop pending edits
   function schedSave(next) {
     setStatus("saving");
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
+    const key = `${week.weekIndex}|${viewingRepId}`;
+    if (saveTimers.current[key]) clearTimeout(saveTimers.current[key]);
+    saveTimers.current[key] = setTimeout(() => {
       const stamped = { ...next, updated_at: new Date().toISOString(), updated_by: email };
       wfSave(week.weekIndex, viewingRepId, stamped, email)
         .then(() => setStatus("saved"))
         .catch(() => setStatus("error"));
+      delete saveTimers.current[key];
     }, 450);
   }
 
