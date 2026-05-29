@@ -92,21 +92,69 @@ function emptyForm() {
 }
 
 // ── Auto-growing textarea ──────────────────────────────────────────────────
+// Buffers keystrokes in local state so typing only re-renders this cell, not
+// the whole form (which would otherwise setForm + setStatus on every character
+// and re-render all four sections). Mirrors StandupCell: the upward onChange is
+// debounced and flushed on blur, and a dirty flag keeps realtime/prop echoes
+// from clobbering an in-progress edit.
 function WFTextarea({ value, onChange, placeholder, readOnly }) {
   const ref = useWFRef(null);
+  const [local, setLocal] = useWFState(value || "");
+  const dirtyRef = useWFRef(false);
+
+  // Refs mirror current values so the debounced flush never reads a stale
+  // snapshot captured in the render that scheduled the timer.
+  const localRef    = useWFRef(local);
+  const valueRef    = useWFRef(value || "");
+  const onChangeRef = useWFRef(onChange);
+  useWFEffect(() => { localRef.current    = local;       }, [local]);
+  useWFEffect(() => { valueRef.current    = value || ""; }, [value]);
+  useWFEffect(() => { onChangeRef.current = onChange;    }, [onChange]);
+
+  // Adopt external updates (realtime echo, week/rep switch) unless mid-edit.
+  useWFEffect(() => {
+    if (!dirtyRef.current) setLocal(value || "");
+  }, [value]);
+
+  // Auto-grow: match height to content on mount + every local change.
   useWFEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = el.scrollHeight + "px";
-  }, [value]);
+  }, [local]);
+
+  // Debounced upward save: 450ms after the last keystroke, or on blur.
+  const saveTimerRef = useWFRef(null);
+  function flush() {
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    if (dirtyRef.current && localRef.current !== valueRef.current) {
+      dirtyRef.current = false;
+      onChangeRef.current && onChangeRef.current(localRef.current);
+    }
+  }
+  const flushRef = useWFRef(flush);
+  useWFEffect(() => { flushRef.current = flush; });
+  useWFEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
+
+  function handleInput(e) {
+    const v = e.target.value;
+    localRef.current = v;
+    setLocal(v);
+    dirtyRef.current = true;
+    e.target.style.height = "auto";
+    e.target.style.height = e.target.scrollHeight + "px";
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => flushRef.current(), 450);
+  }
+
   return (
     <textarea
       ref={ref}
       className="wf-ta"
-      value={value}
-      onChange={e => onChange && onChange(e.target.value)}
-      onInput={e => { e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }}
+      value={local}
+      onChange={handleInput}
+      onBlur={() => flushRef.current()}
       placeholder={placeholder}
       readOnly={readOnly}
       rows={2}
