@@ -2490,7 +2490,7 @@ function App({ authedUser, preloadedState }) {
                     onClick={() => { setDevViewAs({ role:"manager", rep_id:"", authEmail:"jeff.hamons@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>MGR</span> Jeff Hamons
                   </button>
-                  {REPS.filter(r => r.name !== "TBD").map(r => (
+                  {REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, WEEKS[weekIdx].index)).map(r => (
                     <button key={r.id} className={"viewas__item" + (myRepId === r.id && !isManager ? " is-active" : "")}
                       onClick={() => { setDevViewAs({ role:"rep", rep_id: r.id, authEmail: r.id+"@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                       <Avatar rep={r} size={16}/> {r.name}

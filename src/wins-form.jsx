@@ -345,7 +345,7 @@ function WinsFormView({ authedUser }) {
             <div className="wf__rep-bar">
               <span className="wf__rep-bar-lbl">Viewing</span>
               <div className="wf__rep-pills">
-                {activeReps.map(r => (
+                {activeReps.filter(r => repVisibleInWeek(r, week.weekIndex)).map(r => (
                   <button key={r.id} type="button"
                     className={"wf__rep-pill" + (viewingRepId===r.id ? " is-active" : "")}
                     onClick={() => setViewingRepId(r.id)}>

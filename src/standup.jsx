@@ -329,14 +329,17 @@ function StandupView({ authedUser }) {
   const isManager = authedUser && authedUser.role === "manager";
   const myRepId = isManager ? "manager" : (authedUser && authedUser.rep_id) || null;
 
-  // Participants: active reps (skip name === "TBD") + Jeff.
-  const participants = useStandupMemo(() => {
-    const active = REPS.filter(r => r.name !== "TBD");
-    return [...active, MANAGER_PARTICIPANT];
-  }, []);
-  const participantIds = useStandupMemo(() => participants.map(p => p.id), [participants]);
-
   const [date, setDateState] = useStandupState(() => dateFromUrl());
+
+  // Participants: active reps (skip name === "TBD") + Jeff. Reps who departed
+  // mid-cycle (activeThrough) drop off from the week containing the viewed date,
+  // so they stay in past standups but not current/future ones.
+  const participants = useStandupMemo(() => {
+    const wk = currentWeekIndex(WEEKS, parseYmd(date)) + 1;
+    const active = REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, wk));
+    return [...active, MANAGER_PARTICIPANT];
+  }, [date]);
+  const participantIds = useStandupMemo(() => participants.map(p => p.id), [participants]);
   const [entries, setEntries] = useStandupState({}); // { rep_id: row }
   const [loading, setLoading] = useStandupState(true);
 
