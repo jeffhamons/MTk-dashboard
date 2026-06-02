@@ -40,9 +40,10 @@ const AUTH_TIMEOUT_MS = 8000;
 // can click them. For these emails we keep the same signInWithOtp call but
 // finish the flow by entering the 6-digit token from the email body into a
 // verifyOtp form, so no URL fragment is ever touched by a bot.
-const OTP_CODE_USERS = new Set([
-  "brenda.bravener@mindtools-kineo.com",
-]);
+// Currently empty — brenda.bravener@ removed 2026-06-02 when her access was
+// revoked. Add an address here if a future allowlisted user hits the same
+// corporate-scanner problem.
+const OTP_CODE_USERS = new Set([]);
 
 // Hold the loading paint briefly. Cached-session resolutions are usually
 // <200ms; flashing "Checking sign-in status…" for one paint frame before the
