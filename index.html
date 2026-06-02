@@ -2049,7 +2049,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
     const rDels = DELIVERABLES.filter(d => !rSkips.includes(d.id));
     const rDone = rDels.filter(d => !!state.checks[checkKey(r.id, week.id, d.id)]).length;
     return { rep: r, done: rDone, total: rDels.length, clean: rDels.length > 0 && rDone === rDels.length };
-  }).filter(r => r.rep.name !== "TBD");
+  }).filter(r => r.rep.name !== "TBD" && repVisibleInWeek(r.rep, week.index));
   const cleanCount = repRows.filter(r => r.clean).length;
 
   // First name
@@ -2550,7 +2550,7 @@ function App({ authedUser, preloadedState }) {
         {/* Rep tabs — only shown in weekly review context */}
         {(view === "rollup" || REPS.some(r => r.id === view)) && (<>
           <span className="tabs__divider" aria-hidden="true" />
-          {REPS.map(rep => (
+          {REPS.filter(rep => repVisibleInWeek(rep, WEEKS[weekIdx].index)).map(rep => (
             <button
               key={rep.id}
               className="tabs__tab"

@@ -10,8 +10,9 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
   const isPast = week.sunday < today;
   const curIdx = currentWeekIndex();
 
-  // For each rep, compute completion for this week, respecting per-rep skips
-  const rows = REPS.map(rep => {
+  // For each rep, compute completion for this week, respecting per-rep skips.
+  // Reps who departed mid-cycle (activeThrough) drop off from their week N+1.
+  const rows = REPS.filter(rep => repVisibleInWeek(rep, week.index)).map(rep => {
     const skips = rep.skips || [];
     const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
     // We still produce a counts array aligned with the FULL DELIVERABLES list
@@ -89,7 +90,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
               const sel = i === weekIdx;
               // Compute team completion for this week (respecting per-rep skips)
               let done = 0, total = 0;
-              REPS.forEach(rep => {
+              REPS.filter(rep => repVisibleInWeek(rep, w.index)).forEach(rep => {
                 const skips = rep.skips || [];
                 DELIVERABLES.forEach(d => {
                   if (skips.includes(d.id)) return;

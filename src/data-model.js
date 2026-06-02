@@ -11,6 +11,9 @@ const REPS = [
     } },
   { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18,
     skips: [],
+    // Departed mid-cycle — visible through week 5 (her history), hidden from
+    // week 6 (Jun 1) onward. See repVisibleInWeek().
+    activeThrough: 5,
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=ZnLAD9&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMjAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
@@ -112,6 +115,14 @@ function currentWeekIndex(weeks = WEEKS, today = TODAY) {
   }
   if (today < weeks[0].monday) return 0;
   return weeks.length - 1;
+}
+
+// Whether a rep should appear in a given week. A rep with `activeThrough: N`
+// (e.g. departed mid-cycle) shows in weeks 1..N — their history — and is hidden
+// from week N+1 onward. Reps without the marker are always visible.
+// weekIndex is the 1-based WEEKS[i].index, NOT the 0-based array position.
+function repVisibleInWeek(rep, weekIndex) {
+  return !rep || rep.activeThrough == null || weekIndex <= rep.activeThrough;
 }
 
 // Date formatting helpers
@@ -345,7 +356,7 @@ function fireMailto(url) {
 // Expose globally for other Babel scripts
 Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY,
-  currentWeekIndex,
+  currentWeekIndex, repVisibleInWeek,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,
   buildWeekEmail, buildQuarterEmail, openMailto,

@@ -5,7 +5,6 @@
 
 const LB_NEW_BIZ = [
   { id: "cammy",  name: "Cammy Bean",               initials: "CB", mtd: 112, qtd: 94, ytd: 87 },
-  { id: "brenda", name: "Brenda Bravener-Greville",  initials: "BB", mtd: 94,  qtd: 88, ytd: 82 },
   { id: "farah",  name: "Farah Issa",                initials: "FI", mtd: 71,  qtd: 67, ytd: 74 },
 ];
 
@@ -160,11 +159,14 @@ function LeaderboardView() {
     let cancelled = false;
     window.loadAttainment().then(rows => {
       if (cancelled) return;
+      // Reps who departed mid-cycle drop off the current standings too.
+      const curWeekIndex = window.currentWeekIndex() + 1; // 1-based WEEKS index
       const newbiz = [], cs = [];
       for (const row of rows) {
         const pcts = window.deriveAttainmentPcts(row);
         if (!pcts) continue;
         const rep = (window.REPS || []).find(r => r.id === row.rep_id);
+        if (rep && !window.repVisibleInWeek(rep, curWeekIndex)) continue;
         const entry = {
           id: row.rep_id,
           name: rep ? rep.name : row.rep_id,
