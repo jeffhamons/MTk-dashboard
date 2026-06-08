@@ -387,7 +387,10 @@ async function signOut() {
 
 function onAuthChange(cb) {
   const sb = client();
-  const { data: { subscription } } = sb.auth.onAuthStateChange((_evt, session) => cb(session));
+  // Forward the event type. The gate needs to tell first sign-in
+  // (INITIAL_SESSION / SIGNED_IN) apart from routine background maintenance
+  // (TOKEN_REFRESHED / USER_UPDATED) so a refresh can't tear down a live session.
+  const { data: { subscription } } = sb.auth.onAuthStateChange((evt, session) => cb(evt, session));
   return () => subscription.unsubscribe();
 }
 

@@ -65,6 +65,12 @@ function AuthGate({ children }) {
   const [otpStage, setOtpStage] = React.useState("email"); // "email" | "code"
   const [code, setCode] = React.useState("");
 
+  // Tracks whether we've already resolved into a live signed-in session. Read
+  // inside the auth-change handler (whose closure captures `phase` stale), so a
+  // routine background token refresh doesn't re-gate — and possibly error out —
+  // an app the user is actively using.
+  const signedInRef = React.useRef(false);
+
   // Defer the loading-card paint so fast resolutions never flash UI.
   React.useEffect(() => {
     const t = setTimeout(() => setShowLoading(true), LOADING_PAINT_DELAY_MS);
@@ -90,9 +96,23 @@ function AuthGate({ children }) {
       setPhase("error");
     }, AUTH_TIMEOUT_MS);
 
-    const unsub = window.onAuthChange(async (session) => {
+    const unsub = window.onAuthChange(async (evt, session) => {
       if (cancelled) return;
       clearTimeout(watchdog);
+
+      // Routine background maintenance on an already-live session must NOT
+      // re-gate the app. autoRefreshToken fires TOKEN_REFRESHED periodically
+      // and whenever an idle/backgrounded tab refocuses; the refreshed JWT is
+      // already applied to the client, so the running app needs nothing from
+      // us. Re-running getMyUser here (raced against AUTH_TIMEOUT_MS) was
+      // bouncing active users to the "Sign-in is unavailable" screen whenever
+      // that refresh-time call hung — e.g. the navigator.locks wedge that's
+      // most likely right after a tab wakes. Ignore it and keep the session.
+      // SIGNED_OUT/USER_DELETED carry a null session and fall through below.
+      if (signedInRef.current && session && (evt === "TOKEN_REFRESHED" || evt === "USER_UPDATED" || evt === "SIGNED_IN")) {
+        return;
+      }
+
       if (session) {
         try {
           // Parallel: the user-row query and the state queries both need
@@ -115,6 +135,7 @@ function AuthGate({ children }) {
           if (cancelled) return;
           setUser(u);
           setPreloadedState(preloaded);
+          signedInRef.current = true;
           setPhase("signed-in");
         } catch (e) {
           console.error("auth change → getMyUser", e);
@@ -123,6 +144,7 @@ function AuthGate({ children }) {
           setPhase("error");
         }
       } else {
+        signedInRef.current = false;
         setUser(null);
         setPreloadedState(null);
         setPhase("signed-out");
