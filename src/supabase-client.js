@@ -535,8 +535,17 @@ async function loadAttainment() {
 // ============================================================
 // ATTAINMENT — derive % values from raw snapshot row
 // Returns { type: "newbiz" | "cs", mtd, qtd, ytd, ... } or null.
-// CS branch falls back to renewal-only when expansion target is
-// missing, so a half-populated row doesn't poison the blend.
+//
+// CS is a QUARTERLY renewal metric, per the 2026 CS commission letters
+// ("commission paid quarterly in arrears" on the quarter's target):
+//   • QTD = renewed-this-quarter ÷ this quarter's (uneven) target.
+//   • YTD = cumulative renewed ÷ summed elapsed-quarter targets (the plan has
+//     no annual target; the sync computes this running sum).
+//   • MTD has NO target → null (the UI renders "—", never a fake 0%).
+//   • Upsell/cross-sell ("expansion") are 1% commission on activity, NOT scored
+//     to a target — carried as $ activity, never blended into attainment %.
+// A null pct means "no target", and MUST stay null (do not floor to 0) so the
+// UI can distinguish "no target this period" from "attained nothing".
 // ============================================================
 function deriveAttainmentPcts(row) {
   if (!row) return null;
@@ -553,25 +562,26 @@ function deriveAttainmentPcts(row) {
     };
   }
 
-  const renMtd = Math.round(row.ren_mtd_pct || 0);
-  const renQtd = Math.round(row.ren_qtd_pct || 0);
-  const renYtd = Math.round(row.ren_ytd_pct || 0);
-
-  const hasExp = row.exp_annual_target && row.exp_annual_target > 0;
-  const expMtd = hasExp ? Math.round((row.exp_mtd_won / (row.exp_annual_target / 12)) * 100) : 0;
-  const expQtd = hasExp ? Math.round((row.exp_qtd_won / (row.exp_annual_target / 4))  * 100) : 0;
-  const expYtd = hasExp ? Math.round((row.exp_ytd_won /  row.exp_annual_target)       * 100) : 0;
-
-  const wRen = hasExp ? 0.7 : 1.0;
-  const wExp = hasExp ? 0.3 : 0.0;
+  // null/undefined → null (no target); a real number → rounded %.
+  const pct = (v) => (v === null || v === undefined ? null : Math.round(v));
+  const dollars = (v) => (v === null || v === undefined ? null : v);
 
   return {
     type: "cs",
-    mtd: Math.round(renMtd * wRen + expMtd * wExp),
-    qtd: Math.round(renQtd * wRen + expQtd * wExp),
-    ytd: Math.round(renYtd * wRen + expYtd * wExp),
-    ren_mtd: renMtd, ren_qtd: renQtd, ren_ytd: renYtd,
-    exp_mtd: expMtd, exp_qtd: expQtd, exp_ytd: expYtd,
+    mtd: null,                  // no monthly renewal target exists
+    qtd: pct(row.ren_qtd_pct),  // renewed ÷ this quarter's target
+    ytd: pct(row.ren_ytd_pct),  // cumulative renewed ÷ summed elapsed-quarter targets
+    ren_mtd: null,
+    ren_qtd: pct(row.ren_qtd_pct),
+    ren_ytd: pct(row.ren_ytd_pct),
+    // Expansion = upsell + cross-sell $ activity (no target → no %).
+    exp_mtd_won: dollars(row.exp_mtd_won),
+    exp_qtd_won: dollars(row.exp_qtd_won),
+    exp_ytd_won: dollars(row.exp_ytd_won),
+    // Renewal $ activity (MTD has no %, so the tile shows $ renewed instead).
+    ren_mtd_renewed: dollars(row.ren_mtd_renewed),
+    ren_qtd_renewed: dollars(row.ren_qtd_renewed),
+    ren_ytd_renewed: dollars(row.ren_ytd_renewed),
   };
 }
 
