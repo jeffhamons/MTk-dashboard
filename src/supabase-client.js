@@ -533,6 +533,42 @@ async function loadAttainment() {
 }
 
 // ============================================================
+// ATTAINMENT V2 — deal-level detail loaders (Target Board / My Number expand)
+// closed_won_deals, renewal_book, cs_quarterly_targets are populated by
+// agents/sf_attainment_sync.py. The snapshot carries the headline %s; these
+// carry the line items behind them. All are team-readable (RLS: authenticated).
+// ============================================================
+async function loadClosedWonDeals() {
+  const sb = client();
+  const { data, error } = await sb
+    .from("closed_won_deals")
+    .select("*")
+    .order("close_date", { ascending: true });
+  if (error) { console.error("loadClosedWonDeals", error); return []; }
+  return data || [];
+}
+
+async function loadRenewalBook() {
+  const sb = client();
+  const { data, error } = await sb
+    .from("renewal_book")
+    .select("*")
+    .order("due_date", { ascending: true });
+  if (error) { console.error("loadRenewalBook", error); return []; }
+  return data || [];
+}
+
+async function loadCsQuarterlyTargets() {
+  const sb = client();
+  const { data, error } = await sb
+    .from("cs_quarterly_targets")
+    .select("*")
+    .order("quarter", { ascending: true });
+  if (error) { console.error("loadCsQuarterlyTargets", error); return []; }
+  return data || [];
+}
+
+// ============================================================
 // ATTAINMENT — derive % values from raw snapshot row
 // Returns { type: "newbiz" | "cs", mtd, qtd, ytd, ... } or null.
 //
@@ -615,5 +651,8 @@ Object.assign(window, {
   saveWins,
   subscribeWinsChanges,
   loadAttainment,
+  loadClosedWonDeals,
+  loadRenewalBook,
+  loadCsQuarterlyTargets,
   deriveAttainmentPcts,
 });
