@@ -335,7 +335,7 @@ function StandupView({ authedUser }) {
   // mid-cycle (activeThrough) drop off from the week containing the viewed date,
   // so they stay in past standups but not current/future ones.
   const participants = useStandupMemo(() => {
-    const wk = currentWeekIndex(WEEKS, parseYmd(date)) + 1;
+    const wk = currentWeekIndex(WEEKS, date) + 1;
     const active = REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, wk));
     return [...active, MANAGER_PARTICIPANT];
   }, [date]);
