@@ -41,10 +41,14 @@ function TBTeamCard({ name, kind, pct, won, tar, period }) {
   );
 }
 
-function TBNbDetail({ rep, period }) {
+function TBNbDetail({ rep, period, isManager, myRepId }) {
   const K = window.attFmtK, F = window.attFmtFull;
   const c = window.attNbCompute(rep);
   const denom = Math.max(c.target, c.won) || 1;
+  // RLS hides peer deal rows from non-manager viewers (PR #1809). A rep peeking at a
+  // teammate's row sees deals.length === 0 because rows are filtered, not because the
+  // peer sold nothing. Distinguish the two cases so the empty state doesn't demoralize.
+  const peerHidden = !isManager && !!myRepId && rep.id !== myRepId;
   return (
     <>
       <div className="tb-mini3">
@@ -65,7 +69,7 @@ function TBNbDetail({ rep, period }) {
           {c.gap > 0 && <div className="tb-gapz"><span>{F(c.gap)} to go</span></div>}
           <div className="tb-goalcap" />
         </div>
-        {rep.deals.length === 0 && <div className="tb-dealrow"><span className="tb-dealrow__acct" style={{ color: "var(--ink-50)" }}>No closed-won deals synced this quarter yet.</span></div>}
+        {rep.deals.length === 0 && <div className="tb-dealrow"><span className="tb-dealrow__acct" style={{ color: "var(--ink-50)" }}>{peerHidden ? "Mind your own pipeline — that's where the commission lives." : "No closed-won deals synced this quarter yet."}</span></div>}
         {rep.deals.map((d, i) => (
           <div key={i} className="tb-dealrow">
             <span className="tb-dealrow__acct">{d.acct}</span>
@@ -115,7 +119,7 @@ function TBCsDetail({ rep }) {
   );
 }
 
-function TBRow({ rep, rank, period, kind, isOpen, onToggle }) {
+function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId }) {
   const meta = window.attRepMeta(rep.id);
   const p = kind === "nb" ? rep.pct[period] : rep.ren[period];
   return (
@@ -130,14 +134,14 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle }) {
       </button>
       <div className="tb-detail">
         <div className="tb-detail__inner">
-          {kind === "nb" ? <TBNbDetail rep={rep} period={period} /> : <TBCsDetail rep={rep} />}
+          {kind === "nb" ? <TBNbDetail rep={rep} period={period} isManager={isManager} myRepId={myRepId} /> : <TBCsDetail rep={rep} />}
         </div>
       </div>
     </div>
   );
 }
 
-function TBBoard({ list, kind, period, openSet, toggle }) {
+function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
   const key = kind === "nb" ? "pct" : "ren";
   // Sort by % desc; reps with no target this period (null) sort last.
   const sorted = [...list].sort((a, b) => {
@@ -153,13 +157,16 @@ function TBBoard({ list, kind, period, openSet, toggle }) {
   return (
     <div className="tb-board">
       {sorted.map((rep, i) => (
-        <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} />
+        <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} />
       ))}
     </div>
   );
 }
 
-function LeaderboardView() {
+function LeaderboardView({ authedUser }) {
+  const isManager = !!(authedUser && authedUser.role === "manager");
+  const myRepId   = isManager ? null : ((authedUser && authedUser.rep_id) || null);
+
   const [period, setPeriod] = React.useState("qtd");
   const [openSet, setOpenSet] = React.useState(() => new Set());
   const [data, setData] = React.useState(() => ({ nb: window.ATT_NB_SAMPLE || [], cs: window.ATT_CS_SAMPLE || [] }));
@@ -214,7 +221,7 @@ function LeaderboardView() {
           <h2 className="tb-section__title">New Business</h2>
           <span className="tb-section__hint">% to quota · expand for deal stack</span>
         </div>
-        <TBBoard list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} />
+        <TBBoard list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
       </section>
 
       <section className="tb-section">
@@ -223,7 +230,7 @@ function LeaderboardView() {
           <h2 className="tb-section__title">Customer Success</h2>
           <span className="tb-section__hint">renewal % to quarter target · CS monthly has no target (—)</span>
         </div>
-        <TBBoard list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} />
+        <TBBoard list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
       </section>
 
       <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>

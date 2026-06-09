@@ -2593,7 +2593,7 @@ function App({ authedUser, preloadedState }) {
               />
             </div>
           ) : view === "leaderboard" ? (
-            <LeaderboardView />
+            <LeaderboardView authedUser={effectiveUser} />
           ) : view === "standup" ? (
             <div data-screen-label="02 Standup">
               <StandupView authedUser={effectiveUser} />
