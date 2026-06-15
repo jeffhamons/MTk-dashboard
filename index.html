@@ -2357,11 +2357,11 @@ function App({ authedUser, preloadedState }) {
     setState(s => {
       const managerNotes = { ...(s.managerNotes || {}) };
       if (!note || !note.trim()) delete managerNotes[k];
-      else managerNotes[k] = { note: note.trim(), updated_by: authedUser.authEmail, updated_at: new Date().toISOString() };
+      else managerNotes[k] = { note: note.trim(), updated_by: (authedUser || effectiveUser).authEmail, updated_at: new Date().toISOString() };
       return { ...s, managerNotes };
     });
     if (useCloud) {
-      window.setManagerNoteSupabase(repId, weekId, delId, note, authedUser.authEmail).catch(console.error);
+      window.setManagerNoteSupabase(repId, weekId, delId, note, (authedUser || effectiveUser).authEmail).catch(console.error);
     }
   };
 
@@ -2509,11 +2509,11 @@ function App({ authedUser, preloadedState }) {
           {effectiveUser ? (
             <div className="me-badge">
               {isManager ? (
-                <><span className="me-badge__role">Manager</span><strong>{authedUser.authEmail}</strong></>
+                <><span className="me-badge__role">Manager</span><strong>{(authedUser || effectiveUser).authEmail}</strong></>
               ) : (
                 (() => {
                   const meRep = REPS.find(r => r.id === myRepId);
-                  return meRep ? <><Avatar rep={meRep} size={22} /><strong>{meRep.name}</strong></> : <strong>{authedUser.authEmail}</strong>;
+                  return meRep ? <><Avatar rep={meRep} size={22} /><strong>{meRep.name}</strong></> : <strong>{(authedUser || effectiveUser).authEmail}</strong>;
                 })()
               )}
               <span className={"me-badge__dot " + (cloudReady ? "is-live" : "is-loading")}
