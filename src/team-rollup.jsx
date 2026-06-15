@@ -18,7 +18,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
     // We still produce a counts array aligned with the FULL DELIVERABLES list
     // so the rollup grid columns line up across all reps. Skipped cells get null.
     const counts = DELIVERABLES.map(d =>
-      skips.includes(d.id) ? null : !!state.checks[checkKey(rep.id, week.id, d.id)]
+      skips.includes(d.id) ? null : delComplete(rep.id, week, d.id, state)
     );
     const done = counts.filter(c => c === true).length;
     return { rep, counts, done, total: activeDels.length };
@@ -95,7 +95,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
                 DELIVERABLES.forEach(d => {
                   if (skips.includes(d.id)) return;
                   total += 1;
-                  if (state.checks[checkKey(rep.id, w.id, d.id)]) done += 1;
+                  if (delComplete(rep.id, w, d.id, state)) done += 1;
                 });
               });
               const pct = total ? done / total : 0;

@@ -1,12 +1,12 @@
 // Per-rep view: shows three deliverables for a selected week, with check toggles.
 // Includes week navigator and a 10-week timeline strip.
 
-function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager, onOpenWins }) {
+function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager, onOpenWins, onOpenStandup }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const skips = rep.skips || [];
   const activeDeliverables = DELIVERABLES.filter(d => !skips.includes(d.id));
-  const checks = activeDeliverables.map(d => !!state.checks[checkKey(rep.id, week.id, d.id)]);
+  const checks = activeDeliverables.map(d => delComplete(rep.id, week, d.id, state));
   const done = checks.filter(Boolean).length;
   const total = activeDeliverables.length;
   const clean = done === total;
@@ -44,7 +44,7 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
       {/* 10-week timeline strip */}
       <div className="weekstrip">
         {WEEKS.map((w, i) => {
-          const wChecks = activeDeliverables.map(d => !!state.checks[checkKey(rep.id, w.id, d.id)]);
+          const wChecks = activeDeliverables.map(d => delComplete(rep.id, w, d.id, state));
           const wDone = wChecks.filter(Boolean).length;
           const wClean = wDone === activeDeliverables.length;
           const isSel = i === weekIdx;
@@ -140,8 +140,10 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
       {/* The deliverables for this rep (skipped ones filtered out) */}
       <div className="deliverables" style={{ "--deliv-count": activeDeliverables.length }}>
         {activeDeliverables.map((d, i) => {
-          const checkVal = state.checks[checkKey(rep.id, week.id, d.id)];
-          const checked = !!checkVal;
+          const isAuto = d.id === "standup";
+          const sStatus = isAuto ? standupStatus(rep.id, week, state) : null;
+          const checkVal = isAuto ? null : state.checks[checkKey(rep.id, week.id, d.id)];
+          const checked = isAuto ? sStatus.done : !!checkVal;
           return (
             <article key={d.id} className="deliverable" data-checked={checked ? "1" : "0"}>
               <div className="deliverable__head">
@@ -156,6 +158,19 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
                   <p>{d.why}</p>
                 </div>
                 {(() => {
+                  // Standup deliverable → open the standup grid in-app
+                  if (isAuto && onOpenStandup) {
+                    return (
+                      <button
+                        className="deliverable__link"
+                        onClick={onOpenStandup}
+                        style={{ background:"none", border:"none", cursor:"pointer", padding:0, font:"inherit", textAlign:"left" }}
+                      >
+                        <Icon name="standup" size={14} />
+                        <span>Open the standup</span>
+                      </button>
+                    );
+                  }
                   // Wins deliverable → navigate in-app instead of opening spreadsheet
                   if (d.id === "wins" && onOpenWins) {
                     return (
@@ -196,25 +211,55 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
                 })()}
               </div>
               <div className="deliverable__foot">
-                <BigCheck
-                  checked={checked}
-                  onToggle={() => onCheck(rep.id, week.id, d.id)}
-                  label={`Mark ${d.title} done`}
-                  readOnly={readOnly}
-                />
+                {isAuto ? (
+                  <div className={"deliverable__auto" + (checked ? " is-done" : "")}>
+                    <div className="deliverable__auto-status">
+                      {sStatus.active ? (
+                        <><strong>{sStatus.filled}</strong><span>of {sStatus.required} this week</span></>
+                      ) : (
+                        <span>No standups due yet</span>
+                      )}
+                    </div>
+                    <div className="deliverable__auto-tag">
+                      <span>{checked ? (sStatus.active ? "Caught up" : "On track") : `${sStatus.required - sStatus.filled} missed`}</span>
+                      <span className="deliverable__auto-auto">Auto</span>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <BigCheck
+                      checked={checked}
+                      onToggle={() => onCheck(rep.id, week.id, d.id)}
+                      label={`Mark ${d.title} done`}
+                      readOnly={readOnly}
+                    />
+                    <AskForHelp
+                      rep={rep}
+                      weekId={week.id}
+                      delId={d.id}
+                      state={state}
+                      onAsk={onAsk}
+                      onAskResponse={onAskResponse}
+                      isManager={isManager}
+                      disabled={checked || readOnly}
+                    />
+                  </>
+                )}
+              </div>
+              {checked && checkVal && checkVal.markedBy && checkVal.markedBy.role === "manager" && (
+                <MarkedByStamp check={checkVal} />
+              )}
+              {isAuto && state.asks && state.asks[checkKey(rep.id, week.id, "standup")] && (
                 <AskForHelp
                   rep={rep}
                   weekId={week.id}
-                  delId={d.id}
+                  delId="standup"
                   state={state}
                   onAsk={onAsk}
                   onAskResponse={onAskResponse}
                   isManager={isManager}
-                  disabled={checked || readOnly}
+                  disabled={readOnly}
                 />
-              </div>
-              {checked && checkVal && checkVal.markedBy && checkVal.markedBy.role === "manager" && (
-                <MarkedByStamp check={checkVal} />
               )}
               {isManager && onSaveNote && (
                 <ManagerNote

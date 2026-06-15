@@ -982,6 +982,35 @@ button { font: inherit; color: inherit; }
 @media (max-width: 700px) {
   .deliverables { grid-template-columns: 1fr; }
 }
+/* Five deliverables get tight on a laptop — drop to 3-up first. */
+@media (min-width: 1201px) and (max-width: 1480px) {
+  .deliverables { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Auto-tracked deliverable (Daily Standup) — derived completion, no manual check */
+.deliverable__auto {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; width: 100%;
+  padding: 11px 14px; border-radius: 12px;
+  background: var(--paper-deep); border: 1px solid var(--ink-10);
+}
+.deliverable__auto.is-done { background: var(--done-tint); border-color: var(--done); }
+.deliverable__auto-status { display: flex; align-items: baseline; gap: 5px; font-size: 12.5px; color: var(--ink-50); }
+.deliverable__auto-status strong {
+  font-family: var(--font-display, inherit); font-size: 22px; font-weight: 700;
+  line-height: 1; color: var(--ink);
+}
+.deliverable__auto.is-done .deliverable__auto-status strong { color: var(--done-deep); }
+.deliverable__auto-tag {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--ink-50);
+}
+.deliverable__auto.is-done .deliverable__auto-tag { color: var(--done-deep); }
+.deliverable__auto-auto {
+  font-size: 9px; padding: 2px 6px; border-radius: 999px;
+  background: var(--ink-10); color: var(--ink-50); letter-spacing: .08em;
+}
 
 .deliverable {
   background: var(--card);
@@ -1837,6 +1866,17 @@ if (!window.loadStandupForDate) {
   };
 }
 
+// Build standupFills from the local stub (non-cloud mode). Mirrors
+// loadStandupFills() in supabase-client.js but reads localStorage.
+window.loadLocalStandupFills = () => {
+  try {
+    const s = JSON.parse(localStorage.getItem('mtk-standup-v1') || '{}');
+    const rows = [];
+    for (const ymd in s) for (const repId in s[ymd]) rows.push({ date: ymd, rep_id: repId, ...s[ymd][repId] });
+    return window.standupFillsFromRows ? window.standupFillsFromRows(rows) : {};
+  } catch { return {}; }
+};
+
 // ── Daily quotes — rotates by calendar day so everyone sees the same one ─────
 const DAILY_QUOTES = [
   // Motivational
@@ -1928,7 +1968,7 @@ function attTier(pct) {
 }
 
 function teamAttainmentFrom(data) {
-  const active = Object.entries(data).filter(([id, v]) => id !== "don" && v && (v.mtd || v.qtd));
+  const active = Object.entries(data).filter(([id, v]) => v && (v.mtd || v.qtd));
   if (!active.length) return { mtd: 0, qtd: 0 };
   const mtd = Math.round(active.reduce((s, [, v]) => s + v.mtd, 0) / active.length);
   const qtd = Math.round(active.reduce((s, [, v]) => s + v.qtd, 0) / active.length);
@@ -2023,22 +2063,24 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
   const rep = REPS.find(r => r.id === myRepId);
   const skips = rep ? (rep.skips || []) : [];
   const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
-  const checks = activeDels.map(d => !!state.checks[checkKey(myRepId, week.id, d.id)]);
+  const checks = activeDels.map(d => delComplete(myRepId, week, d.id, state));
   const done = checks.filter(Boolean).length;
   const total = activeDels.length;
   const clean = total > 0 && done === total;
   const donePct = total === 0 ? 0 : (done / total) * 100;
 
-  // Next standup date
-  const STANDUP_DAYS = new Set([2, 4]); // Tue, Thu
+  // Next standup date — cadence rules live in standup.jsx (single source of truth).
+  const _isStandupDay = window.isStandupDay || ((d) => new Set([2,4]).has(d.getDay()));
+  const _standupMode = window.standupMode || (() => "sync");
   function nextStandup() {
     const d = new Date(today);
     d.setDate(d.getDate() + 1);
-    while (!STANDUP_DAYS.has(d.getDay())) d.setDate(d.getDate() + 1);
+    while (!_isStandupDay(d)) d.setDate(d.getDate() + 1);
     return d;
   }
-  const isStandupToday = STANDUP_DAYS.has(today.getDay());
+  const isStandupToday = _isStandupDay(today);
   const nextSD = isStandupToday ? today : nextStandup();
+  const nextSDMode = _standupMode(nextSD);
   const nextSDLabel = isStandupToday
     ? `Today · ${fmtShort(today)}`
     : `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][nextSD.getDay()]} · ${fmtShort(nextSD)}`;
@@ -2050,7 +2092,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
   const repRows = REPS.map(r => {
     const rSkips = r.skips || [];
     const rDels = DELIVERABLES.filter(d => !rSkips.includes(d.id));
-    const rDone = rDels.filter(d => !!state.checks[checkKey(r.id, week.id, d.id)]).length;
+    const rDone = rDels.filter(d => delComplete(r.id, week, d.id, state)).length;
     return { rep: r, done: rDone, total: rDels.length, clean: rDels.length > 0 && rDone === rDels.length };
   }).filter(r => r.rep.name !== "TBD" && repVisibleInWeek(r.rep, week.index));
   const cleanCount = repRows.filter(r => r.clean).length;
@@ -2195,16 +2237,16 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView }) {
               <div className="home__card-header">
                 <div>
                   <div className="home__card-label">Daily Standup</div>
-                  <div className="home__card-title">Tue &amp; Thu</div>
-                  <div className="home__card-sub">4 prompts · realtime · whole team</div>
+                  <div className="home__card-title">Daily &middot; Mon&ndash;Fri</div>
+                  <div className="home__card-sub">Tue &amp; Thu live &middot; Mon/Wed/Fri async</div>
                 </div>
                 {isStandupToday && (
                   <span className="home__standup-badge">Today</span>
                 )}
               </div>
               <div className={"home__standup-next" + (isStandupToday ? " is-today" : "")}>
-                <div className="home__standup-next-label">{isStandupToday ? "Today's standup" : "Next standup"}</div>
-                <div className="home__standup-next-date">{nextSDLabel}</div>
+                <div className="home__standup-next-label">{isStandupToday ? (nextSDMode === "sync" ? "Today · live standup" : "Today · async standup") : "Next standup"}</div>
+                <div className="home__standup-next-date">{nextSDLabel}{isStandupToday ? "" : nextSDMode === "sync" ? " · Live" : " · Async"}</div>
               </div>
               <div className="home__standup-hint">
                 4 prompts: since last standup · pushing next · what's slowing · what I need
@@ -2259,6 +2301,9 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 const isPreview = window.location.hostname.includes('claudeusercontent.com')
   || window.location.hostname === 'localhost'
   || new URLSearchParams(window.location.search).get('demo') === 'true';
+// Expose so data layers (e.g. attainment) can show sample data in the design
+// sandbox without ever fabricating numbers for a real signed-in rep in prod.
+window.IS_PREVIEW = isPreview;
 
 function App({ authedUser, preloadedState }) {
   // Supabase-backed when configured; falls back to localStorage otherwise.
@@ -2274,6 +2319,10 @@ function App({ authedUser, preloadedState }) {
 
   // Seed from AuthGate's parallel preload when available, else localStorage.
   const [state, setState] = useState(() => preloadedState || loadState());
+  // Standup fills (for the auto "Daily Standup" deliverable) are loaded
+  // separately and merged in below — keeping them OUT of `state` means realtime
+  // state replacements + localStorage persistence never clobber them.
+  const [standupFills, setStandupFills] = useState({});
   // Everyone lands on the home screen
   const [view, setView] = useState("home");
   const [weekIdx, setWeekIdx] = useState(currentWeekIndex());
@@ -2314,6 +2363,27 @@ function App({ authedUser, preloadedState }) {
 
   // Persist locally whenever state changes (offline cache + non-cloud mode)
   useEffect(() => { saveState(state); }, [state]);
+
+  // Load standup fills (auto "Daily Standup" completion). Refreshed when the
+  // view or week changes, and once cloud is ready, so posts reflect quickly.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        let fills = {};
+        if (window.SUPABASE_CONFIGURED && window.loadStandupFills) {
+          fills = await window.loadStandupFills();
+        } else if (window.loadLocalStandupFills) {
+          fills = window.loadLocalStandupFills();
+        }
+        if (!cancelled) setStandupFills(fills || {});
+      } catch (e) { console.error("loadStandupFills", e); }
+    })();
+    return () => { cancelled = true; };
+  }, [view, weekIdx, cloudReady]);
+
+  // State handed to the views = persisted state + derived standup fills.
+  const stateForViews = React.useMemo(() => ({ ...state, standupFills }), [state, standupFills]);
 
   // Apply tweaks to root
   useEffect(() => {
@@ -2411,6 +2481,40 @@ function App({ authedUser, preloadedState }) {
           }
         : null;
       window.setAskSupabase(repId, weekId, delId, text, resolvedBy).catch(console.error);
+    }
+  };
+
+  // Standup → manager flag. When a rep @-mentions the manager in a standup,
+  // raise a flag in the same Open-Flags system (delId "standup") so the manager
+  // can respond + resolve it just like a weekly-page flag. Guard: a flag the
+  // manager already resolved won't resurrect unless the mention text changes.
+  const onStandupFlag = (repId, weekId, text) => {
+    const delId = "standup";
+    const k = `${repId}|${weekId}|${delId}`;
+    const trimmed = (text || "").trim();
+    if (!trimmed) return;
+    let shouldWrite = false;
+    setState(s => {
+      const asks = { ...(s.asks || {}) };
+      const resolvedAsks = { ...(s.resolvedAsks || {}) };
+      const openExisting = asks[k];
+      const resolvedExisting = resolvedAsks[k];
+      // Same text the manager already resolved → leave it closed.
+      if (!openExisting && resolvedExisting && resolvedExisting.text === trimmed) return s;
+      // No change to an already-open flag → no write.
+      if (openExisting && openExisting.text === trimmed) return s;
+      const next = { text: trimmed, at: (openExisting && openExisting.at) || new Date().toISOString() };
+      if (openExisting && openExisting.response) next.response = openExisting.response;
+      asks[k] = next;
+      if (resolvedExisting) delete resolvedAsks[k];
+      shouldWrite = true;
+      return { ...s, asks, resolvedAsks };
+    });
+    if (shouldWrite && useCloud) {
+      const resolvedBy = authedUser
+        ? { email: authedUser.authEmail, name: authedUser.authEmail.split("@")[0], role: isManager ? "manager" : "rep" }
+        : null;
+      window.setAskSupabase(repId, weekId, delId, trimmed, resolvedBy).catch(console.error);
     }
   };
 
@@ -2575,7 +2679,7 @@ function App({ authedUser, preloadedState }) {
           {view === "home" ? (
             <div data-screen-label="00 Home">
               <HomeView
-                state={state}
+                state={stateForViews}
                 weekIdx={weekIdx}
                 isManager={isManager}
                 myRepId={myRepId}
@@ -2586,7 +2690,7 @@ function App({ authedUser, preloadedState }) {
           ) : view === "rollup" ? (
             <div data-screen-label="01 Team Rollup">
               <TeamRollup
-                state={state}
+                state={stateForViews}
                 weekIdx={weekIdx}
                 setWeekIdx={setWeekIdx}
                 onPickRep={(id) => setView(id)}
@@ -2596,7 +2700,7 @@ function App({ authedUser, preloadedState }) {
             <LeaderboardView authedUser={effectiveUser} />
           ) : view === "standup" ? (
             <div data-screen-label="02 Standup">
-              <StandupView authedUser={effectiveUser} />
+              <StandupView authedUser={effectiveUser} onStandupFlag={onStandupFlag} />
             </div>
           ) : view === "wins" ? (
             <div data-screen-label="04 Weekly Wins">
@@ -2627,7 +2731,7 @@ function App({ authedUser, preloadedState }) {
               )}
               <RepView
                 rep={activeRep}
-                state={state}
+                state={stateForViews}
                 weekIdx={weekIdx}
                 setWeekIdx={setWeekIdx}
                 onCheck={onCheck}
@@ -2638,6 +2742,7 @@ function App({ authedUser, preloadedState }) {
                 readOnly={isReadOnly}
                 isManager={isManager}
                 onOpenWins={() => setView("wins")}
+                onOpenStandup={() => setView("standup")}
               />
             </div>
           ) : null}

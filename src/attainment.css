@@ -220,6 +220,7 @@
 .tb-section__hint { margin-left: auto; font-size: 12px; color: var(--ink-50); }
 
 .tb-board { background: var(--card); border: 1px solid var(--ink-10); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+.tb-empty { padding: 22px 24px; color: var(--ink-50); font-size: 14px; line-height: 1.5; }
 
 .tb-row { border-top: 1px solid var(--ink-10); }
 .tb-row:first-child { border-top: none; }
@@ -235,6 +236,20 @@
 .tb-row__bar { position: relative; height: 10px; border-radius: 6px; background: var(--ink-10); overflow: hidden; }
 .tb-row__bar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; }
 .tb-row__pct { font-family: var(--font-mono); font-size: 19px; font-weight: 600; text-align: right; letter-spacing: -.01em; }
+/* CS stacked bar: renewal-to-target + upsell/cross-sell expansion */
+.tb-row__bar--cs { overflow: visible; }
+.tb-row__seg { position: absolute; top: 0; bottom: 0; left: 0; }
+.tb-row__seg--ren { border-radius: 6px 0 0 6px; }
+.tb-row__seg--exp { background: #00A0B4; border-radius: 0 6px 6px 0; box-shadow: inset 1.5px 0 0 #fff; }
+.tb-row__cap { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); border-radius: 1px; z-index: 2; }
+.tb-row__pct--cs { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; line-height: 1.05; }
+.tb-row__pct--cs .tb-row__pct-num { font-family: var(--font-mono); font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.tb-row__pct-exp { font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; color: #00A0B4; white-space: nowrap; }
+.tb-leg { display: inline-flex; align-items: center; gap: 5px; margin-left: 14px; }
+.tb-leg:first-child { margin-left: 0; }
+.tb-leg__sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.tb-leg__sw--ren { background: var(--brand); }
+.tb-leg__sw--exp { background: #00A0B4; }
 .tb-row__chev { color: var(--ink-30); display: flex; justify-content: center; transition: transform .2s; }
 .tb-row.open .tb-row__chev { transform: rotate(90deg); color: var(--ink-50); }
 

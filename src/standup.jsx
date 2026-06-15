@@ -24,11 +24,47 @@ const STANDUP_PROMPTS = [
   { key: "what_i_need",   label: "What I need",          short: "need" },
 ];
 
-// Standup days: Tue (2) and Thu (4). All other days are skipped.
-const STANDUP_DOWS = new Set([2, 4]);
+// ── Standup cadence ──────────────────────────────────────────────────────────
+// The team runs a standup every weekday (Mon–Fri). Tuesdays and Thursdays are
+// SYNCHRONOUS (live, whole team); the other weekdays are ASYNCHRONOUS (post your
+// update whenever you can). Before DAILY_STANDUP_START the team only ran Tue/Thu,
+// so navigating into history surfaces just those legacy standup days — the daily
+// cadence kicks in from the cutover forward.
+const DAILY_STANDUP_START = "2026-06-16"; // first every-weekday standup
+const SYNC_DOWS = new Set([2, 4]);        // Tue, Thu → synchronous
+
+function isWeekday(d) {
+  const w = d.getDay();
+  return w >= 1 && w <= 5;
+}
 
 function isStandupDay(d) {
-  return STANDUP_DOWS.has(d.getDay());
+  // From the cutover forward, every weekday is a standup day. Before it, only
+  // Tue/Thu existed.
+  if (ymd(d) >= DAILY_STANDUP_START) return isWeekday(d);
+  return SYNC_DOWS.has(d.getDay());
+}
+
+// 'sync' on Tue/Thu, 'async' on the other weekdays. Only meaningful for days
+// where isStandupDay(d) is true.
+function standupMode(d) {
+  return SYNC_DOWS.has(d.getDay()) ? "sync" : "async";
+}
+
+// Standup days within a week that COUNT TOWARD THE WEEKLY DELIVERABLE: every
+// weekday from the daily-cadence cutover forward, up to and including `cap`
+// (today). Legacy Tue/Thu-only standups (before the cutover) are NOT tracked as
+// a requirement, so weeks that ended before the cutover require nothing. Returns
+// an array of YYYY-MM-DD strings.
+function standupRequiredDates(week, cap) {
+  const out = [];
+  const d = new Date(week.monday);
+  for (let i = 0; i < 7; i++) {
+    const s = ymd(d);
+    if (isWeekday(d) && s >= DAILY_STANDUP_START && (!cap || s <= ymd(cap))) out.push(s);
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
 }
 
 function ymd(d) {
@@ -325,7 +361,7 @@ function MentionedYouBanner({ myRepId, participants, entries, onJump }) {
 }
 
 // ── StandupView ─────────────────────────────────────────────────────────────
-function StandupView({ authedUser }) {
+function StandupView({ authedUser, onStandupFlag }) {
   const isManager = authedUser && authedUser.role === "manager";
   const myRepId = isManager ? "manager" : (authedUser && authedUser.rep_id) || null;
 
@@ -389,6 +425,21 @@ function StandupView({ authedUser }) {
     } catch (e) {
       console.error("saveStandupField", e);
     }
+
+    // If this row now @-mentions the manager, raise/refresh a flag in the
+    // Open-Flags queue for that rep+week (manager mentions only, not peer
+    // mentions, and not the manager flagging themselves).
+    if (onStandupFlag && repId !== "manager" && mentions.includes("manager")) {
+      const wk = window.weekForDate ? window.weekForDate(ymd(date)) : null;
+      if (wk) {
+        const flagText = STANDUP_PROMPTS
+          .filter(p => parseMentions(merged[p.key] || "", ["manager"]).length > 0)
+          .map(p => (merged[p.key] || "").trim())
+          .filter(Boolean)
+          .join("  \u00b7  ");
+        if (flagText) onStandupFlag(repId, wk.id, flagText);
+      }
+    }
   }
 
   function jumpTo(repId, fieldKey) {
@@ -402,6 +453,12 @@ function StandupView({ authedUser }) {
   const dateLabel = formatStandupDate(date);
   const today = new Date(); today.setHours(0,0,0,0);
   const isTodayStandup = isStandupDay(today) && ymd(today) === ymd(date);
+  const mode = standupMode(date);
+  const isSyncDay = mode === "sync";
+  const isPast = ymd(date) < ymd(today);
+  // Input is only open on today's standup. Past & upcoming days are review-only —
+  // you log your update on the day, not before or after.
+  const editingOpen = isTodayStandup;
 
   // End-standup sendoff overlay: full-screen blackout with animated text,
   // auto-dismisses after 4.2s or on any keypress / click.
@@ -439,7 +496,15 @@ function StandupView({ authedUser }) {
           >‹</button>
           <div className="standup__date-label">
             <div className="standup__date-main">{dateLabel}</div>
-            <div className="standup__date-sub">{isTodayStandup ? "Today's standup" : "Past standup"}</div>
+            <div className="standup__date-tags">
+              <span className={"standup__mode standup__mode--" + mode}>
+                <span className="standup__mode-dot" aria-hidden="true" />
+                {isSyncDay ? "Synchronous · live" : "Asynchronous"}
+              </span>
+              <span className="standup__date-sub">
+                {isTodayStandup ? "Today · open" : isPast ? "Past · review only" : "Upcoming · review only"}
+              </span>
+            </div>
           </div>
           <button
             type="button"
@@ -455,6 +520,14 @@ function StandupView({ authedUser }) {
           disabled={ymd(date) === ymd(defaultStandupDate())}
         >Jump to current</button>
       </header>
+
+      {!editingOpen && (
+        <div className="standup__readonly-note" role="note">
+          {isPast
+            ? "You're reviewing a past standup. Entries are read-only — you can only add to today's standup."
+            : "This standup hasn't opened yet. You'll be able to add your update on the day."}
+        </div>
+      )}
 
       <MentionedYouBanner
         myRepId={myRepId}
@@ -478,7 +551,7 @@ function StandupView({ authedUser }) {
           {participants.map(p => {
             const row = entries[p.id] || {};
             const isMyRow = p.id === myRepId;
-            const canEdit = isMyRow || isManager;
+            const canEdit = (isMyRow || isManager) && editingOpen;
             return (
               <div
                 key={p.id}
@@ -545,9 +618,34 @@ const __STANDUP_STYLE = `
     color: rgba(0,0,0,.7);
   }
   .standup__nav-btn:hover { background: rgba(0,0,0,.04); color: #000; }
-  .standup__date-label { text-align: center; min-width: 200px; }
+  .standup__date-label { text-align: center; min-width: 220px; }
   .standup__date-main { font-size: 18px; font-weight: 600; }
+  .standup__date-tags {
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px; margin-top: 3px;
+  }
+  .standup__mode {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  }
+  .standup__mode-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .standup__mode--sync {
+    color: hsl(var(--accent-h, 250), 55%, 42%);
+    background: hsla(var(--accent-h, 250), 60%, 50%, .14);
+  }
+  .standup__mode--async { color: rgba(0,0,0,.5); background: rgba(0,0,0,.07); }
   .standup__date-sub { font-size: 11px; color: rgba(0,0,0,.5); text-transform: uppercase; letter-spacing: .04em; }
+
+  .standup__readonly-note {
+    background: rgba(0,0,0,.035);
+    border: 1px solid rgba(0,0,0,.08);
+    border-radius: 10px;
+    padding: 11px 15px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: rgba(0,0,0,.6);
+  }
   .standup__today-btn {
     appearance: none; border: 1px solid rgba(0,0,0,.12); background: #fff;
     padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;
@@ -759,3 +857,9 @@ const __STANDUP_STYLE = `
 
 window.StandupView = StandupView;
 window.__STANDUP_PROMPTS = STANDUP_PROMPTS;
+// Shared so the Home standup card stays in lockstep with the cadence rules.
+window.isStandupDay = isStandupDay;
+window.standupMode = standupMode;
+window.standupRequiredDates = standupRequiredDates;
+window.nextStandupDate = nextStandupDate;
+window.defaultStandupDate = defaultStandupDate;

@@ -24,7 +24,8 @@ const REPS = [
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=VeYQ0C&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMTAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBPIeHopSD9TKouVkmtbRtAAbws9qXWmZxz8IMtd1U8QrU?e=A1Ye1Y",
     } },
-  { id: "don",     name: "TBD",                     role: "Senior Account Executive", initials: "—", hue: 38,
+  { id: "don",     name: "Don Hazelwood",           role: "Senior Account Executive", initials: "DH", hue: 38,
+    email: "Donald.Hazelwood@mindtools-kineo.com",
     skips: [],
     links: {} },
   { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280,
@@ -74,6 +75,17 @@ const DELIVERABLES = [
     docLabel: "Open the tracker",
     docHref: "#commitments-doc",
     icon: "tracker",
+  },
+  {
+    id: "standup",
+    title: "Daily Standup",
+    short: "Post your standup every weekday — what moved, what's next, what's slowing you, what you need.",
+    why: "Daily reps compound. A quick written check-in keeps blockers visible the day they surface — not a week later. Tuesdays and Thursdays we also talk it through live.",
+    note: "Tue & Thu live · Mon/Wed/Fri async — completion is tracked automatically from your posts.",
+    docLabel: null,
+    docHref: null,
+    auto: true,
+    icon: "standup",
   },
 ];
 
@@ -150,6 +162,64 @@ function saveState(s) {
 }
 function checkKey(repId, weekId, delId) { return `${repId}|${weekId}|${delId}`; }
 
+// ── Standup-as-deliverable ───────────────────────────────────────────────────
+// The "Daily Standup" deliverable isn't a manual checkbox — it's derived from
+// how many of the week's required standups the rep actually filled in.
+// `state.standupFills` maps `repId|weekId` → array of YYYY-MM-DD dates the rep
+// posted something on. The cadence / required-day logic lives in standup.jsx
+// (window.standupRequiredDates), keeping a single source of truth.
+
+// Which WEEK (object) a YYYY-MM-DD date falls in, or null if outside the program.
+function weekForDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  for (const w of WEEKS) { if (dt >= w.monday && dt <= w.sunday) return w; }
+  return null;
+}
+
+// A standup row "counts" only when one of the four prompt fields has real content.
+function rowHasStandupContent(r) {
+  return ["what_moved", "pushing_next", "whats_slowing", "what_i_need"]
+    .some(k => ((r && r[k]) || "").trim().length > 0);
+}
+
+// Build the standupFills map ({ 'repId|weekId': ['YYYY-MM-DD', …] }) from raw
+// standup_entries rows (Supabase or the local stub).
+function standupFillsFromRows(rows) {
+  const out = {};
+  for (const r of (rows || [])) {
+    if (!r || !r.date || !r.rep_id || !rowHasStandupContent(r)) continue;
+    const w = weekForDate(r.date);
+    if (!w) continue;
+    const key = `${r.rep_id}|${w.id}`;
+    if (!out[key]) out[key] = [];
+    if (!out[key].includes(r.date)) out[key].push(r.date);
+  }
+  return out;
+}
+
+// Standup completion for one rep + week. `active` is false when no standups are
+// required yet (weeks before the daily cutover, or the current week before its
+// first daily standup) — then `done` is true so it never blocks a clean week.
+function standupStatus(repId, week, state, today = TODAY) {
+  const req = (typeof window !== "undefined" && window.standupRequiredDates)
+    ? window.standupRequiredDates(week, today) : [];
+  const fills = (state && state.standupFills && state.standupFills[`${repId}|${week.id}`]) || [];
+  const fillSet = new Set(fills);
+  const required = req.length;
+  const filled = req.filter(dt => fillSet.has(dt)).length;
+  const active = required > 0;
+  return { required, filled, done: !active || filled >= required, active };
+}
+
+// Unified completion test: manual deliverables read state.checks; the auto
+// "standup" deliverable derives from standup fills.
+function delComplete(repId, week, delId, state) {
+  if (delId === "standup") return standupStatus(repId, week, state).done;
+  return !!(state.checks && state.checks[checkKey(repId, week.id, delId)]);
+}
+
 // Seed historical data — week 1 (Apr 27) was last week. The user wants reps
 // to be able to check off historical items today during rollout, so we leave
 // week 1 UNCHECKED but valid. We DO pre-seed a realistic-looking past pattern
@@ -205,7 +275,7 @@ function buildWeekEmail(rep, week, state) {
   lines.push(``);
 
   // Status header
-  const checks = activeDels.map(d => !!state.checks[checkKey(rep.id, week.id, d.id)]);
+  const checks = activeDels.map(d => delComplete(rep.id, week, d.id, state));
   const done = checks.filter(Boolean).length;
   const total = activeDels.length;
   const clean = done === total;
@@ -215,7 +285,7 @@ function buildWeekEmail(rep, week, state) {
   // Per-deliverable list
   lines.push(`DELIVERABLES`);
   activeDels.forEach(d => {
-    const isDone = !!state.checks[checkKey(rep.id, week.id, d.id)];
+    const isDone = delComplete(rep.id, week, d.id, state);
     const mark = isDone ? "✅" : "⬜";
     const label = d.title.padEnd(20, " ");
     lines.push(`  ${mark}  ${label}  ${isDone ? "done" : "open"}`);
@@ -256,7 +326,7 @@ function buildQuarterEmail(rep, state) {
 
   let cleanWeeks = 0;
   WEEKS.forEach(w => {
-    const checks = activeDels.map(d => !!state.checks[checkKey(rep.id, w.id, d.id)]);
+    const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
     const clean = done === total;
@@ -266,7 +336,7 @@ function buildQuarterEmail(rep, state) {
   lines.push(``);
 
   WEEKS.forEach(w => {
-    const checks = activeDels.map(d => !!state.checks[checkKey(rep.id, w.id, d.id)]);
+    const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
     const clean = done === total;
@@ -274,7 +344,7 @@ function buildQuarterEmail(rep, state) {
     lines.push(`Week ${w.index} — ${fmtRange(w.monday, w.sunday)}  (${tag})`);
 
     activeDels.forEach(d => {
-      const isDone = !!state.checks[checkKey(rep.id, w.id, d.id)];
+      const isDone = delComplete(rep.id, w, d.id, state);
       lines.push(`    ${isDone ? "✅" : "⬜"}  ${d.title}`);
     });
     const openAsks = activeDels
@@ -359,5 +429,6 @@ Object.assign(window, {
   currentWeekIndex, repVisibleInWeek,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,
+  weekForDate, standupFillsFromRows, standupStatus, delComplete,
   buildWeekEmail, buildQuarterEmail, openMailto,
 });

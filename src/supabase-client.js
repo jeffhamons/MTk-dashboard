@@ -507,6 +507,16 @@ function subscribeWinsChanges(weekIndex, onRow) {
   return () => sb.removeChannel(channel);
 }
 
+// Load every standup_entries row and fold it into the standupFills map
+// ({ 'repId|weekId': ['YYYY-MM-DD', …] }) used to auto-derive the "Daily
+// Standup" weekly deliverable. One query for the whole program window.
+async function loadStandupFills() {
+  const sb = client();
+  const { data, error } = await sb.from("standup_entries").select("*");
+  if (error) { console.error("loadStandupFills", error); return {}; }
+  return (window.standupFillsFromRows ? window.standupFillsFromRows(data || []) : {});
+}
+
 // ============================================================
 // ATTAINMENT — load latest snapshot per rep
 // Returns array of rows, one per rep, sorted by rep_id.
@@ -646,6 +656,7 @@ Object.assign(window, {
   loadStandupForDate,
   saveStandupField,
   subscribeStandupChanges,
+  loadStandupFills,
   loadWins,
   loadAllWinsForWeek,
   saveWins,

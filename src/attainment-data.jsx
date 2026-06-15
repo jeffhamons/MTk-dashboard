@@ -91,6 +91,9 @@ const ATT_NB_SAMPLE = [
     { acct: "Acme Corp",         amt: 58000,  date: "Apr 9"  },
     { acct: "Globex",            amt: 74000,  date: "May 6"  },
   ] },
+  { id: "don", pct: { mtd: 8, qtd: 12, ytd: 12 }, quotaQ: 210000, deals: [
+    { acct: "Northwind Traders", amt: 26000,  date: "Jun 9"  },
+  ] },
 ];
 const ATT_CS_SAMPLE = [
   { id: "dwayne", ren: { mtd: null, qtd: 92, ytd: 88 }, q2target: 300000,
@@ -169,7 +172,9 @@ let _attV2Promise = null;
 function loadAttainmentV2() {
   if (_attV2Promise) return _attV2Promise;
   const sample = { nb: ATT_NB_SAMPLE, cs: ATT_CS_SAMPLE };
-  if (!window.SUPABASE_CONFIGURED || !window.loadAttainment) {
+  if (!window.SUPABASE_CONFIGURED || !window.loadAttainment || window.IS_PREVIEW) {
+    // Design sandbox / unconfigured: show sample so the board is reviewable.
+    // Production signed-in users always fall through to live-only data below.
     _attV2Promise = Promise.resolve(sample);
     return _attV2Promise;
   }

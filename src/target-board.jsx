@@ -122,14 +122,51 @@ function TBCsDetail({ rep }) {
 function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId }) {
   const meta = window.attRepMeta(rep.id);
   const p = kind === "nb" ? rep.pct[period] : rep.ren[period];
+
+  // CS bar shows TWO things: renewal % to target (tier-colored) and the
+  // upsell/cross-sell expansion stacked on top (teal). The tick marks the
+  // renewal target (100%); expansion can push the bar past it.
+  let csBar = null, csExp = 0;
+  if (kind === "cs") {
+    const c = window.attCsCompute(rep);
+    csExp = (rep.upsell || 0) + (rep.cross || 0);
+    const expP = c.target ? (csExp / c.target) * 100 : 0;
+    if (p != null) {
+      const scaleMax = Math.max(100, p + expP);
+      const renW = (p / scaleMax) * 100;
+      const expW = (expP / scaleMax) * 100;
+      const capW = (100 / scaleMax) * 100;
+      csBar = (
+        <span className="tb-row__bar tb-row__bar--cs">
+          <span className="tb-row__seg tb-row__seg--ren" style={{ width: `${renW}%`, background: window.attTierColor(p) }} />
+          {csExp > 0 && (
+            <span className="tb-row__seg tb-row__seg--exp" style={{ left: `${renW}%`, width: `${expW}%` }} title={`Expansion ${window.attFmtK(csExp)}`} />
+          )}
+          {capW < 99.5 && <span className="tb-row__cap" style={{ left: `${capW}%` }} title="Renewal target" />}
+        </span>
+      );
+    } else {
+      csBar = <span className="tb-row__bar tb-row__bar--cs" />;
+    }
+  }
+
   return (
     <div className={"tb-row" + (isOpen ? " open" : "") + (rank === 1 ? " r1" : "")}>
       <button className="tb-row__main" onClick={onToggle}>
         <span className="tb-row__rank">{rank}</span>
         <span className="tb-row__av" style={{ background: `oklch(0.6 0.17 ${meta.hue})` }}>{meta.initials}</span>
         <span className="tb-row__id"><span className="tb-row__name">{meta.name}</span><span className="tb-row__role">{meta.role}</span></span>
-        <span className="tb-row__bar"><i style={{ width: `${window.attBarWidth(p)}%`, background: window.attTierColor(p) }} /></span>
-        <span className="tb-row__pct" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
+        {kind === "cs"
+          ? csBar
+          : <span className="tb-row__bar"><i style={{ width: `${window.attBarWidth(p)}%`, background: window.attTierColor(p) }} /></span>}
+        {kind === "cs" ? (
+          <span className="tb-row__pct tb-row__pct--cs">
+            <span className="tb-row__pct-num" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
+            {csExp > 0 && <span className="tb-row__pct-exp">+{window.attFmtK(csExp)} exp</span>}
+          </span>
+        ) : (
+          <span className="tb-row__pct" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
+        )}
         <span className="tb-row__chev"><TBChevron /></span>
       </button>
       <div className="tb-detail">
@@ -152,7 +189,7 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
     return bv - av;
   });
   if (sorted.length === 0) {
-    return <div className="tb-board"><div className="tb-row"><div className="tb-row__main" style={{ cursor: "default", color: "var(--ink-50)" }}>No attainment data synced yet — check back after tonight's Salesforce sync.</div></div></div>;
+    return <div className="tb-board"><div className="tb-empty">No attainment data synced yet — check back after tonight's Salesforce sync.</div></div>;
   }
   return (
     <div className="tb-board">
@@ -228,7 +265,10 @@ function LeaderboardView({ authedUser }) {
         <div className="tb-section__head">
           <span className="tb-section__dot tb-section__dot--cs" />
           <h2 className="tb-section__title">Customer Success</h2>
-          <span className="tb-section__hint">renewal % to quarter target · CS monthly has no target (—)</span>
+          <span className="tb-section__hint">
+            <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--ren" />renewal to target</span>
+            <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--exp" />upsell / cross-sell</span>
+          </span>
         </div>
         <TBBoard list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
       </section>
