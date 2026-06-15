@@ -456,9 +456,11 @@ function StandupView({ authedUser, onStandupFlag }) {
   const mode = standupMode(date);
   const isSyncDay = mode === "sync";
   const isPast = ymd(date) < ymd(today);
-  // Input is only open on today's standup. Past & upcoming days are review-only —
-  // you log your update on the day, not before or after.
-  const editingOpen = isTodayStandup;
+  // Editing is open on today's standup AND any upcoming standup day, so you can
+  // get ahead and draft a future update. Past standup days are frozen
+  // (review-only): once a day has passed, its log is locked. A non-standup day
+  // (reachable only via a crafted ?date=) stays read-only.
+  const editingOpen = isStandupDay(date) && !isPast;
 
   // End-standup sendoff overlay: full-screen blackout with animated text,
   // auto-dismisses after 4.2s or on any keypress / click.
@@ -502,7 +504,7 @@ function StandupView({ authedUser, onStandupFlag }) {
                 {isSyncDay ? "Synchronous · live" : "Asynchronous"}
               </span>
               <span className="standup__date-sub">
-                {isTodayStandup ? "Today · open" : isPast ? "Past · review only" : "Upcoming · review only"}
+                {isPast ? "Past · review only" : isTodayStandup ? "Today · open" : editingOpen ? "Upcoming · open" : "Upcoming · review only"}
               </span>
             </div>
           </div>
@@ -524,8 +526,8 @@ function StandupView({ authedUser, onStandupFlag }) {
       {!editingOpen && (
         <div className="standup__readonly-note" role="note">
           {isPast
-            ? "You're reviewing a past standup. Entries are read-only — you can only add to today's standup."
-            : "This standup hasn't opened yet. You'll be able to add your update on the day."}
+            ? "You're reviewing a past standup. Past entries are locked — you can still edit today's or an upcoming standup."
+            : "This day isn't a standup day, so there's nothing to log here."}
         </div>
       )}
 
