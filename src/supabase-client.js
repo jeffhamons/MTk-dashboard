@@ -632,6 +632,78 @@ function deriveAttainmentPcts(row) {
 }
 
 // ============================================================
+// INDUCTION STATE (Don — Onboarding)
+// ============================================================
+const INDUCTION_LS_KEY = "don-induction-v1";
+function _indLsGet() { try { return JSON.parse(localStorage.getItem(INDUCTION_LS_KEY) || "{}"); } catch { return {}; } }
+function _indLsSet(o) { try { localStorage.setItem(INDUCTION_LS_KEY, JSON.stringify(o)); } catch {} }
+
+async function loadInductionState() {
+  if (SUPABASE_CONFIGURED) {
+    try {
+      const sb = client();
+      const { data: { user } } = await sb.auth.getUser();
+      if (user) {
+        const { data, error } = await sb
+          .from("induction_state").select("item_id,value").eq("user_id", user.id);
+        if (!error && data) {
+          const out = {};
+          for (const r of data) out[r.item_id] = r.value;
+          return out;
+        }
+        if (error) console.error("loadInductionState", error);
+      }
+    } catch (e) { console.error("loadInductionState", e); }
+  }
+  return _indLsGet();
+}
+
+async function loadInductionStateFor(repId) {
+  if (SUPABASE_CONFIGURED) {
+    try {
+      const sb = client();
+      const { data: u } = await sb.from("users").select("auth_id").eq("rep_id", repId).maybeSingle();
+      if (u && u.auth_id) {
+        const { data, error } = await sb
+          .from("induction_state").select("item_id,value").eq("user_id", u.auth_id);
+        if (!error && data) {
+          const out = {};
+          for (const r of data) out[r.item_id] = r.value;
+          return out;
+        }
+        if (error) console.error("loadInductionStateFor", error);
+      }
+    } catch (e) { console.error("loadInductionStateFor", e); }
+  }
+  return _indLsGet();
+}
+
+async function setInductionItem(itemId, value) {
+  const clear = value === null || value === undefined || value === "" || value === false;
+  const local = _indLsGet();
+  if (clear) delete local[itemId]; else local[itemId] = String(value);
+  _indLsSet(local);
+  if (SUPABASE_CONFIGURED) {
+    try {
+      const sb = client();
+      const { data: { user } } = await sb.auth.getUser();
+      if (user) {
+        if (clear) {
+          const { error } = await sb.from("induction_state").delete()
+            .match({ user_id: user.id, item_id: itemId });
+          if (error) console.error("setInductionItem clear", error);
+        } else {
+          const { error } = await sb.from("induction_state").upsert(
+            { user_id: user.id, item_id: itemId, value: String(value), updated_at: new Date().toISOString() },
+            { onConflict: "user_id,item_id" });
+          if (error) console.error("setInductionItem", error);
+        }
+      }
+    } catch (e) { console.error("setInductionItem", e); }
+  }
+}
+
+// ============================================================
 // EXPORT GLOBALS
 // ============================================================
 Object.assign(window, {
@@ -666,4 +738,7 @@ Object.assign(window, {
   loadRenewalBook,
   loadCsQuarterlyTargets,
   deriveAttainmentPcts,
+  loadInductionState,
+  loadInductionStateFor,
+  setInductionItem,
 });

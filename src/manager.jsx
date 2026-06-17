@@ -16,6 +16,7 @@ const APP_PAGES = [
   { id: "standup",       label: "Standup",      icon: "standup",     requires: "any"     },
   { id: "wins",          label: "Weekly Wins",  icon: "wins",        requires: "any"     },
   { id: "manager:flags", label: "Open flags",   icon: "flag",        requires: "manager" },
+  { id: "don:onboarding", label: "Don — Onboarding", icon: "onboarding", requires: "don-or-manager" },
 ];
 
 // =====================================================================

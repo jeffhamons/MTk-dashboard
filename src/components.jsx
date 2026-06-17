@@ -75,6 +75,8 @@ function Icon({ name, size = 20, stroke = 1.6 }) {
       return (<svg {...common}><circle cx="12" cy="7" r="3" /><path d="M5 21c0-4 3-7 7-7s7 3 7 7" /><path d="M12 14v4" /><path d="M10 17h4" /></svg>);
     case "leaderboard":
       return (<svg {...common}><rect x="3" y="13" width="4" height="7" rx="1" /><rect x="9" y="8" width="4" height="12" rx="1" /><rect x="15" y="4" width="4" height="16" rx="1" /></svg>);
+    case "onboarding":
+      return (<svg {...common}><rect x="5" y="4" width="14" height="17" rx="2" /><path d="M9 4a3 3 0 0 1 6 0" /><path d="M9 13l2 2 4-4" /></svg>);
     default: return null;
   }
 }
