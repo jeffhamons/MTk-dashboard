@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Weekly Review · North America BD</title>
+<title>Weekly Review · Global BD</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -530,6 +530,35 @@ button { font: inherit; color: inherit; }
   background: var(--done);
   border-color: var(--done);
   box-shadow: inset 0 0 0 3px var(--card);
+}
+
+/* Region sections in rollup grid */
+.rollup__region-section + .rollup__region-section { margin-top: 20px; }
+.rollup__region-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px 6px; border-bottom: 1.5px solid var(--ink-10);
+}
+.rollup__region-head-label {
+  font-size: 13px; font-weight: 600; color: var(--ink-70); letter-spacing: 0.02em; text-transform: uppercase;
+}
+.rollup__region-head-badge {
+  font-size: 11px; font-weight: 500; color: var(--ink-50);
+  background: var(--ink-05); padding: 1px 8px; border-radius: 4px;
+}
+.rolluprow--subtotal {
+  background: var(--ink-05); border-top: 1.5px dashed var(--ink-10); cursor: default;
+}
+.rolluprow--subtotal:hover { background: var(--ink-05); }
+.rolluprow--subtotal[data-clean="1"] { background: var(--done-tint); }
+.rolluprow--subtotal .rolluprow__rep-name--subtotal {
+  font-size: 13px; font-weight: 600; color: var(--ink-70);
+}
+.rolluprow--total {
+  background: var(--card); border-top: 2px solid var(--ink-20); cursor: default; margin-top: 4px;
+}
+.rolluprow--total:hover { background: var(--card); }
+.rolluprow--total .rolluprow__rep-name--total {
+  font-size: 13px; font-weight: 700; color: var(--ink); letter-spacing: 0.01em;
 }
 
 /* cadence panel */

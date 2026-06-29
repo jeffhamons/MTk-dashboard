@@ -306,6 +306,41 @@
 .tb-tile__v { font-family: var(--font-mono); font-size: 16px; font-weight: 600; margin-top: 4px; }
 .tb-tile__s { font-size: 10.5px; color: var(--ink-70); margin-top: 2px; }
 
+/* ── Region grouping ──────────────────────────────────────────────────── */
+.tb-region-section { margin-top: 22px; }
+.tb-region-section:first-child { margin-top: 0; }
+
+.tb-region-head {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 10px; padding: 0 2px;
+}
+.tb-region-head__active {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--done); flex: none;
+}
+.tb-region-head__label {
+  font-size: 15px; font-weight: 600; letter-spacing: -.01em;
+  color: var(--ink);
+}
+.tb-region-head__badge {
+  margin-left: auto;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 700;
+  letter-spacing: .08em; color: var(--ink-50);
+  background: var(--ink-05); padding: 3px 9px; border-radius: 999px;
+}
+
+/* Region team card — slightly compacted sibling of tb-tcard */
+.tb-tcard--region { margin-bottom: 10px; box-shadow: none; border-color: var(--ink-10); }
+
+/* Region currency badge inside a per-region team card */
+.tb-region-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-mono); font-size: 9px; font-weight: 700;
+  color: var(--ink-50); background: var(--ink-05);
+  padding: 2px 7px; border-radius: 999px; margin-left: 8px;
+  letter-spacing: .04em;
+}
+
 .tb-note { margin-top: 26px; font-size: 11.5px; color: var(--ink-50); font-family: var(--font-mono); display: flex; align-items: center; gap: 7px; }
 
 @media (max-width: 760px) {

@@ -24,13 +24,35 @@ function tbAvg(arr, fn) {
   return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
 }
 
-function TBTeamCard({ name, kind, pct, won, tar, period }) {
-  const K = window.attFmtK;
+function TBTeamCard({ name, kind, pct, won, tar, period, badge }) {
+  const K = window.attFmtKRaw;
+  const sym = badge != null ? badge : "";
   return (
     <div className="tb-tcard">
       <div className="tb-tcard__l">
         <div className="tb-tcard__name"><span className={`tb-tcard__dot tb-tcard__dot--${kind}`} />{name} · Team</div>
-        <div className="tb-tcard__money"><b>{K(won)}</b> of {K(tar)} · {window.ATT_QUARTER.label}</div>
+        <div className="tb-tcard__money"><b>{sym}{K(won)}</b> of {sym}{K(tar)} · {window.ATT_QUARTER.label}</div>
+        <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
+      </div>
+      <div className="tb-tcard__pct">
+        <div className="tb-tcard__pct-num" style={{ color: window.attPctColor(pct) }}>{window.attPctText(pct)}</div>
+        <div className="tb-tcard__pct-label">{period}</div>
+      </div>
+    </div>
+  );
+}
+
+function TBRegionTeamCard({ region, kind, pct, won, tar, period }) {
+  const badge = region ? region.badge : "$";
+  return (
+    <div className="tb-tcard tb-tcard--region">
+      <div className="tb-tcard__l">
+        <div className="tb-tcard__name">
+          <span className={`tb-tcard__dot tb-tcard__dot--${kind}`} />
+          {region ? region.label : "Other"} · Team
+          <span className="tb-region-badge">{badge}{region ? region.currency : "USD"}</span>
+        </div>
+        <div className="tb-tcard__money">{badge}{window.attFmtKRaw(won)} of {badge}{window.attFmtKRaw(tar)} · {window.ATT_QUARTER.label}</div>
         <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
       </div>
       <div className="tb-tcard__pct">
@@ -200,6 +222,75 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
   );
 }
 
+// Split a rep list into region buckets and render each region with header +
+// per-region team card.
+function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRepId }) {
+  const reps = window.REPS || [];
+  const regionOrder = window.REGION_ORDER || ["US", "EMEA", "ZA"];
+  const regions = window.REGIONS || [];
+
+  // Bucket reps by region (look up the rep's region from REPS by id); skip reps with no region.
+  const buckets = {};
+  for (const rep of list) {
+    const full = rep && rep.id ? reps.find(x => x.id === rep.id) : null;
+    if (!full || !full.region) continue;
+    if (!buckets[full.region]) buckets[full.region] = [];
+    buckets[full.region].push(rep);
+  }
+
+  if (Object.keys(buckets).length === 0) {
+    return <TBBoard list={list} kind={kind} period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />;
+  }
+
+  const key = kind === "nb" ? "pct" : "ren";
+  const K = window.attFmtK;
+
+  return regionOrder.filter(rid => buckets[rid] && buckets[rid].length > 0).map(rid => {
+    const sorted = [...buckets[rid]].sort((a, b) => {
+      const av = a[key][period], bv = b[key][period];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return bv - av;
+    });
+    const regionObj = regions.find(r => r.id === rid);
+    const regPct = sorted.reduce((s, r) => {
+      const v = r[key][period];
+      return v != null ? s + v : s;
+    }, 0) / sorted.filter(r => r[key][period] != null).length || 0;
+    const regWon = kind === "nb"
+      ? sorted.reduce((s, r) => s + (window.attNbCompute(r).won || 0), 0)
+      : sorted.reduce((s, r) => s + (window.attCsCompute(r).renewedSum || 0), 0);
+    const regTar = kind === "nb"
+      ? sorted.reduce((s, r) => s + (r.quotaQ || 0), 0)
+      : sorted.reduce((s, r) => s + (r.q2target || 0), 0);
+    return (
+      <div key={rid} className="tb-region-section">
+        <div className="tb-region-head">
+          <span className="tb-region-head__active" />
+          <span className="tb-region-head__label">{regionObj ? regionObj.label : rid}</span>
+          <span className="tb-region-head__badge">{regionObj ? regionObj.badge : "$"}{regionObj ? regionObj.currency : "USD"}</span>
+        </div>
+        {sorted.length > 0 && (
+          <TBRegionTeamCard
+            region={regionObj}
+            kind={kind}
+            pct={Math.round(regPct)}
+            won={regWon}
+            tar={regTar}
+            period={period}
+          />
+        )}
+        <div className="tb-board">
+          {sorted.map((rep, i) => (
+            <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} />
+          ))}
+        </div>
+      </div>
+    );
+  });
+}
+
 function LeaderboardView({ authedUser }) {
   const isManager = !!(authedUser && authedUser.role === "manager");
   const myRepId   = isManager ? null : ((authedUser && authedUser.rep_id) || null);
@@ -234,7 +325,7 @@ function LeaderboardView({ authedUser }) {
 
   return (
     <div className="tb-view" data-screen-label="03 Target Board">
-      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />North America BD · synced nightly from Salesforce</div>
+      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />Global attainment · synced nightly from Salesforce</div>
       <div className="tb-hrow">
         <div>
           <h1 className="tb-title"><em>Target</em> board</h1>
@@ -258,7 +349,7 @@ function LeaderboardView({ authedUser }) {
           <h2 className="tb-section__title">New Business</h2>
           <span className="tb-section__hint">% to quota · expand for deal stack</span>
         </div>
-        <TBBoard list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
+        <TBBoardByRegion list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
       </section>
 
       <section className="tb-section">
@@ -270,7 +361,7 @@ function LeaderboardView({ authedUser }) {
             <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--exp" />upsell / cross-sell</span>
           </span>
         </div>
-        <TBBoard list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
+        <TBBoardByRegion list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
       </section>
 
       <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>

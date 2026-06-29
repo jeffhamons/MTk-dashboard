@@ -2,6 +2,7 @@
 // Goal: glance at this and know who's on track, who's behind. No drill-down required.
 
 const { useMemo: useMemoRollup } = React;
+const { REGIONS, regionForRep, repsByRegion } = window;
 
 function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
   const week = WEEKS[weekIdx];
@@ -27,6 +28,22 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
   const teamTotal = rows.reduce((a, r) => a + r.total, 0);
   const allClean = rows.every(r => r.done === r.total);
 
+  // Group rows by region for sectioned display
+  const regionSections = REGIONS.map(reg => {
+    const rRows = rows.filter(r => {
+      const repReg = regionForRep(r.rep);
+      return repReg && repReg.id === reg.id;
+    });
+    const done = rRows.reduce((a, rr) => a + rr.done, 0);
+    const total = rRows.reduce((a, rr) => a + rr.total, 0);
+    return { region: reg, rows: rRows, done, total };
+  }).filter(s => s.rows.length > 0);
+
+  // Determine subtitle — single region or multi-region
+  const regionSubtitle = regionSections.length === 1
+    ? `${regionSections[0].region.label} BD · Weekly Operating Rhythm`
+    : regionSections.map(s => s.region.label).join(" + ") + " BD · Weekly Operating Rhythm";
+
   // Days until Friday 5pm CT (deliverables due)
   const friday = new Date(week.friday);
   friday.setHours(17, 0, 0, 0);
@@ -44,7 +61,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
         <div className="rollup__masthead-left">
           <div className="eyebrow">
             <span className="eyebrow__dot" />
-            North America BD · Weekly Operating Rhythm
+            {regionSubtitle}
           </div>
           <h1 className="rollup__title">
             <span className="rollup__title-line1">The week of</span>
@@ -140,57 +157,107 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
           <div className="rollup__grid-head-status">Week status</div>
         </div>
 
-        {rows.map(({ rep, counts, done, total }) => {
-          const clean = done === total;
-          // Count active asks for this rep this week
-          const flags = (state.asks && DELIVERABLES
-            .filter(d => state.asks[`${rep.id}|${week.id}|${d.id}`])
-          ) || [];
-          const flagCount = flags.length;
+        {regionSections.map(({ region, rows: sectionRows, done: secDone, total: secTotal }) => {
+          const secClean = secDone === secTotal;
           return (
-            <button
-              key={rep.id}
-              className="rolluprow"
-              data-clean={clean ? "1" : "0"}
-              onClick={() => onPickRep(rep.id)}
-            >
-              <div className="rolluprow__rep">
-                <Avatar rep={rep} size={40} />
-                <div className="rolluprow__rep-meta">
-                  <div className="rolluprow__rep-name">
-                    {rep.name}
-                    {flagCount > 0 && (
-                      <span className="rolluprow__flag" title={`${flagCount} ${flagCount === 1 ? "ask" : "asks"} from ${rep.name.split(" ")[0]}`}>
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M4 21V4" />
-                          <path d="M4 4h12l-2 4 2 4H4" />
-                        </svg>
-                        <span>Needs you</span>
-                      </span>
-                    )}
+            <div key={region.id} className="rollup__region-section">
+              {/* Region section header */}
+              <div className="rollup__region-head">
+                <span className="rollup__region-head-label">{region.label}</span>
+                <span className="rollup__region-head-badge">{region.currency}</span>
+              </div>
+
+              {sectionRows.map(({ rep, counts, done, total }) => {
+                const clean = done === total;
+                const flags = (state.asks && DELIVERABLES
+                  .filter(d => state.asks[`${rep.id}|${week.id}|${d.id}`])
+                ) || [];
+                const flagCount = flags.length;
+                return (
+                  <button
+                    key={rep.id}
+                    className="rolluprow"
+                    data-clean={clean ? "1" : "0"}
+                    onClick={() => onPickRep(rep.id)}
+                  >
+                    <div className="rolluprow__rep">
+                      <Avatar rep={rep} size={40} />
+                      <div className="rolluprow__rep-meta">
+                        <div className="rolluprow__rep-name">
+                          {rep.name}
+                          {flagCount > 0 && (
+                            <span className="rolluprow__flag" title={`${flagCount} ${flagCount === 1 ? "ask" : "asks"} from ${rep.name.split(" ")[0]}`}>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M4 21V4" />
+                                <path d="M4 4h12l-2 4 2 4H4" />
+                              </svg>
+                              <span>Needs you</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="rolluprow__rep-role">{rep.role}</div>
+                      </div>
+                    </div>
+                    {counts.map((c, i) => (
+                      <div key={i} className="rolluprow__cell">
+                        {c === null
+                          ? <span className="rolluprow__na" title="Not applicable for this rep">—</span>
+                          : <StatusDot checked={c} size={18} />}
+                      </div>
+                    ))}
+                    <div className="rolluprow__status">
+                      <div className="rolluprow__status-bar">
+                        <div className="rolluprow__status-bar-fill" style={{ width: `${(done/total)*100}%` }} />
+                      </div>
+                      <div className="rolluprow__status-label">
+                        {clean ? "Closed clean" : `${done}/${total}`}
+                      </div>
+                      <Icon name="arrow-right" size={16} />
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Per-region subtotal */}
+              <div className="rolluprow rolluprow--subtotal" data-clean={secClean ? "1" : "0"}>
+                <div className="rolluprow__rep">
+                  <div className="rolluprow__rep-meta">
+                    <div className="rolluprow__rep-name rolluprow__rep-name--subtotal">{region.label} total</div>
+                    <div className="rolluprow__rep-role">{region.currency}</div>
                   </div>
-                  <div className="rolluprow__rep-role">{rep.role}</div>
+                </div>
+                {DELIVERABLES.map((d, i) => <span key={i} />)}
+                <div className="rolluprow__status">
+                  <div className="rolluprow__status-bar">
+                    <div className="rolluprow__status-bar-fill" style={{ width: `${(secTotal ? (secDone/secTotal)*100 : 0)}%` }} />
+                  </div>
+                  <div className="rolluprow__status-label">
+                    {secClean ? "Closed clean" : `${secDone}/${secTotal}`}
+                  </div>
                 </div>
               </div>
-              {counts.map((c, i) => (
-                <div key={i} className="rolluprow__cell">
-                  {c === null
-                    ? <span className="rolluprow__na" title="Not applicable for this rep">—</span>
-                    : <StatusDot checked={c} size={18} />}
-                </div>
-              ))}
-              <div className="rolluprow__status">
-                <div className="rolluprow__status-bar">
-                  <div className="rolluprow__status-bar-fill" style={{ width: `${(done/total)*100}%` }} />
-                </div>
-                <div className="rolluprow__status-label">
-                  {clean ? "Closed clean" : `${done}/${total}`}
-                </div>
-                <Icon name="arrow-right" size={16} />
-              </div>
-            </button>
+            </div>
           );
         })}
+
+        {/* Global totals row */}
+        <div className="rolluprow rolluprow--total">
+          <div className="rolluprow__rep">
+            <div className="rolluprow__rep-meta">
+              <div className="rolluprow__rep-name rolluprow__rep-name--total">Team total</div>
+              <div className="rolluprow__rep-role">GBP</div>
+            </div>
+          </div>
+          {DELIVERABLES.map((d, i) => <span key={i} />)}
+          <div className="rolluprow__status">
+            <div className="rolluprow__status-bar">
+              <div className="rolluprow__status-bar-fill" style={{ width: `${(teamTotal ? (teamDone/teamTotal)*100 : 0)}%` }} />
+            </div>
+            <div className="rolluprow__status-label">
+              {allClean ? "Closed clean" : `${teamDone}/${teamTotal}`}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Cadence rules */}

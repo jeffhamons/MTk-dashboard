@@ -29,6 +29,7 @@ const ATT_QUARTER = attCurrentQuarter();
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 function attFmtK(n)    { if (!n) return "$0"; if (n >= 1000000) return "$" + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return "$" + (Math.round(n / 100) / 10).toLocaleString() + "K"; return "$" + Math.round(n); }
+function attFmtKRaw(n) { if (!n) return "0"; if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return (Math.round(n / 100) / 10).toLocaleString() + "K"; return String(Math.round(n)); }
 function attFmtFull(n) { return "$" + Math.round(n || 0).toLocaleString(); }
 function attFmtDate(iso) {
   if (!iso) return "";
@@ -43,6 +44,17 @@ function attPctColor(p)  { if (p == null) return "var(--ink-50)"; if (p >= 100) 
 // "92%" for a real pct, "—" when there's no target for the period.
 function attPctText(p)   { return p == null ? "—" : `${p}%`; }
 function attBarWidth(p)  { return p == null ? 0 : Math.min(100, p); }
+
+// ── Currency badge for a rep (by region) ──────────────────────────────────────
+function attCurrency(rep) {
+  // Look up the full rep from REPS to get the region, then find the region badge.
+  const full = rep && rep.id ? (window.REPS || []).find(x => x.id === rep.id) : null;
+  const region = full && full.region ? (window.REGIONS || []).find(r => r.id === full.region) : null;
+  return region ? region.badge : "$";
+}
+function attCurrencyForRegion(regionId) {
+  return window.regionCurrency ? window.regionCurrency(regionId) : "$";
+}
 
 // ── Rep display meta (from REPS in data-model.js) ─────────────────────────────
 function attRepMeta(id) {
@@ -193,6 +205,7 @@ function loadAttainmentV2() {
 
 Object.assign(window, {
   ATT_QUARTER, ATT_NB_SAMPLE, ATT_CS_SAMPLE,
-  attFmtK, attFmtFull, attFmtDate, attTierColor, attPctColor, attPctText, attBarWidth,
+  attFmtK, attFmtKRaw, attFmtFull, attFmtDate, attTierColor, attPctColor, attPctText, attBarWidth,
   attRepMeta, attNbCompute, attCsCompute, attBuildLive, loadAttainmentV2,
+  attCurrency, attCurrencyForRegion,
 });

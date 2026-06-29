@@ -3,13 +3,13 @@
 // The state engine doesn't care how many there are.
 
 const REPS = [
-  { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168,
+  { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168, region: "US",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=Rxvq5P",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBuhNbqR8nYTKMa9sY_3p8xAdPrDpNdxx2XoWr0Mc-O7ys?e=DvUMnf",
     } },
-  { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18,
+  { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18, region: "US",
     skips: [],
     // Departed mid-cycle — visible through week 5 (her history), hidden from
     // week 6 (Jun 1) onward. See repVisibleInWeek().
@@ -18,22 +18,36 @@ const REPS = [
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=ZnLAD9&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMjAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
     } },
-  { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210,
+  { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210, region: "US",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=VeYQ0C&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMTAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBPIeHopSD9TKouVkmtbRtAAbws9qXWmZxz8IMtd1U8QrU?e=A1Ye1Y",
     } },
-  { id: "don",     name: "Don Hazelwood",           role: "Senior Account Executive", initials: "DH", hue: 38,
+  { id: "don",     name: "Don Hazelwood",           role: "Senior Account Executive", initials: "DH", hue: 38, region: "US",
     email: "Donald.Hazelwood@mindtools-kineo.com",
     skips: [],
     links: {} },
-  { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280,
+  { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280, region: "EMEA",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=0OOyTb&nav=MTVfezg2NzczMkNCLTA2NTEtQjA0NC1BOUZFLTY4N0M0NkE0NEREQX0" } },
-  { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130,
+  { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130, region: "EMEA",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=bzuua5&nav=MTVfezg3OUJBRDY5LTZCNUQtNkQ0Ny05RDQwLTE0ODlCNzlDOTM5Rn0" } },
+  // EMEA stubs (emit: false — not yet active, always in data)
+  { id: "rory",     name: "Rory Lawson",             role: "Account Director",   initials: "RL", hue: 200, region: "EMEA",
+    emit: false, activeThrough: null, links: {} },
+  { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 200, region: "EMEA",
+    emit: false, activeThrough: null, links: {} },
+  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 200, region: "EMEA",
+    emit: false, activeThrough: null, links: {} },
+  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 200, region: "EMEA",
+    emit: false, activeThrough: null, links: {} },
+  // ZA stubs
+  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 200, region: "ZA",
+    emit: false, activeThrough: null, links: {} },
+  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 200, region: "ZA",
+    emit: false, activeThrough: null, links: {} },
 ];
 
 // Deliverables — the three weekly artifacts. Order matters; this is the
@@ -132,9 +146,13 @@ function currentWeekIndex(weeks = WEEKS, today = TODAY) {
 // Whether a rep should appear in a given week. A rep with `activeThrough: N`
 // (e.g. departed mid-cycle) shows in weeks 1..N — their history — and is hidden
 // from week N+1 onward. Reps without the marker are always visible.
+// A rep with `emit: false` is never rendered unless showHidden is true.
 // weekIndex is the 1-based WEEKS[i].index, NOT the 0-based array position.
-function repVisibleInWeek(rep, weekIndex) {
-  return !rep || rep.activeThrough == null || weekIndex <= rep.activeThrough;
+function repVisibleInWeek(rep, weekIndex, showHidden) {
+  if (!rep) return false;
+  if (!showHidden && rep.emit === false) return false;
+  if (rep.activeThrough != null && weekIndex > rep.activeThrough) return false;
+  return true;
 }
 
 // Date formatting helpers
@@ -423,9 +441,53 @@ function fireMailto(url) {
   setTimeout(() => a.remove(), 0);
 }
 
+// ── Region grouping ──────────────────────────────────────────────────
+// Regions for the team rollup. Each rep has a `region` tag.
+const REGIONS = [
+  { id: "US",   label: "North America",  badge: "$",  currency: "USD", timezone: "America/Chicago",  color: "#2563eb" },
+  { id: "EMEA", label: "EMEA",           badge: "£",  currency: "GBP", timezone: "Europe/London",    color: "#7c3aed" },
+  { id: "ZA",   label: "South Africa",   badge: "R",  currency: "ZAR", timezone: "Africa/Johannesburg", color: "#0891b2" },
+];
+
+// Region object for a given rep — looks up by the rep's `region` tag vs REGIONS
+function regionForRep(rep) {
+  if (!rep || !rep.region) return null;
+  return REGIONS.find(r => r.id === rep.region) || null;
+}
+
+// Build { regionId: [rep, …] } from REPS, filtering by week visibility
+function repsByRegion(weekIndex) {
+  const map = {};
+  for (const r of REPS) {
+    if (!repVisibleInWeek(r, weekIndex)) continue;
+    const rid = r.region;
+    if (!rid) continue;
+    if (!map[rid]) map[rid] = [];
+    map[rid].push(r);
+  }
+  return map;
+}
+
+// Currency symbol helpers (used by target-board.jsx and attainment-data.jsx)
+// currencySymbol(regionId) → "$" / "£" / "R"  (display badge)
+function regionCurrency(regionId) {
+  const r = REGIONS.find(x => x.id === regionId);
+  return r ? r.badge : "$";
+}
+// Full ISO code: "USD" / "GBP" / "ZAR"
+function regionCurrencyLong(regionId) {
+  const r = REGIONS.find(x => x.id === regionId);
+  return r ? r.currency : "USD";
+}
+
+// Canonical region sort order for the target board: US → EMEA → ZA
+const REGION_ORDER = ["US", "EMEA", "ZA"];
+
 // Expose globally for other Babel scripts
 Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY,
+  REGIONS, regionForRep, repsByRegion,
+  regionCurrency, regionCurrencyLong, REGION_ORDER,
   currentWeekIndex, repVisibleInWeek,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,
