@@ -259,10 +259,10 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
       return v != null ? s + v : s;
     }, 0) / sorted.filter(r => r[key][period] != null).length || 0;
     const regWon = kind === "nb"
-      ? sorted.reduce((s, r) => s + (window.attNbCompute(r).won || 0), 0)
+      ? sorted.reduce((s, r) => s + ((r.won && r.won[period]) || 0), 0)
       : sorted.reduce((s, r) => s + (window.attCsCompute(r).renewedSum || 0), 0);
     const regTar = kind === "nb"
-      ? sorted.reduce((s, r) => s + (r.quotaQ || 0), 0)
+      ? sorted.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0)
       : sorted.reduce((s, r) => s + (r.q2target || 0), 0);
     return (
       <div key={rid} className="tb-region-section">
@@ -317,8 +317,8 @@ function LeaderboardView({ authedUser }) {
   const CS = (data.cs || []).filter(visible);
 
   const nbPct = tbAvg(NB, r => r.pct[period]);
-  const nbWon = NB.reduce((s, r) => s + window.attNbCompute(r).won, 0);
-  const nbTar = NB.reduce((s, r) => s + (r.quotaQ || 0), 0);
+  const nbWon = NB.reduce((s, r) => s + ((r.won && r.won[period]) || 0), 0);
+  const nbTar = NB.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0);
   const csPct = tbAvg(CS, r => r.ren[period]);
   const csWon = CS.reduce((s, r) => s + window.attCsCompute(r).renewedSum, 0);
   const csTar = CS.reduce((s, r) => s + (r.q2target || 0), 0);

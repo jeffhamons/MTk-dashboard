@@ -94,16 +94,16 @@ function attCsCompute(rep) {
 // match the live assembly exactly (CS ren.mtd === null per the comp plan).
 // ════════════════════════════════════════════════════════════════════════════
 const ATT_NB_SAMPLE = [
-  { id: "cammy", pct: { mtd: 112, qtd: 94, ytd: 87 }, quotaQ: 600000, deals: [
+  { id: "cammy", pct: { mtd: 112, qtd: 94, ytd: 87 }, won: { mtd: 200000, qtd: 450000, ytd: 1000000 }, target: { mtd: 200000, qtd: 600000, ytd: 1200000 }, quotaQ: 600000, deals: [
     { acct: "Mega Retail Group", amt: 140000, date: "Apr 14" },
     { acct: "Lumen Health",      amt: 112000, date: "May 2"  },
     { acct: "Drake Labs",        amt: 77000,  date: "May 21" },
   ] },
-  { id: "farah", pct: { mtd: 71, qtd: 67, ytd: 74 }, quotaQ: 250000, deals: [
+  { id: "farah", pct: { mtd: 71, qtd: 67, ytd: 74 }, won: { mtd: 100000, qtd: 250000, ytd: 500000 }, target: { mtd: 100000, qtd: 250000, ytd: 1000000 }, quotaQ: 250000, deals: [
     { acct: "Acme Corp",         amt: 58000,  date: "Apr 9"  },
     { acct: "Globex",            amt: 74000,  date: "May 6"  },
   ] },
-  { id: "don", pct: { mtd: 8, qtd: 12, ytd: 12 }, quotaQ: 210000, deals: [
+  { id: "don", pct: { mtd: 8, qtd: 12, ytd: 12 }, won: { mtd: 5600, qtd: 200000, ytd: 800000 }, target: { mtd: 70000, qtd: 210000, ytd: 840000 }, quotaQ: 210000, deals: [
     { acct: "Northwind Traders", amt: 26000,  date: "Jun 9"  },
   ] },
 ];
@@ -140,6 +140,8 @@ function attBuildLive(snapshots, deals, book, ramps) {
       nb.push({
         id: row.rep_id,
         pct: { mtd: pcts.mtd, qtd: pcts.qtd, ytd: pcts.ytd },
+        won: { mtd: Number(row.nb_mtd_won) || 0, qtd: Number(row.nb_qtd_won) || 0, ytd: Number(row.nb_ytd_won) || 0 },
+        target: { mtd: Number(row.nb_mtd_target) || 0, qtd: Number(row.nb_qtd_target) || 0, ytd: Number(row.nb_annual_target) || 0 },
         quotaQ: row.nb_qtd_target || 0,
         deals: (dealsBy[row.rep_id] || []).map(d => ({ acct: d.account, amt: Number(d.amount), date: attFmtDate(d.close_date) })),
       });
