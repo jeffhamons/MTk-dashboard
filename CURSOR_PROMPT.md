@@ -22,7 +22,7 @@ The app has three roles:
 - Fills in their **Weekly Wins form** directly in the dashboard (replaces Excel spreadsheet)
 - Sees only their own week + a read-only team summary
 
-**Auth:** Supabase magic-link email. Role + rep_id stored in `users` table (keyed on `auth_id` FK to `auth.users.id`). The `AuthGate` component wraps the app and passes `authedUser` down.
+**Auth:** Supabase magic-link email, allowlist-gated via trigger. Role + rep_id stored in `users` table (keyed on `auth_id` FK to `auth.users.id`). The `AuthGate` component wraps the app and passes `authedUser` down. New users are provisioned via `public.allowed_emails`; a trigger auto-creates their `users` row on first sign-in.
 
 ---
 
@@ -137,11 +137,12 @@ Rep `links` = map of `delId → url` for their specific doc links.
 
 | Table | Key columns | Notes |
 |-------|-------------|-------|
+| `allowed_emails` | email (PK, text), role, rep_id, added_at | Allowlist gate — sign-in rejected if email not found. Trigger uses this to populate `users` |
 | `checks` | rep_id, week_index (int), deliverable_id, checked_at, marked_by_email/name/role | week_index = numeric (1=w1) |
 | `asks` | rep_id, week_index (int), deliverable_id, body, created_at, resolved_at, resolved_by_*, response, response_by_*, response_at | Soft-delete on resolve |
 | `manager_notes` | rep_id, week_id (string), del_id, note, updated_by, updated_at | Exception: still uses string week_id |
 | `standup_entries` | date (YYYY-MM-DD), rep_id, what_moved, pushing_next, whats_slowing, what_i_need, mentions[], updated_at, updated_by | |
-| `users` | auth_id (FK → auth.users.id), email, role ('manager'\|'rep'), rep_id | Keyed on auth_id, not email |
+| `users` | auth_id (FK → auth.users.id), email, role ('manager'\|'rep'), rep_id | Auto-created by trigger from `allowed_emails` on first sign-in |
 | `wins` | rep_id, week_index (int), worked_on (jsonb), invisible (jsonb), big_win (jsonb), hype (jsonb), updated_at, updated_by | One row per (rep, week); week_index same scale as checks/asks |
 
 `checks` and `asks` use `week_index` (integer, 1–10 for Q2). `supabase-client.js` converts via `weekIdToIdx()`.
@@ -175,7 +176,7 @@ All wins functions take `weekIndex` as a plain integer — no "w1" string conver
 
 **Add a new rep:**
 1. Add to `REPS[]` in `data-model.js` with a unique `id`, `hue` (0–360), `initials`
-2. Insert into `users` in Supabase: `(auth_id, email, 'rep', repId)`
+2. Insert into `allowed_emails` in Supabase: `(email, role, rep_id)` with `role = 'rep'` and `rep_id` matching the REPS entry. The trigger will auto-create their `users` row on first sign-in.
 
 **Add a new deliverable:**
 1. Add to `DELIVERABLES[]` in `data-model.js`

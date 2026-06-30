@@ -51,15 +51,17 @@ No build step, no npm install, no environment variables — the Supabase keys ar
 ---
 
 ## Auth
-Uses Supabase magic-link email auth. The `AuthGate` wrapper in `auth-gate.jsx` handles sign-in/out. Users are matched to reps via the `users` table in Supabase, keyed on `auth_id` (FK → `auth.users.id`).
+Uses Supabase magic-link email auth. The `AuthGate` wrapper in `auth-gate.jsx` handles sign-in/out. User provisioning is gated by an allowlist: when someone signs in for the first time, a trigger (`on_auth_user_created`) validates their email against `public.allowed_emails` and auto-creates their row in `public.users` with the role and rep_id from the allowlist.
 
-To add a new user, first invite them via Supabase Auth so they get an `auth.users.id`, then:
+To add a new user, insert ONE row into `allowed_emails`:
 ```sql
-insert into users (auth_id, email, role, rep_id)
-values ('<auth_id>', 'newrep@company.com', 'rep', 'cammy');
+insert into allowed_emails (email, role, rep_id)
+values ('newrep@company.com', 'rep', 'cammy');
 -- role: 'manager' | 'rep'
 -- rep_id: matches id field in data-model.js REPS array (null for managers)
 ```
+
+The person then requests a magic link and signs in; the trigger populates `public.users` automatically. If the email is not on the allowlist, sign-in is rejected server-side.
 
 ---
 
