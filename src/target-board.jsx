@@ -291,11 +291,63 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
   });
 }
 
+// ── Native-region currency helpers for display-currency conversion ──────────
+// Each rep's attainment data arrives in their own native currency (US→USD,
+// EMEA→GBP, ZA→ZAR). When the viewer switches the display currency via the
+// toggle, we convert each rep's amounts individually before summing — not by
+// taking a single total and reconverting it (which would compound rounding).
+function repNativeCurrency(repId) {
+  const r = (window.REPS || []).find(x => x.id === repId);
+  if (!r || !r.region) return "USD";
+  const reg = (window.REGIONS || []).find(x => x.id === r.region);
+  return reg ? reg.currency : "USD";
+}
+
+function convertTeamTotal(list, period, kind, displayCurrency) {
+  const conv = window.convertAmount;
+  if (!conv) return 0;
+  let total = 0;
+  for (const rep of list) {
+    const native = repNativeCurrency(rep.id);
+    if (kind === "nb") {
+      total += conv((rep.won && rep.won[period]) || 0, native, displayCurrency);
+    } else {
+      total += conv(window.attCsCompute(rep).renewedSum, native, displayCurrency);
+    }
+  }
+  return total;
+}
+
+function convertTeamTarget(list, period, kind, displayCurrency) {
+  const conv = window.convertAmount;
+  if (!conv) return 0;
+  let total = 0;
+  for (const rep of list) {
+    const native = repNativeCurrency(rep.id);
+    if (kind === "nb") {
+      total += conv((rep.target && rep.target[period]) || 0, native, displayCurrency);
+    } else {
+      total += conv(rep.q2target || 0, native, displayCurrency);
+    }
+  }
+  return total;
+}
+
+function currencyBadge(code) {
+  switch (code) {
+    case "GBP": return "£";
+    case "USD": return "$";
+    case "AUD": return "A$";
+    default:   return code;
+  }
+}
+
 function LeaderboardView({ authedUser }) {
   const isManager = !!(authedUser && authedUser.role === "manager");
   const myRepId   = isManager ? null : ((authedUser && authedUser.rep_id) || null);
 
   const [period, setPeriod] = React.useState("qtd");
+  const [displayCurrency, setDisplayCurrency] = React.useState("GBP");
   const [openSet, setOpenSet] = React.useState(() => new Set());
   const [data, setData] = React.useState(() => ({ nb: window.ATT_NB_SAMPLE || [], cs: window.ATT_CS_SAMPLE || [] }));
 
@@ -317,11 +369,13 @@ function LeaderboardView({ authedUser }) {
   const CS = (data.cs || []).filter(visible);
 
   const nbPct = tbAvg(NB, r => r.pct[period]);
-  const nbWon = NB.reduce((s, r) => s + ((r.won && r.won[period]) || 0), 0);
-  const nbTar = NB.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0);
+  const nbWon = convertTeamTotal(NB, period, "nb", displayCurrency);
+  const nbTar = convertTeamTarget(NB, period, "nb", displayCurrency);
   const csPct = tbAvg(CS, r => r.ren[period]);
-  const csWon = CS.reduce((s, r) => s + window.attCsCompute(r).renewedSum, 0);
-  const csTar = CS.reduce((s, r) => s + (r.q2target || 0), 0);
+  const csWon = convertTeamTotal(CS, period, "cs", displayCurrency);
+  const csTar = convertTeamTarget(CS, period, "cs", displayCurrency);
+
+  const displayCurrencies = window.DISPLAY_CURRENCIES || ["GBP", "USD", "AUD"];
 
   return (
     <div className="tb-view" data-screen-label="03 Target Board">
@@ -331,16 +385,23 @@ function LeaderboardView({ authedUser }) {
           <h1 className="tb-title"><em>Target</em> board</h1>
           <p className="tb-sub">Ranked to target — open any row for the full picture behind the number.</p>
         </div>
-        <div className="tb-toggle">
-          {["mtd", "qtd", "ytd"].map(k => (
-            <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
-          ))}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
+          <div className="tb-toggle">
+            {["mtd", "qtd", "ytd"].map(k => (
+              <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
+            ))}
+          </div>
+          <div className="tb-toggle">
+            {displayCurrencies.map(c => (
+              <button key={c} className={"tb-toggle__btn" + (c === displayCurrency ? " on" : "")} onClick={() => setDisplayCurrency(c)}>{c}</button>
+            ))}
+          </div>
         </div>
       </div>
 
       <div className="tb-teamrow">
-        <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={period} />
-        <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={period} />
+        <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={period} badge={currencyBadge(displayCurrency)} />
+        <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={period} badge={currencyBadge(displayCurrency)} />
       </div>
 
       <section className="tb-section">
@@ -349,7 +410,7 @@ function LeaderboardView({ authedUser }) {
           <h2 className="tb-section__title">New Business</h2>
           <span className="tb-section__hint">% to quota · expand for deal stack</span>
         </div>
-        <TBBoardByRegion list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
+        <TBBoardByRegion list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
       </section>
 
       <section className="tb-section">
@@ -361,7 +422,7 @@ function LeaderboardView({ authedUser }) {
             <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--exp" />upsell / cross-sell</span>
           </span>
         </div>
-        <TBBoardByRegion list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />
+        <TBBoardByRegion list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
       </section>
 
       <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>

@@ -441,6 +441,46 @@ function fireMailto(url) {
   setTimeout(() => a.remove(), 0);
 }
 
+// ── Currency conversion ──────────────────────────────────────────────
+// FX rates anchored to GBP (canonical base). Each entry is "how many units
+// of this currency you get for 1 GBP". Rates are approximate and should be
+// updated quarterly — they drive display-only conversions, not accounting.
+const FX_RATES = {
+  GBP: 1.00,
+  USD: 1.27,
+  AUD: 1.92,
+  ZAR: 23.50,
+};
+
+// Display currencies for the toggle — these are the options the viewer can
+// switch between on the target board. Order matters for the toggle UI.
+const DISPLAY_CURRENCIES = ["GBP", "USD", "AUD"];
+
+// Convert a monetary amount from one currency to another via GBP as the
+// canonical anchor. "Native-per-region computation under the hood" — each
+// region's native amounts convert individually, then sum.
+function convertAmount(amount, fromCurrency, toCurrency) {
+  if (amount == null || isNaN(amount)) return 0;
+  if (!fromCurrency || !toCurrency || fromCurrency === toCurrency) return Math.round(amount);
+  const fromRate = FX_RATES[fromCurrency];
+  const toRate   = FX_RATES[toCurrency];
+  if (!fromRate || !toRate) return Math.round(amount); // unknown currency → pass through
+  return Math.round(amount * toRate / fromRate);
+}
+
+// Format a monetary amount for display with the correct currency symbol.
+// GBP → £, USD → $, AUD → A$, everything else → bare number.
+function formatCurrencyAmount(amount, currency) {
+  const n = Math.round(amount || 0);
+  const fmt = n.toLocaleString();
+  switch (currency) {
+    case "GBP": return `£${fmt}`;
+    case "USD": return `$${fmt}`;
+    case "AUD": return `A$${fmt}`;
+    default:    return fmt;
+  }
+}
+
 // ── Region grouping ──────────────────────────────────────────────────
 // Regions for the team rollup. Each rep has a `region` tag.
 const REGIONS = [
@@ -488,6 +528,8 @@ Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY,
   REGIONS, regionForRep, repsByRegion,
   regionCurrency, regionCurrencyLong, REGION_ORDER,
+  FX_RATES, DISPLAY_CURRENCIES,
+  convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,
