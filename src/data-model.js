@@ -117,29 +117,54 @@ const DELIVERABLES = [
   },
 ];
 
-// Weeks — Monday-anchored, 10 weeks from Apr 27, 2026 → Jun 29, 2026.
+// Quarters — each starts on a Monday. Q2 dates (w1..w10) are frozen: storage
+// keys and Supabase rows key on those week ids; never renumber or re-date them.
+// Q3 continues the Monday cadence with no gap after Q2's last week.
+const QUARTERS = [
+  { id: "Q2", label: "Q2 2026", startMonday: new Date(2026, 3, 27), weekCount: 10 }, // Apr 27
+  { id: "Q3", label: "Q3 2026", startMonday: new Date(2026, 6, 6),  weekCount: 13 }, // Jul 6
+];
+
+// Weeks — Monday-anchored, one continuous array across all quarters.
 // Week label is the Monday date; "current" is the week containing today.
+// Each week carries `quarter` (id) and `qIndex` (1-based within that quarter).
 function buildWeeks() {
-  const start = new Date(2026, 3, 27); // Apr 27, 2026 (month is 0-indexed)
   const out = [];
-  for (let i = 0; i < 10; i++) {
-    const monday = new Date(start);
-    monday.setDate(start.getDate() + i * 7);
-    const friday = new Date(monday);
-    friday.setDate(monday.getDate() + 4);
-    const sunday = new Date(monday);
-    sunday.setDate(monday.getDate() + 6);
-    out.push({
-      id: `w${i + 1}`,
-      index: i + 1,
-      monday,
-      friday,
-      sunday,
-    });
+  let globalIndex = 0;
+  for (const q of QUARTERS) {
+    for (let i = 0; i < q.weekCount; i++) {
+      globalIndex++;
+      const monday = new Date(q.startMonday);
+      monday.setDate(q.startMonday.getDate() + i * 7);
+      const friday = new Date(monday);
+      friday.setDate(monday.getDate() + 4);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      out.push({
+        id: `w${globalIndex}`,
+        index: globalIndex,
+        monday,
+        friday,
+        sunday,
+        quarter: q.id,
+        qIndex: i + 1,
+      });
+    }
   }
   return out;
 }
 const WEEKS = buildWeeks();
+
+// Weeks belonging to one quarter, in order (subset of WEEKS).
+function weeksForQuarter(quarterId) {
+  return WEEKS.filter(w => w.quarter === quarterId);
+}
+
+// QUARTERS entry for a week object (null-safe).
+function quarterForWeek(week) {
+  if (!week || !week.quarter) return null;
+  return QUARTERS.find(q => q.id === week.quarter) || null;
+}
 
 // "Today" anchor — real clock time, snapped to local midnight so the week
 // containment check (today >= weeks[i].monday && today <= weeks[i].sunday)
@@ -155,6 +180,20 @@ function currentWeekIndex(weeks = WEEKS, today = TODAY) {
   }
   if (today < weeks[0].monday) return 0;
   return weeks.length - 1;
+}
+
+// Id of the quarter containing `today`. Clamp: before Q2 → "Q2"; after Q3's
+// last Sunday → "Q3". On 2026-07-10 this returns "Q3".
+function currentQuarterId(today = TODAY) {
+  for (const q of QUARTERS) {
+    const qw = weeksForQuarter(q.id);
+    if (!qw.length) continue;
+    const first = qw[0].monday;
+    const last = qw[qw.length - 1].sunday;
+    if (today >= first && today <= last) return q.id;
+  }
+  if (WEEKS.length && today < WEEKS[0].monday) return QUARTERS[0].id;
+  return QUARTERS[QUARTERS.length - 1].id;
 }
 
 // Whether a rep should appear in a given week. A rep with `activeThrough: N`
@@ -346,28 +385,32 @@ function buildWeekEmail(rep, week, state) {
   return { subject, body: lines.join("\n") };
 }
 
-// Build a full-quarter recap (used at end of cycle)
-function buildQuarterEmail(rep, state) {
+// Build a full-quarter recap (used at end of cycle). Defaults to the quarter
+// containing today; pass quarterId ("Q2" / "Q3") to pin a specific one.
+function buildQuarterEmail(rep, state, quarterId = currentQuarterId()) {
   const skips = rep.skips || [];
   const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
+  const qWeeks = weeksForQuarter(quarterId);
+  const q = QUARTERS.find(x => x.id === quarterId);
+  const qLabel = (q && q.label) || quarterId;
   const lines = [];
   lines.push(`Hi,`);
   lines.push(``);
-  lines.push(`Quarterly recap — ${rep.name}.`);
+  lines.push(`Quarterly recap — ${qLabel} — ${rep.name}.`);
   lines.push(``);
 
   let cleanWeeks = 0;
-  WEEKS.forEach(w => {
+  qWeeks.forEach(w => {
     const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
     const clean = done === total;
     if (clean) cleanWeeks++;
   });
-  lines.push(`SUMMARY — ${cleanWeeks} of ${WEEKS.length} weeks closed clean.`);
+  lines.push(`SUMMARY — ${cleanWeeks} of ${qWeeks.length} weeks closed clean.`);
   lines.push(``);
 
-  WEEKS.forEach(w => {
+  qWeeks.forEach(w => {
     const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
@@ -395,7 +438,7 @@ function buildQuarterEmail(rep, state) {
   lines.push(`---`);
   lines.push(`Sent from Mindtools Kineo · Weekly Review (V1 · personal copy)`);
 
-  const subject = `Weekly Review — ${rep.name} — Quarterly Recap`;
+  const subject = `Weekly Review — ${rep.name} — Quarterly recap — ${qLabel}`;
   return { subject, body: lines.join("\n") };
 }
 
@@ -609,7 +652,7 @@ function defaultTeamForUser(user) {
 
 // Expose globally for other Babel scripts
 Object.assign(window, {
-  REPS, DELIVERABLES, WEEKS, TODAY,
+  REPS, DELIVERABLES, WEEKS, TODAY, QUARTERS,
   REGIONS, regionForRep, repsByRegion,
   regionCurrency, regionCurrencyLong, REGION_ORDER,
   TEAMS, repById, isManagerialRole, canManageRep, canManageAny,
@@ -617,6 +660,7 @@ Object.assign(window, {
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,
+  weeksForQuarter, quarterForWeek, currentQuarterId,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,
   weekForDate, standupFillsFromRows, standupStatus, delComplete,

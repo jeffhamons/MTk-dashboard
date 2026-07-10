@@ -10,6 +10,17 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
   const isCurrent = weekIdx === currentWeekIndex();
   const isPast = week.sunday < today;
   const curIdx = currentWeekIndex();
+  const currentQ = currentQuarterId();
+  const [qExpanded, setQExpanded] = React.useState({});
+
+  // Auto-expand a non-current quarter when prev/next lands the selection there.
+  React.useEffect(() => {
+    const selQ = WEEKS[weekIdx].quarter;
+    if (selQ !== currentQ) {
+      setQExpanded(prev => prev[selQ] ? prev : { ...prev, [selQ]: true });
+    }
+  }, [weekIdx, currentQ]);
+
   // RFC-151 Phase 4: the rollup is workspace-scoped; no activeTeam (legacy
   // caller) means all teams.
   const inTeam = rep => !activeTeam || rep.team === activeTeam;
@@ -73,7 +84,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
           </h1>
           <p className="rollup__sub">
             {isCurrent ? "This week" : isPast ? "Closed week" : "Upcoming"} ·
-            Week {week.index} of {WEEKS.length} ·
+            {quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} ·
             Opens Mon 8:00 AM CT, due Fri 5:00 PM CT
           </p>
           <div className="rollup__weeknav">
@@ -105,38 +116,69 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
             )}
           </div>
           <div className="rollup__weekstrip">
-            {WEEKS.map((w, i) => {
-              const isCur = i === curIdx;
-              const past = w.sunday < today;
-              const sel = i === weekIdx;
-              // Compute team completion for this week (respecting per-rep skips)
-              let done = 0, total = 0;
-              REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
-                const skips = rep.skips || [];
-                DELIVERABLES.forEach(d => {
-                  if (skips.includes(d.id)) return;
-                  total += 1;
-                  if (delComplete(rep.id, w, d.id, state)) done += 1;
-                });
-              });
-              const pct = total ? done / total : 0;
-              return (
-                <button
-                  key={w.id}
-                  className="rollup__weekstrip-cell"
-                  data-selected={sel ? "1" : "0"}
-                  data-current={isCur ? "1" : "0"}
-                  data-past={past ? "1" : "0"}
-                  onClick={() => setWeekIdx(i)}
-                  title={`Week ${w.index} · ${done}/${total} done`}
-                >
-                  <div className="rollup__weekstrip-num">W{w.index}</div>
-                  <div className="rollup__weekstrip-bar">
-                    <div className="rollup__weekstrip-fill" style={{ width: (pct * 100) + "%" }} />
-                  </div>
-                </button>
-              );
-            })}
+            {(() => {
+              const items = [];
+              for (const q of QUARTERS) {
+                const qWeeks = weeksForQuarter(q.id);
+                const isCurrentQ = q.id === currentQ;
+                const isExpanded = isCurrentQ || !!qExpanded[q.id];
+
+                // Non-current quarters: collapsed chip that toggles expansion.
+                if (!isCurrentQ) {
+                  items.push(
+                    <button
+                      key={q.id}
+                      className="rollup__weekstrip-cell"
+                      data-qtoggle="1"
+                      data-expanded={isExpanded ? "1" : "0"}
+                      onClick={() => setQExpanded(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
+                    >
+                      <div className="rollup__weekstrip-num">{q.label}</div>
+                      <div className="rollup__weekstrip-num" style={{ fontWeight: 400, fontSize: 9, opacity: 0.75, letterSpacing: 0 }}>
+                        {fmtRange(qWeeks[0].monday, qWeeks[qWeeks.length - 1].sunday)}
+                      </div>
+                    </button>
+                  );
+                }
+
+                if (isExpanded) {
+                  for (const w of qWeeks) {
+                    const i = w.index - 1;
+                    const isCur = i === curIdx;
+                    const past = w.sunday < today;
+                    const sel = i === weekIdx;
+                    // Compute team completion for this week (respecting per-rep skips)
+                    let done = 0, total = 0;
+                    REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
+                      const skips = rep.skips || [];
+                      DELIVERABLES.forEach(d => {
+                        if (skips.includes(d.id)) return;
+                        total += 1;
+                        if (delComplete(rep.id, w, d.id, state)) done += 1;
+                      });
+                    });
+                    const pct = total ? done / total : 0;
+                    items.push(
+                      <button
+                        key={w.id}
+                        className="rollup__weekstrip-cell"
+                        data-selected={sel ? "1" : "0"}
+                        data-current={isCur ? "1" : "0"}
+                        data-past={past ? "1" : "0"}
+                        onClick={() => setWeekIdx(i)}
+                        title={`${quarterForWeek(w).label} · Week ${w.qIndex} · ${done}/${total} done`}
+                      >
+                        <div className="rollup__weekstrip-num">W{w.qIndex}</div>
+                        <div className="rollup__weekstrip-bar">
+                          <div className="rollup__weekstrip-fill" style={{ width: (pct * 100) + "%" }} />
+                        </div>
+                      </button>
+                    );
+                  }
+                }
+              }
+              return items;
+            })()}
           </div>
         </div>
 

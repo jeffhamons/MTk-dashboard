@@ -400,7 +400,7 @@ function EmailButton({ rep, week, state }) {
     await window.openMailto(msg);
   };
   const sendQuarter = async () => {
-    const msg = window.buildQuarterEmail(rep, state);
+    const msg = window.buildQuarterEmail(rep, state, week && week.quarter ? week.quarter : undefined);
     setOpen(false);
     await window.openMailto(msg);
   };
@@ -436,4 +436,37 @@ function EmailButton({ rep, week, state }) {
   );
 }
 
-Object.assign(window, { Icon, Avatar, Pill, BigCheck, StatusDot, AskForHelp, EmailButton });
+// ---------- QuarterGroup ----------
+// Shared collapsible section for grouping weeks (or any content) by quarter.
+// Header shows quarter label, date range, optional summary, and a chevron.
+// When collapsed, children are not rendered — only the header stays.
+function QuarterGroup({ quarter, defaultCollapsed, summary, children }) {
+  const [collapsed, setCollapsed] = useState(!!defaultCollapsed);
+  const qWeeks = (window.weeksForQuarter && window.weeksForQuarter(quarter.id)) || [];
+  const rangeLabel = qWeeks.length && window.fmtRange
+    ? window.fmtRange(qWeeks[0].monday, qWeeks[qWeeks.length - 1].sunday)
+    : "";
+
+  return (
+    <div className={"qgroup" + (collapsed ? " qgroup--collapsed" : "")}>
+      <button
+        type="button"
+        className="qgroup__header"
+        onClick={() => setCollapsed(c => !c)}
+        aria-expanded={!collapsed}
+      >
+        <span className="qgroup__label">{quarter.label}</span>
+        <span className="qgroup__meta">
+          {rangeLabel}
+          {summary ? (rangeLabel ? " · " : "") + summary : null}
+        </span>
+        <span className="qgroup__chevron" aria-hidden="true">
+          <Icon name="chevron-down" size={16} />
+        </span>
+      </button>
+      {!collapsed && children}
+    </div>
+  );
+}
+
+Object.assign(window, { Icon, Avatar, Pill, BigCheck, StatusDot, AskForHelp, EmailButton, QuarterGroup });

@@ -66,9 +66,39 @@ Auth: magic-link only, allowlist-gated via a Supabase trigger.
 
 ## Architecture notes
 
-- All JSX files are loaded as separate `<script type="text/babel">` tags and
-  parsed at runtime by Babel-standalone. There's no module system — components
-  reach each other via `window` (e.g. `window.AuthGate`, `window.getSession`).
-- Order of `<script>` tags in `index.html` matters: `data-model.js` must load
-  before anything that references `REPS`; `supabase-client.js` must load before
-  `auth-gate.jsx`; `app.jsx` last because it calls `ReactDOM.createRoot`.
+  - All JSX files are loaded as separate `<script type="text/babel">` tags and
+    parsed at runtime by Babel-standalone. There's no module system — components
+    reach each other via `window` (e.g. `window.AuthGate`, `window.getSession`).
+  - Order of `<script>` tags in `index.html` matters: `data-model.js` must load
+    before anything that references `REPS`; `supabase-client.js` must load before
+    `auth-gate.jsx`; `app.jsx` last because it calls `ReactDOM.createRoot`.
+
+## Quarters & weeks
+
+The quarter model lives in `src/data-model.js:123` as a `QUARTERS` array defining:
+- Q2 2026 (10 weeks, w1–w10, Apr 27–Jun 29), and
+- Q3 2026 (13 weeks, w11–w23, Jul 6–Sep 28)
+
+`buildWeeks()` generates one continuous `WEEKS` array (src/data-model.js:131) from `QUARTERS`, giving each week:
+- `quarter` ("Q2" / "Q3") and `qIndex` (1-based week index within the quarter).
+
+Helpers:
+- `weeksForQuarter()` returns weeks in a quarter (src/data-model.js:159)
+- `quarterForWeek()` looks up a week’s quarter (src/data-model.js:164)
+- `currentQuarterId()` returns the quarter containing today (src/data-model.js:187)
+
+### How to add Q4 2026
+
+Append one entry to `QUARTERS` (src/data-model.js:124-126 format):
+```js
+{ id: "Q4", label: "Q4 2026", startMonday: new Date(2026, 8, 1), weekCount: 13 }
+```
+(1) set `startMonday` to the Monday after Q3’s last Sunday; (2) set `weekCount` to 13 weeks ending Sep 28, 2026; (3) insert `w24–w36` sequentially. Everything else — `weeks`, week pickers, and past-quarter collapse behavior — follows automatically.
+
+### Week-id stability invariant
+
+Existing week ids (w1..w23) must NEVER be renumbered or re-dated. `localStorage` check keys, Supabase standup rows, and the wins table’s `week_index` all key on these ids; renumbering corrupts history.
+
+### Target Board
+
+The Target Board reads from the latest Salesforce snapshot, so it shows the current quarter (via `ATT_QUARTER`) and per-rep CS quarterly ramps; there is no historical board view client-side.

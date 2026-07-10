@@ -82,7 +82,7 @@ function attCsCompute(rep) {
   const churned = rep.book.filter(d => d.status === "churn");
   const renewedSum = renewed.reduce((s, d) => s + d.amt, 0);
   const openSum    = open.reduce((s, d) => s + d.amt, 0);
-  const target = rep.q2target || 0;
+  const target = rep.qTarget || 0;
   const pct = target ? Math.round(renewedSum / target * 100) : null;
   const gap = Math.max(0, target - renewedSum);
   const coverage = gap > 0 ? openSum / gap : 0;
@@ -108,16 +108,18 @@ const ATT_NB_SAMPLE = [
   ] },
 ];
 const ATT_CS_SAMPLE = [
-  { id: "dwayne", ren: { mtd: null, qtd: 92, ytd: 88 }, q2target: 300000,
-    ramp: [ { q: "Q1", na: true }, { q: "Q2", amt: 300000, fill: 92, cur: true }, { q: "Q3", amt: 250000, fill: 0 }, { q: "Q4", amt: 250000, fill: 0 } ],
+  // qTarget = current-quarter (Q3) ramp amount. ren.qtd is early-quarter (~Jul 6 start).
+  // Prior-quarter ramp fills stay as historical; only Q3 carries cur: true.
+  { id: "dwayne", ren: { mtd: null, qtd: 6, ytd: 88 }, qTarget: 250000,
+    ramp: [ { q: "Q1", na: true }, { q: "Q2", amt: 300000, fill: 92 }, { q: "Q3", amt: 250000, fill: 6, cur: true }, { q: "Q4", amt: 250000, fill: 0 } ],
     book: [
       { acct: "Atlas Group",   amt: 128000, date: "Renewed Apr 18", status: "renewed" },
       { acct: "Brightline",    amt: 96000,  date: "Renewed May 7",  status: "renewed" },
       { acct: "Cardinal Care", amt: 40000,  date: "Renewed May 22", status: "renewed" },
     ],
     upsell: 50000, cross: 50000, multi: 2, effective: "Plan effective 01 Apr 2026" },
-  { id: "meri", ren: { mtd: null, qtd: 86, ytd: 81 }, q2target: 500000,
-    ramp: [ { q: "Q1", amt: 100000, fill: 100 }, { q: "Q2", amt: 500000, fill: 86, cur: true }, { q: "Q3", amt: 200000, fill: 0 }, { q: "Q4", amt: 300000, fill: 0 } ],
+  { id: "meri", ren: { mtd: null, qtd: 5, ytd: 81 }, qTarget: 200000,
+    ramp: [ { q: "Q1", amt: 100000, fill: 100 }, { q: "Q2", amt: 500000, fill: 86 }, { q: "Q3", amt: 200000, fill: 5, cur: true }, { q: "Q4", amt: 300000, fill: 0 } ],
     book: [
       { acct: "Acuity Group", amt: 182000, date: "Renewed Apr 16", status: "renewed" },
       { acct: "Halden Foods", amt: 124500, date: "Renewed May 4",  status: "renewed" },
@@ -165,7 +167,7 @@ function attBuildLive(snapshots, deals, book, ramps) {
       cs.push({
         id: row.rep_id,
         ren: { mtd: null, qtd: pcts.qtd, ytd: pcts.ytd },   // no monthly target → "—"
-        q2target: row.ren_qtd_target || tByQ[quarter] || 0,
+        qTarget: row.ren_qtd_target || tByQ[quarter] || 0,
         ramp,
         book: repBook,
         // Backend lumps upsell+cross-sell into one "expansion" activity figure;

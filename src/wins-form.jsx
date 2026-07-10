@@ -11,13 +11,15 @@ const {
   useMemo:   useWFMemo,
 } = React;
 
-// ── Extended weeks — Mar 16 2026 (idx -5) through Jun 29 2026 (idx 10) ──────
+// ── Extended weeks — Mar 16 2026 (idx -5) through end of shared model ──────
 // week_index 1 = Apr 27 2026 (Q2 anchor), matching the import script.
+// Upper bound derived from window.WEEKS (shared model: Q2 w1-10 + Q3 w11-23).
 const WF_ANCHOR = new Date(2026, 3, 27); // Apr 27 = index 1
 
 function buildWinsWeeks() {
   const out = [];
-  for (let idx = -5; idx <= 10; idx++) {
+  const maxIdx = (window.WEEKS && window.WEEKS.length) || 23;
+  for (let idx = -5; idx <= maxIdx; idx++) {
     const monday = new Date(WF_ANCHOR);
     monday.setDate(WF_ANCHOR.getDate() + (idx - 1) * 7);
     const friday = new Date(monday);
@@ -26,7 +28,7 @@ function buildWinsWeeks() {
   }
   return out;
 }
-const WF_WEEKS = buildWinsWeeks(); // 16 weeks total
+const WF_WEEKS = buildWinsWeeks(); // 29 weeks: -5..23
 
 function currentWFWeekIdx() {
   const today = new Date(); today.setHours(0,0,0,0);
@@ -44,10 +46,41 @@ function wfWeekLabel(w) {
 }
 
 function wfWeekTag(w) {
-  // e.g. "W1" for Q2 weeks, "Q1" label for pre-quarter
-  if (w.weekIndex >= 1 && w.weekIndex <= 10) return `W${w.weekIndex}`;
+  // Pre-quarter weeks share the "Q1" tag; quarter weeks use W{n}.
   if (w.weekIndex <= 0) return `Q1`;
   return `W${w.weekIndex}`;
+}
+
+// ── Week picker groups ────────────────────────────────────────────────────
+// Buckets WF_WEEKS into: pre-quarter ("Q1 · Historical") + one group per
+// shared-model quarter (Q2 2026, Q3 2026). Used by the collapsible picker.
+function wfWeekGroups() {
+  const groups = [];
+  const pre = WF_WEEKS.filter(w => w.weekIndex <= 0);
+  if (pre.length) {
+    groups.push({
+      id: "Q1",
+      label: "Q1 · Historical",
+      rangeLabel: fmtRange(pre[0].monday, pre[pre.length - 1].friday),
+      weeks: pre,
+    });
+  }
+  for (const q of window.QUARTERS || []) {
+    const qw = WF_WEEKS.filter(w => {
+      if (w.weekIndex < 1) return false;
+      const shared = window.WEEKS[w.weekIndex - 1];
+      return shared && shared.quarter === q.id;
+    });
+    if (qw.length) {
+      groups.push({
+        id: q.id,
+        label: q.label,
+        rangeLabel: fmtRange(qw[0].monday, qw[qw.length - 1].friday),
+        weeks: qw,
+      });
+    }
+  }
+  return groups;
 }
 
 // ── localStorage fallback ──────────────────────────────────────────────────
@@ -162,6 +195,40 @@ function WFTextarea({ value, onChange, placeholder, readOnly }) {
   );
 }
 
+// ── Collapsible week-picker group (matches shared .qgroup CSS) ─────────────
+function WFWeekGroup({ label, rangeLabel, weeks, defaultCollapsed, wfIdx, onPick }) {
+  const [collapsed, setCollapsed] = useWFState(!!defaultCollapsed);
+  return (
+    <div className={"qgroup" + (collapsed ? " qgroup--collapsed" : "")}>
+      <button type="button" className="qgroup__header"
+        onClick={() => setCollapsed(c => !c)} aria-expanded={!collapsed}>
+        <span className="qgroup__label">{label}</span>
+        <span className="qgroup__meta">{rangeLabel}</span>
+        <span className="qgroup__chevron" aria-hidden="true">
+          <Icon name="chevron-down" size={16} />
+        </span>
+      </button>
+      {!collapsed && (
+        <div className="wf-picker__list">
+          {weeks.map(w => {
+            const arrIdx = WF_WEEKS.indexOf(w);
+            return (
+              <button key={w.weekIndex} type="button"
+                className={"wf-picker__item" + (arrIdx === wfIdx ? " is-active" : "")}
+                onClick={() => onPick(arrIdx)}>
+                <span className={"wf-picker__tag" + (w.weekIndex <= 0 ? " wf-picker__tag--q1" : "")}>
+                  {wfWeekTag(w)}
+                </span>
+                <span className="wf-picker__date">{wfWeekLabel(w)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Section card ───────────────────────────────────────────────────────────
 function WFSection({ title, time, hint, highlight, children }) {
   return (
@@ -239,6 +306,7 @@ function WinsFormView({ authedUser, activeTeam }) {
 
   // Self-contained week navigation over the extended WF_WEEKS list
   const [wfIdx, setWfIdx] = useWFState(() => currentWFWeekIdx());
+  const [showPicker, setShowPicker] = useWFState(false);
   const week = WF_WEEKS[wfIdx];
 
   const [form,    setForm   ] = useWFState(emptyForm);
@@ -328,14 +396,38 @@ function WinsFormView({ authedUser, activeTeam }) {
           <button type="button" className="wf__nav-btn"
             onClick={() => setWfIdx(i => Math.max(0, i-1))}
             disabled={wfIdx === 0} aria-label="Previous week">‹</button>
-          <div className="wf__week-label">
+          <div className="wf__week-label" role="button"
+            onClick={() => setShowPicker(p => !p)}>
             <div className="wf__week-main">
               <span className={"wf__week-tag" + (isQ1Week ? " wf__week-tag--q1" : "")}>{wfWeekTag(week)}</span>
               {wfWeekLabel(week)}
+              <span className="wf__week-caret" aria-hidden="true"><Icon name="chevron-down" size={14} /></span>
             </div>
             <div className="wf__week-sub">
               {isQ1Week ? "Q1 · Historical" : isFutureWeek ? "Upcoming" : "Due Friday 5 PM CT"}
             </div>
+            {showPicker && (
+              <>
+                <div className="wf-picker__backdrop" onClick={() => setShowPicker(false)} />
+                <div className="wf-picker" onClick={e => e.stopPropagation()}>
+                  {wfWeekGroups().map(g => {
+                    const isCurQ = window.currentQuarterId && window.currentQuarterId() === g.id;
+                    const hasSel = g.weeks.some(w => WF_WEEKS.indexOf(w) === wfIdx);
+                    return (
+                      <WFWeekGroup
+                        key={g.id}
+                        label={g.label}
+                        rangeLabel={g.rangeLabel}
+                        weeks={g.weeks}
+                        defaultCollapsed={!isCurQ && !hasSel}
+                        wfIdx={wfIdx}
+                        onPick={idx => { setWfIdx(idx); setShowPicker(false); }}
+                      />
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
           <button type="button" className="wf__nav-btn"
             onClick={() => setWfIdx(i => Math.min(WF_WEEKS.length-1, i+1))}
@@ -475,8 +567,9 @@ const __WF_STYLE = `
   .wf__nav-btn:hover:not(:disabled) { background: var(--ink-05); color: var(--ink); }
   .wf__nav-btn:disabled { opacity: .3; cursor: default; }
 
-  .wf__week-label { text-align: center; min-width: 200px; }
+  .wf__week-label { text-align: center; min-width: 200px; cursor: pointer; position: relative; }
   .wf__week-main { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; justify-content: center; }
+  .wf__week-caret { color: var(--ink-50); display: inline-flex; align-items: center; }
   .wf__week-sub  { font-size: 11px; color: var(--ink-50); text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
   .wf__week-tag {
     font-size: 10px; font-weight: 700; letter-spacing: .05em;
@@ -484,6 +577,32 @@ const __WF_STYLE = `
     border-radius: 4px; padding: 2px 6px;
   }
   .wf__week-tag--q1 { background: var(--ink-10); color: var(--ink-50); }
+
+  .wf-picker__backdrop { position: fixed; inset: 0; z-index: 99; }
+  .wf-picker {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 100;
+    background: var(--card); border: 1px solid var(--ink-20); border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12); padding: 8px;
+    max-height: 420px; overflow-y: auto; min-width: 300px;
+  }
+  .wf-picker__list { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; }
+  .wf-picker__item {
+    display: flex; align-items: center; gap: 10px; width: 100%;
+    padding: 7px 12px; border: none; background: transparent; border-radius: 8px;
+    font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    color: var(--ink-70); transition: background 100ms;
+  }
+  .wf-picker__item:hover { background: var(--ink-05); }
+  .wf-picker__item.is-active { background: var(--brand-tint); color: var(--brand-deep); font-weight: 600; }
+  .wf-picker__tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .05em;
+    background: var(--brand-light); color: var(--brand-deep);
+    border-radius: 4px; padding: 2px 6px; flex: none; min-width: 32px; text-align: center;
+  }
+  .wf-picker__tag--q1 { background: var(--ink-10); color: var(--ink-50); }
+  .wf-picker__item.is-active .wf-picker__tag { background: var(--brand); color: #fff; }
+  .wf-picker__date { color: var(--ink-50); font-size: 12px; }
+  .wf-picker__item.is-active .wf-picker__date { color: var(--brand-deep); }
 
   .wf__today-btn {
     appearance: none; border: 1px solid var(--ink-20); background: var(--card);

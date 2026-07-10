@@ -15,6 +15,16 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
   const isPast = week.sunday < today;
   const isFuture = week.monday > today;
 
+  const currentQ = currentQuarterId();
+  const [qExpanded, setQExpanded] = React.useState({});
+
+  React.useEffect(() => {
+    const selQ = WEEKS[weekIdx].quarter;
+    if (selQ !== currentQ) {
+      setQExpanded(prev => prev[selQ] ? prev : { ...prev, [selQ]: true });
+    }
+  }, [weekIdx, currentQ]);
+
   return (
     <div className="repview">
       {/* Top bar — back to team + rep identity */}
@@ -41,36 +51,67 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
         </div>
       </div>
 
-      {/* 10-week timeline strip */}
+      {/* Quarter-grouped timeline strip */}
       <div className="weekstrip">
-        {WEEKS.map((w, i) => {
-          const wChecks = activeDeliverables.map(d => delComplete(rep.id, w, d.id, state));
-          const wDone = wChecks.filter(Boolean).length;
-          const wClean = wDone === activeDeliverables.length;
-          const isSel = i === weekIdx;
-          const isCur = i === cur;
-          const past = w.sunday < today;
-          return (
-            <button
-              key={w.id}
-              className="weekstrip__item"
-              data-selected={isSel ? "1" : "0"}
-              data-clean={wClean ? "1" : "0"}
-              data-current={isCur ? "1" : "0"}
-              data-past={past ? "1" : "0"}
-              onClick={() => setWeekIdx(i)}
-            >
-              <div className="weekstrip__num">W{w.index}</div>
-              <div className="weekstrip__date">{fmtShort(w.monday)}</div>
-              <div className="weekstrip__bar">
-              {wChecks.map((c, di) => (
-                <span key={di} className="weekstrip__seg" data-checked={c ? "1" : "0"} />
-              ))}
-              </div>
-              {isCur && <div className="weekstrip__badge">Now</div>}
-            </button>
-          );
-        })}
+        {(() => {
+          const items = [];
+          for (const q of QUARTERS) {
+            const qWeeks = weeksForQuarter(q.id);
+            const isCurrentQ = q.id === currentQ;
+            const isExpanded = isCurrentQ || !!qExpanded[q.id];
+
+            if (!isCurrentQ) {
+              items.push(
+                <button
+                  key={q.id}
+                  className="weekstrip__item"
+                  data-qtoggle="1"
+                  data-expanded={isExpanded ? "1" : "0"}
+                  aria-expanded={isExpanded}
+                  aria-label={`${q.label} · ${fmtRange(qWeeks[0].monday, qWeeks[qWeeks.length - 1].sunday)} · ${isExpanded ? "hide weeks" : "show weeks"}`}
+                  onClick={() => setQExpanded(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
+                >
+                  <div className="weekstrip__num">{q.label}</div>
+                  <div className="weekstrip__date">{fmtRange(qWeeks[0].monday, qWeeks[qWeeks.length - 1].sunday)}</div>
+                </button>
+              );
+            }
+
+            if (isExpanded) {
+              for (const w of qWeeks) {
+                const i = w.index - 1;
+                const wChecks = activeDeliverables.map(d => delComplete(rep.id, w, d.id, state));
+                const wDone = wChecks.filter(Boolean).length;
+                const wClean = wDone === activeDeliverables.length;
+                const isSel = i === weekIdx;
+                const isCur = i === cur;
+                const past = w.sunday < today;
+                items.push(
+                  <button
+                    key={w.id}
+                    className="weekstrip__item"
+                    data-selected={isSel ? "1" : "0"}
+                    data-clean={wClean ? "1" : "0"}
+                    data-current={isCur ? "1" : "0"}
+                    data-past={past ? "1" : "0"}
+                    aria-label={`${quarterForWeek(w).label} · Week ${w.qIndex} · ${fmtRange(w.monday, w.sunday)}`}
+                    onClick={() => setWeekIdx(i)}
+                  >
+                    <div className="weekstrip__num">W{w.index}</div>
+                    <div className="weekstrip__date">{fmtShort(w.monday)}</div>
+                    <div className="weekstrip__bar">
+                    {wChecks.map((c, di) => (
+                      <span key={di} className="weekstrip__seg" data-checked={c ? "1" : "0"} />
+                    ))}
+                    </div>
+                    {isCur && <div className="weekstrip__badge">Now</div>}
+                  </button>
+                );
+              }
+            }
+          }
+          return items;
+        })()}
       </div>
 
       {/* Selected week heading */}

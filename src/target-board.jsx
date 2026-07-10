@@ -124,13 +124,19 @@ function TBCsDetail({ rep }) {
       </div>
       <div>
         <div className="tb-ramp">
-          {rep.ramp.map((cell, i) => (
-            <div key={i} className="tb-rcell" data-cur={cell.cur ? "1" : "0"} data-na={cell.na ? "1" : "0"}>
-              <div className="tb-rcell__q">{cell.q}</div>
-              <div className="tb-rcell__amt">{cell.na ? "—" : K(cell.amt)}</div>
-              <div className="tb-rcell__bar">{cell.fill ? <i style={{ width: `${cell.fill}%` }} /> : null}</div>
-            </div>
-          ))}
+          {rep.ramp.map((cell, i) => {
+            const qNum = parseInt(String(cell.q).replace(/\D/g, ""), 10);
+            const curQ = window.ATT_QUARTER.quarter;
+            const past = !cell.cur && !cell.na && qNum < curQ;
+            const future = !cell.cur && !cell.na && qNum > curQ;
+            return (
+              <div key={i} className="tb-rcell" data-cur={cell.cur ? "1" : "0"} data-na={cell.na ? "1" : "0"} data-past={past ? "1" : "0"} data-future={future ? "1" : "0"}>
+                <div className="tb-rcell__q">{cell.q}{cell.cur ? <span className="tb-rcell__now">now</span> : null}</div>
+                <div className="tb-rcell__amt">{cell.na ? "—" : K(cell.amt)}</div>
+                <div className="tb-rcell__bar">{cell.fill ? <i style={{ width: `${cell.fill}%` }} /> : null}</div>
+              </div>
+            );
+          })}
         </div>
         <div className="tb-tiles">
           <div className="tb-tile"><div className="tb-tile__k">Expansion</div><div className="tb-tile__v">{rep.upsell != null ? K(rep.upsell) : "—"}</div><div className="tb-tile__s">upsell + cross-sell · activity</div></div>
@@ -263,7 +269,7 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
       : sorted.reduce((s, r) => s + (window.attCsCompute(r).renewedSum || 0), 0);
     const regTar = kind === "nb"
       ? sorted.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0)
-      : sorted.reduce((s, r) => s + (r.q2target || 0), 0);
+      : sorted.reduce((s, r) => s + (r.qTarget || 0), 0);
     return (
       <div key={rid} className="tb-region-section">
         <div className="tb-region-head">
@@ -327,7 +333,7 @@ function convertTeamTarget(list, period, kind, displayCurrency) {
     if (kind === "nb") {
       total += conv((rep.target && rep.target[period]) || 0, native, displayCurrency);
     } else {
-      total += conv(rep.q2target || 0, native, displayCurrency);
+      total += conv(rep.qTarget || 0, native, displayCurrency);
     }
   }
   return total;
@@ -387,7 +393,7 @@ function LeaderboardView({ authedUser, activeTeam }) {
 
   return (
     <div className="tb-view" data-screen-label="03 Target Board">
-      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />Global attainment · synced nightly from Salesforce</div>
+      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />Global attainment · {window.ATT_QUARTER.label} · synced nightly from Salesforce</div>
       <div className="tb-hrow">
         <div>
           <h1 className="tb-title"><em>Target</em> board</h1>

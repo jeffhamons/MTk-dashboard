@@ -1838,6 +1838,58 @@ button { font: inherit; color: inherit; }
 .att-strip__kpi-val--risk  { color: #E03C3C; }
 .att-strip__kpi-val--neutral { color: var(--ink-70); }
 
+/* ================================================
+   QUARTER GROUP (collapsible section)
+   ================================================ */
+.qgroup {
+  margin-bottom: 14px;
+}
+.qgroup__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 12px 16px;
+  background: var(--card);
+  border: 1px solid var(--ink-20);
+  border-radius: 12px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.qgroup__header:hover {
+  background: var(--paper-deep);
+  border-color: var(--ink-30);
+}
+.qgroup__label {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  flex: none;
+}
+.qgroup__meta {
+  flex: 1;
+  font-size: 12px;
+  color: var(--ink-50);
+  font-weight: 500;
+  min-width: 0;
+}
+.qgroup__chevron {
+  color: var(--ink-50);
+  display: flex;
+  align-items: center;
+  flex: none;
+  transition: transform 200ms ease;
+  transform: rotate(0deg);
+}
+.qgroup--collapsed .qgroup__chevron {
+  transform: rotate(-90deg);
+}
+
 </style>
 <template id="__bundler_thumbnail">
   <svg viewBox="0 0 100 70" xmlns="http://www.w3.org/2000/svg">
@@ -2173,8 +2225,8 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
         <h1 className="home__title">{greeting}, {firstName}.</h1>
         <p className="home__sub">
           {isManager
-            ? `Week ${week.index} of ${WEEKS.length} · ${cleanCount} of ${repRows.length} reps closed clean`
-            : `Week ${week.index} of ${WEEKS.length} · ${fmtRange(week.monday, week.friday)}`}
+            ? `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${cleanCount} of ${repRows.length} reps closed clean`
+            : `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${fmtRange(week.monday, week.friday)}`}
         </p>
       </div>
 
@@ -2197,7 +2249,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
                 <div>
                   <div className="home__card-label">Team Rollup</div>
                   <div className="home__card-title">{fmtRange(week.monday, week.friday)}</div>
-                  <div className="home__card-sub">Week {week.index} · {repRows.length} reps</div>
+                  <div className="home__card-sub">{quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} · {repRows.length} reps</div>
                 </div>
                 <div className="home__stamp home__stamp--done">
                   <span className="home__stamp-num">{cleanCount}<i>/{repRows.length}</i></span>
@@ -2266,7 +2318,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
                 <div>
                   <div className="home__card-label">Weekly Review</div>
                   <div className="home__card-title">{fmtRange(week.monday, week.friday)}</div>
-                  <div className="home__card-sub">Week {week.index} · Due Friday 5 PM CT</div>
+                  <div className="home__card-sub">{quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} · Due Friday 5 PM CT</div>
                 </div>
                 <div className={"home__stamp" + (clean ? " home__stamp--done" : "")}>
                   <span className="home__stamp-num">{done}<i>/{total}</i></span>
