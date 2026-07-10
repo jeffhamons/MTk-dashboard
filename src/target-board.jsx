@@ -342,7 +342,7 @@ function currencyBadge(code) {
   }
 }
 
-// RFC-151 (was RFC-151) CS Division RBAC merged with per-audience currency:
+// RFC-151 (was RFC-144) CS Division RBAC merged with per-audience currency:
 // keep the RBAC-aware signature (activeTeam scopes the workspace, canManageAny
 // drives the manager view) AND main's native-currency display conversion.
 function LeaderboardView({ authedUser, activeTeam }) {

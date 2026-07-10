@@ -34,9 +34,9 @@ const REPS = [
   { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130, region: "US", team: "cs",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=bzuua5&nav=MTVfezg3OUJBRDY5LTZCNUQtNkQ0Ny05RDQwLTE0ODlCNzlDOTM5Rn0" } },
-  // EMEA CS reps — Lara's team, RFC-151 Open Question 1 answered 2026-07-02.
+  // EMEA CS reps — Lara's team; roster confirmed by Jeff 2026-07-10; RFC-151 Open Question 1 resolved.
   // (Irvin Haskell in the org chart IS the existing `dwayne` entry; Dwayne +
-  // Meri are the NA CS pair.) Activated with Phase 4's CS workspace — they
+  // Meri are the NA CS pair.) Live in Phase 4's CS workspace — they
   // render only inside the CS section, so BD views are unaffected.
   { id: "laura",    name: "Laura Blackmore",         role: "Customer Success Manager",        initials: "LB", hue: 330, region: "EMEA", team: "cs",
     skips: ["outreach", "commitments"], links: {} },

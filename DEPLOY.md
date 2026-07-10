@@ -108,10 +108,37 @@ update users          set role = 'team_admin'               where email = 'lkidd
 That single flip activates her CS-only scope — both `(cs,'US')` and
 `(cs,'EMEA')` rows are already seeded — and simultaneously revokes her global
 NA BD visibility. Verify from her session: CS reps visible, and a direct query
-for an NA BD rep_id returns zero rows. Her EMEA reps (Laura Blackmore, Owen
-Bolding, James Brooke, Rowan Donoghue, Alex Martin) are registered with
-`active=false` / `emit:false` until Phase 4 ships the CS section UI; seat
-their logins via `allowed_emails` when they go live.
+for an NA BD rep_id returns zero rows. Phase 4 has shipped; Jeff confirmed the
+EMEA CS roster on 2026-07-10, so these 5 reps (Laura Blackmore, Owen Bolding,
+James Brooke, Rowan Donoghue, Alex Martin) are live in the CS section
+(`active=true`, emitted). Seat their logins via `allowed_emails` when they get
+accounts.
+
+### Applying the CS-RBAC RLS migration (#4341)
+
+**Ordering.** Applying the CS-RBAC RLS migration to live Supabase (tracked in
+issue #4341) while Lara still holds `role='manager'` does not isolate her —
+she hits the global-manager bypass present in every policy. So #4341 alone is
+safe but incomplete. Isolation is achieved only by the #4342 role flip
+(`manager` → `team_admin`), which must follow the Netlify client deploy.
+
+**Apply-time policy-inventory gate.** Before and after applying the RLS
+migration, run:
+
+```sql
+select * from pg_policies where tablename in ('checks','asks','wins','standup_entries','attainment_snapshot','cs_quarterly_targets','closed_won_deals','renewal_book','manager_notes');
+```
+
+Confirm exactly the intended policy set remains — no stray permissive SELECT
+policy survived the migration's named DROPs (a `qual=true` permissive policy
+had once OR-defeated the `closed_won_deals` / `renewal_book` owner-only
+lockdown; it must not recur). Also assert `rowsecurity=true` on every
+policy-bearing data table in that inventory query — all 9 of `asks`,
+`attainment_snapshot`, `checks`, `closed_won_deals`, `cs_quarterly_targets`,
+`manager_notes`, `renewal_book`, `standup_entries`, `wins` (a policy on a table
+with `rowsecurity=false` is inert, so a missed table stays fully readable). The
+migration enables RLS only on the registry tables (`teams` / `reps` /
+`team_admins`) and assumes RLS is already on for these data tables.
 
 ---
 
