@@ -3,13 +3,13 @@
 // The state engine doesn't care how many there are.
 
 const REPS = [
-  { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168, region: "US",
+  { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168, region: "US", team: "newbiz",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=Rxvq5P",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBuhNbqR8nYTKMa9sY_3p8xAdPrDpNdxx2XoWr0Mc-O7ys?e=DvUMnf",
     } },
-  { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18, region: "US",
+  { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18, region: "US", team: "newbiz",
     skips: [],
     // Departed mid-cycle — visible through week 5 (her history), hidden from
     // week 6 (Jun 1) onward. See repVisibleInWeek().
@@ -18,35 +18,49 @@ const REPS = [
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=ZnLAD9&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMjAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
     } },
-  { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210, region: "US",
+  { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210, region: "US", team: "newbiz",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=VeYQ0C&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMTAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBPIeHopSD9TKouVkmtbRtAAbws9qXWmZxz8IMtd1U8QrU?e=A1Ye1Y",
     } },
-  { id: "don",     name: "Don Hazelwood",           role: "Senior Account Executive", initials: "DH", hue: 38, region: "US",
+  { id: "don",     name: "Don Hazelwood",           role: "Senior Account Executive", initials: "DH", hue: 38, region: "US", team: "newbiz",
     email: "Donald.Hazelwood@mindtools-kineo.com",
     skips: [],
     links: {} },
-  { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280, region: "US",
+  { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280, region: "US", team: "cs",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=0OOyTb&nav=MTVfezg2NzczMkNCLTA2NTEtQjA0NC1BOUZFLTY4N0M0NkE0NEREQX0" } },
-  { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130, region: "US",
+  { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130, region: "US", team: "cs",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=bzuua5&nav=MTVfezg3OUJBRDY5LTZCNUQtNkQ0Ny05RDQwLTE0ODlCNzlDOTM5Rn0" } },
+  // EMEA CS reps — Lara's team, RFC-151 Open Question 1 answered 2026-07-02.
+  // (Irvin Haskell in the org chart IS the existing `dwayne` entry; Dwayne +
+  // Meri are the NA CS pair.) Activated with Phase 4's CS workspace — they
+  // render only inside the CS section, so BD views are unaffected.
+  { id: "laura",    name: "Laura Blackmore",         role: "Customer Success Manager",        initials: "LB", hue: 330, region: "EMEA", team: "cs",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "owen",     name: "Owen Bolding",            role: "Senior Customer Success Manager", initials: "OB", hue: 55,  region: "EMEA", team: "cs",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "james",    name: "James Brooke",            role: "Customer Success Manager",        initials: "JB", hue: 95,  region: "EMEA", team: "cs",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "rowan",    name: "Rowan Donoghue",          role: "Customer Success Manager",        initials: "RD", hue: 250, region: "EMEA", team: "cs",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "alex",     name: "Alex Martin",             role: "Customer Success Manager",        initials: "AM", hue: 20,  region: "EMEA", team: "cs",
+    skips: ["outreach", "commitments"], links: {} },
   // EMEA stubs (emit: false — not yet active, always in data)
-  { id: "rory",     name: "Rory Lawson",             role: "Account Director",   initials: "RL", hue: 200, region: "EMEA",
+  { id: "rory",     name: "Rory Lawson",             role: "Account Director",   initials: "RL", hue: 200, region: "EMEA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
-  { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 200, region: "EMEA",
+  { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 200, region: "EMEA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
-  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 200, region: "EMEA",
+  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 200, region: "EMEA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
-  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 200, region: "EMEA",
+  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 200, region: "EMEA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
   // ZA stubs
-  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 200, region: "ZA",
+  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 200, region: "ZA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
-  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 200, region: "ZA",
+  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 200, region: "ZA", team: "newbiz",
     emit: false, activeThrough: null, links: {} },
 ];
 
@@ -495,11 +509,14 @@ function regionForRep(rep) {
   return REGIONS.find(r => r.id === rep.region) || null;
 }
 
-// Build { regionId: [rep, …] } from REPS, filtering by week visibility
-function repsByRegion(weekIndex) {
+// Build { regionId: [rep, …] } from REPS, filtering by week visibility.
+// Optional teamId (RFC-151 Phase 4) scopes the grouping to one workspace;
+// omitted = all teams (back-compatible).
+function repsByRegion(weekIndex, teamId) {
   const map = {};
   for (const r of REPS) {
     if (!repVisibleInWeek(r, weekIndex)) continue;
+    if (teamId && r.team !== teamId) continue;
     const rid = r.region;
     if (!rid) continue;
     if (!map[rid]) map[rid] = [];
@@ -523,11 +540,80 @@ function regionCurrencyLong(regionId) {
 // Canonical region sort order for the target board: US → EMEA → ZA
 const REGION_ORDER = ["US", "EMEA", "ZA"];
 
+// ── RFC-151: teams + team-scoped RBAC helpers ───────────────────────────────
+// Client mirror of the Phase 2 RLS predicates (db/migration-team-rbac-rls.sql).
+// Both sides MUST agree; RLS is the enforcement backstop if they ever drift.
+// The server-side registry (public.teams / public.reps) is kept in lockstep
+// with TEAMS / REPS[].team by tests/test_rfc151_reps_parity.py.
+const TEAMS = [
+  { id: "newbiz", label: "New Business (BD)", short: "NA BD",
+    eyebrow: "North America BD · Weekly Operating Rhythm" },
+  { id: "cs",     label: "Customer Success",  short: "CS",
+    eyebrow: "Customer Success · Weekly Operating Rhythm" },
+];
+
+function repById(repId) {
+  return REPS.find(r => r.id === repId) || null;
+}
+
+// Attribution stamps (markedBy/resolvedBy role strings): which stored role
+// values carry manager-parity authority.
+function isManagerialRole(role) {
+  return role === "manager" || role === "team_admin";
+}
+
+// Can `user` perform manager-parity actions on `repId`'s rows?
+// true for: the global manager; the rep themself (self-edit already applies);
+// a team_admin whose adminScopes cover the rep's team AND region. Mirrors
+// ratification R1: adminScopes grant nothing unless role is 'team_admin'.
+function canManageRep(user, repId) {
+  if (!user) return false;
+  if (user.role === "manager") return true;
+  if (user.rep_id && user.rep_id === repId) return true;
+  if (user.role !== "team_admin") return false;
+  const rep = repById(repId);
+  if (!rep || !Array.isArray(user.adminScopes)) return false;
+  return user.adminScopes.some(s => s.team_id === rep.team && s.region === rep.region);
+}
+
+// Does `user` have manager-parity capability over ANYONE (gates manager-only
+// UI like the flag queue, rep pickers, standup edit-any)?
+function canManageAny(user) {
+  if (!user) return false;
+  if (user.role === "manager") return true;
+  return user.role === "team_admin"
+    && Array.isArray(user.adminScopes) && user.adminScopes.length > 0;
+}
+
+// ── RFC-151 Phase 4: workspace model ────────────────────────────────────────
+// Which team workspaces can `user` open? Global manager: every team (in
+// TEAMS order); team_admin: the distinct teams their scopes cover; rep:
+// their own team. The workspace switcher renders only when this has >1
+// entry — Jeff switches, everyone else lands directly in their team.
+function teamsForUser(user) {
+  if (!user) return [];
+  if (user.role === "manager") return TEAMS.map(t => t.id);
+  if (user.role === "team_admin") {
+    const scoped = new Set((user.adminScopes || []).map(s => s.team_id));
+    return TEAMS.map(t => t.id).filter(id => scoped.has(id));
+  }
+  const rep = repById(user.rep_id);
+  return rep ? [rep.team] : [];
+}
+
+// Landing workspace: the first team the user can access ('newbiz' keeps
+// today's behavior for Jeff and as the safe fallback).
+function defaultTeamForUser(user) {
+  return teamsForUser(user)[0] || "newbiz";
+}
+
 // Expose globally for other Babel scripts
 Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY,
   REGIONS, regionForRep, repsByRegion,
   regionCurrency, regionCurrencyLong, REGION_ORDER,
+  TEAMS, repById, isManagerialRole, canManageRep, canManageAny,
+  teamsForUser, defaultTeamForUser,
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,

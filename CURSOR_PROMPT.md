@@ -14,6 +14,15 @@ The app has three roles:
 - Views the full team rollup at a glance
 - Runs Tue/Thu standups in a shared grid
 - Browses any rep's Weekly Wins form (read-only)
+- The ONLY global role — sees every team. Nobody else is ever seated as `manager`.
+
+**Team admin (e.g. Lara — CS team lead, RFC-151):**
+- Everything the manager does, but scoped by RLS to the reps their
+  `team_admins` (team, region) rows cover — other teams' data is invisible
+  to them at the database layer, not just the UI
+- Stored role value is `team_admin` (the UI may label them "CS Manager");
+  scopes resolve at login into `authedUser.adminScopes`, and gating flows
+  through `canManageRep(user, repId)` / `canManageAny(user)` in data-model.js
 
 **Rep (e.g. Cammy, Brenda, Farah, Dwayne, Meri):**
 - Checks off their weekly deliverables
@@ -175,8 +184,16 @@ All wins functions take `weekIndex` as a plain integer — no "w1" string conver
 ## Common tasks
 
 **Add a new rep:**
-1. Add to `REPS[]` in `data-model.js` with a unique `id`, `hue` (0–360), `initials`
-2. Insert into `allowed_emails` in Supabase: `(email, role, rep_id)` with `role = 'rep'` and `rep_id` matching the REPS entry. The trigger will auto-create their `users` row on first sign-in.
+1. Add to `REPS[]` in `data-model.js` with a unique `id`, `hue` (0–360), `initials`, `region`, and `team` (`"newbiz"` or `"cs"` — drives RLS isolation, see RFC-151)
+2. Add the matching row to the backfill in `db/migration-team-rbac-schema.sql` AND insert it into the live `public.reps` table (same values). CI enforces step 1↔2 parity via `tests/test_rfc151_reps_parity.py` — a drift reddens the build.
+3. Insert into `allowed_emails` in Supabase: `(email, role, rep_id)` with `role = 'rep'` and `rep_id` matching the REPS entry. The trigger will auto-create their `users` row on first sign-in.
+
+**Seat a team admin (team-scoped manager, e.g. Lara for CS):** see the
+"Seating a team admin" section in `DEPLOY.md`. Two inserts: an
+`allowed_emails` row with `role='team_admin'`, plus one `team_admins`
+`(auth_id, team_id, region)` row per region they cover. **Never seat a
+division lead as `role='manager'`** — that role is a global bypass that sees
+every team's data and defeats RFC-151's isolation.
 
 **Add a new deliverable:**
 1. Add to `DELIVERABLES[]` in `data-model.js`

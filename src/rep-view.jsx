@@ -246,7 +246,7 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
                   </>
                 )}
               </div>
-              {checked && checkVal && checkVal.markedBy && checkVal.markedBy.role === "manager" && (
+              {checked && checkVal && checkVal.markedBy && isManagerialRole(checkVal.markedBy.role) && (
                 <MarkedByStamp check={checkVal} />
               )}
               {isAuto && state.asks && state.asks[checkKey(rep.id, week.id, "standup")] && (

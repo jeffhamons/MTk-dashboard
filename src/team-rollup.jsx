@@ -4,16 +4,19 @@
 const { useMemo: useMemoRollup } = React;
 const { REGIONS, regionForRep, repsByRegion } = window;
 
-function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
+function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const isCurrent = weekIdx === currentWeekIndex();
   const isPast = week.sunday < today;
   const curIdx = currentWeekIndex();
+  // RFC-151 Phase 4: the rollup is workspace-scoped; no activeTeam (legacy
+  // caller) means all teams.
+  const inTeam = rep => !activeTeam || rep.team === activeTeam;
 
   // For each rep, compute completion for this week, respecting per-rep skips.
   // Reps who departed mid-cycle (activeThrough) drop off from their week N+1.
-  const rows = REPS.filter(rep => repVisibleInWeek(rep, week.index)).map(rep => {
+  const rows = REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, week.index)).map(rep => {
     const skips = rep.skips || [];
     const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
     // We still produce a counts array aligned with the FULL DELIVERABLES list
@@ -39,10 +42,11 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
     return { region: reg, rows: rRows, done, total };
   }).filter(s => s.rows.length > 0);
 
-  // Determine subtitle — single region or multi-region
+  // Determine subtitle — single region or multi-region, workspace-labelled
+  const teamLabelWord = activeTeam === "cs" ? "CS" : "BD";
   const regionSubtitle = regionSections.length === 1
-    ? `${regionSections[0].region.label} BD · Weekly Operating Rhythm`
-    : regionSections.map(s => s.region.label).join(" + ") + " BD · Weekly Operating Rhythm";
+    ? `${regionSections[0].region.label} ${teamLabelWord} · Weekly Operating Rhythm`
+    : regionSections.map(s => s.region.label).join(" + ") + ` ${teamLabelWord} · Weekly Operating Rhythm`;
 
   // Days until Friday 5pm CT (deliverables due)
   const friday = new Date(week.friday);
@@ -107,7 +111,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep }) {
               const sel = i === weekIdx;
               // Compute team completion for this week (respecting per-rep skips)
               let done = 0, total = 0;
-              REPS.filter(rep => repVisibleInWeek(rep, w.index)).forEach(rep => {
+              REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
                 const skips = rep.skips || [];
                 DELIVERABLES.forEach(d => {
                   if (skips.includes(d.id)) return;

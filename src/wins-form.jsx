@@ -216,15 +216,23 @@ function WFStatus({ status, lastSaved }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-function WinsFormView({ authedUser }) {
-  const isManager = authedUser && authedUser.role === "manager";
+function WinsFormView({ authedUser, activeTeam }) {
+  const isManager = canManageAny(authedUser);
   const myRepId   = isManager ? null : (authedUser && authedUser.rep_id) || null;
   const email     = authedUser ? authedUser.authEmail : null;
 
-  const activeReps = useWFMemo(() => REPS.filter(r => r.name !== "TBD"), []);
+  // Workspace-scoped roster (RFC-151 Phase 4); no activeTeam = all teams.
+  const activeReps = useWFMemo(
+    () => REPS.filter(r => r.name !== "TBD" && (!activeTeam || r.team === activeTeam)),
+    [activeTeam]
+  );
+  const manageableReps = useWFMemo(() =>
+    isManager ? activeReps : activeReps.filter(r => canManageRep(authedUser, r.id)),
+    [isManager, activeReps, authedUser]
+  );
 
   const [viewingRepId, setViewingRepId] = useWFState(() =>
-    isManager ? (activeReps[0]?.id || null) : (myRepId || activeReps[0]?.id || null)
+    isManager ? (manageableReps[0]?.id || null) : (myRepId || manageableReps[0]?.id || null)
   );
 
   const canEdit = !isManager && viewingRepId === myRepId;
@@ -345,7 +353,7 @@ function WinsFormView({ authedUser }) {
             <div className="wf__rep-bar">
               <span className="wf__rep-bar-lbl">Viewing</span>
               <div className="wf__rep-pills">
-                {activeReps.filter(r => repVisibleInWeek(r, week.weekIndex)).map(r => (
+                {manageableReps.filter(r => repVisibleInWeek(r, week.weekIndex)).map(r => (
                   <button key={r.id} type="button"
                     className={"wf__rep-pill" + (viewingRepId===r.id ? " is-active" : "")}
                     onClick={() => setViewingRepId(r.id)}>

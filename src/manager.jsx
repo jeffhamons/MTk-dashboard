@@ -23,8 +23,9 @@ const APP_PAGES = [
 // FlagQueue — landing list of every open ask across the team, oldest first.
 // The manager's "what needs attention right now" view.
 // =====================================================================
-function FlagQueue({ state, onPickRep, onReopenAsk }) {
+function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
   // Collect all open asks: state.asks is { "repId|weekId|delId": {text, at} }
+  // Workspace-scoped (RFC-151 Phase 4): only the active team's flags render.
   const open = React.useMemo(() => {
     const out = [];
     if (!state.asks) return out;
@@ -36,6 +37,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk }) {
       const week = WEEKS.find(w => w.id === weekId);
       const del = DELIVERABLES.find(d => d.id === delId);
       if (!rep || !week || !del) continue;
+      if (activeTeam && rep.team !== activeTeam) continue;
       // Skip if the deliverable was since marked done (issue resolved itself)
       const checkKey = `${repId}|${weekId}|${delId}`;
       const done = !!state.checks[checkKey];
@@ -47,7 +49,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk }) {
       return (a.ask.at || "").localeCompare(b.ask.at || "");
     });
     return out;
-  }, [state.asks, state.checks]);
+  }, [state.asks, state.checks, activeTeam]);
 
   const openCount = open.filter(f => !f.done).length;
 
@@ -67,7 +69,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk }) {
             They'll show up here, oldest first.
           </div>
         </div>
-        <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} />
+        <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} />
       </div>
     );
   }
@@ -106,7 +108,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk }) {
         ))}
       </div>
 
-      <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} />
+      <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} />
     </div>
   );
 }
@@ -116,7 +118,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk }) {
 // of the FlagQueue. Filter by rep + time range; reopen or jump to the
 // rep's week view from any row.
 // =====================================================================
-function ResolvedSection({ state, onPickRep, onReopenAsk }) {
+function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam }) {
   const [open, setOpen] = React.useState(false);
   const [repFilter, setRepFilter] = React.useState("all");
   const [timeFilter, setTimeFilter] = React.useState("all");
@@ -133,13 +135,14 @@ function ResolvedSection({ state, onPickRep, onReopenAsk }) {
       const week = WEEKS.find(w => w.id === weekId);
       const del = DELIVERABLES.find(d => d.id === delId);
       if (!rep || !week || !del) continue;
+      if (activeTeam && rep.team !== activeTeam) continue;
       const hadNote = !!(state.managerNotes && state.managerNotes[k] && state.managerNotes[k].note);
       out.push({ key: k, repId, weekId, delId, rep, week, del, entry, hadNote });
     }
     // Newest first
     out.sort((a, b) => (b.entry.resolvedAt || "").localeCompare(a.entry.resolvedAt || ""));
     return out;
-  }, [state.resolvedAsks, state.managerNotes]);
+  }, [state.resolvedAsks, state.managerNotes, activeTeam]);
 
   const repsPresent = React.useMemo(() => {
     const seen = new Set();
@@ -235,7 +238,7 @@ function ResolvedSection({ state, onPickRep, onReopenAsk }) {
                     <div className="resolved__row-stamp">
                       <strong>{fmtDate(f.entry.resolvedAt)}</strong>
                       <span className="resolved__row-stamp-who">
-                        {role === "manager"
+                        {isManagerialRole(role)
                           ? <>by {byName || "manager"}</>
                           : <>self-resolved</>}
                         {f.hadNote && (
@@ -368,12 +371,13 @@ function ManagerNote({ repId, weekId, delId, state, onSaveNote }) {
 function MarkedByStamp({ check }) {
   if (!check || !check.markedBy) return null;
   const { markedBy } = check;
-  if (markedBy.role !== "manager") return null; // self-marks don't need attribution
+  if (!isManagerialRole(markedBy.role)) return null; // self-marks don't need attribution
+  const roleLabel = markedBy.role === "team_admin" ? "team admin" : "manager";
   const when = markedBy.at ? new Date(markedBy.at).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
   return (
     <div className="markedby">
       <Icon name="lock" size={11} />
-      <span>Marked by <strong>{markedBy.name || markedBy.email}</strong> (manager){when ? ` · ${when}` : ""}</span>
+      <span>Marked by <strong>{markedBy.name || markedBy.email}</strong> ({roleLabel}){when ? ` · ${when}` : ""}</span>
     </div>
   );
 }

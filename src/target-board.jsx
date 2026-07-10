@@ -342,9 +342,17 @@ function currencyBadge(code) {
   }
 }
 
-function LeaderboardView({ authedUser }) {
-  const isManager = !!(authedUser && authedUser.role === "manager");
+// RFC-151 (was RFC-151) CS Division RBAC merged with per-audience currency:
+// keep the RBAC-aware signature (activeTeam scopes the workspace, canManageAny
+// drives the manager view) AND main's native-currency display conversion.
+function LeaderboardView({ authedUser, activeTeam }) {
+  const isManager = canManageAny(authedUser);
   const myRepId   = isManager ? null : ((authedUser && authedUser.rep_id) || null);
+  // RFC-151 Phase 4: one board per workspace (RLS already blanks the other
+  // team's rows — hiding the section removes the empty shell). No activeTeam
+  // (legacy caller) renders both, as before.
+  const showNB = !activeTeam || activeTeam === "newbiz";
+  const showCS = !activeTeam || activeTeam === "cs";
 
   const [period, setPeriod] = React.useState("qtd");
   const [displayCurrency, setDisplayCurrency] = React.useState("GBP");
@@ -400,10 +408,11 @@ function LeaderboardView({ authedUser }) {
       </div>
 
       <div className="tb-teamrow">
-        <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={period} badge={currencyBadge(displayCurrency)} />
-        <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={period} badge={currencyBadge(displayCurrency)} />
+        {showNB && <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={period} badge={currencyBadge(displayCurrency)} />}
+        {showCS && <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={period} badge={currencyBadge(displayCurrency)} />}
       </div>
 
+      {showNB && (
       <section className="tb-section">
         <div className="tb-section__head">
           <span className="tb-section__dot tb-section__dot--nb" />
@@ -412,7 +421,9 @@ function LeaderboardView({ authedUser }) {
         </div>
         <TBBoardByRegion list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
       </section>
+      )}
 
+      {showCS && (
       <section className="tb-section">
         <div className="tb-section__head">
           <span className="tb-section__dot tb-section__dot--cs" />
@@ -424,6 +435,7 @@ function LeaderboardView({ authedUser }) {
         </div>
         <TBBoardByRegion list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
       </section>
+      )}
 
       <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>
     </div>

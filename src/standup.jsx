@@ -361,20 +361,23 @@ function MentionedYouBanner({ myRepId, participants, entries, onJump }) {
 }
 
 // ── StandupView ─────────────────────────────────────────────────────────────
-function StandupView({ authedUser, onStandupFlag }) {
-  const isManager = authedUser && authedUser.role === "manager";
-  const myRepId = isManager ? "manager" : (authedUser && authedUser.rep_id) || null;
+function StandupView({ authedUser, onStandupFlag, activeTeam }) {
+  const isManager = canManageAny(authedUser);
+  const myRepId = (authedUser && authedUser.role === "manager") ? "manager" : (authedUser && authedUser.rep_id) || null;
 
   const [date, setDateState] = useStandupState(() => dateFromUrl());
 
-  // Participants: active reps (skip name === "TBD") + Jeff. Reps who departed
-  // mid-cycle (activeThrough) drop off from the week containing the viewed date,
-  // so they stay in past standups but not current/future ones.
+  // Participants: the active workspace's reps (skip name === "TBD") + Jeff —
+  // his rep_id='manager' standup rows are shared with every team. Reps who
+  // departed mid-cycle (activeThrough) drop off from the week containing the
+  // viewed date, so they stay in past standups but not current/future ones.
   const participants = useStandupMemo(() => {
     const wk = currentWeekIndex(WEEKS, date) + 1;
-    const active = REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, wk));
+    const active = REPS.filter(r => r.name !== "TBD"
+      && (!activeTeam || r.team === activeTeam)
+      && repVisibleInWeek(r, wk));
     return [...active, MANAGER_PARTICIPANT];
-  }, [date]);
+  }, [date, activeTeam]);
   const participantIds = useStandupMemo(() => participants.map(p => p.id), [participants]);
   const [entries, setEntries] = useStandupState({}); // { rep_id: row }
   const [loading, setLoading] = useStandupState(true);
@@ -553,7 +556,7 @@ function StandupView({ authedUser, onStandupFlag }) {
           {participants.map(p => {
             const row = entries[p.id] || {};
             const isMyRow = p.id === myRepId;
-            const canEdit = (isMyRow || isManager) && editingOpen;
+            const canEdit = (isMyRow || canManageRep(authedUser, p.id)) && editingOpen;
             return (
               <div
                 key={p.id}

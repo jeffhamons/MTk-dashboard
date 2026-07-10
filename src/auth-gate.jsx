@@ -332,8 +332,9 @@ function AuthGate({ children }) {
   // Signed in but no matched rep row (allowlist mismatch). getMyUser always
   // returns the synthesized fallback { rep_id: null, role: "rep" } when no
   // users-table row exists for this auth_id, so `!user` is unreachable here —
-  // the real signal is "no rep_id and not a manager."
-  const unmatched = !user || (!user.rep_id && user.role !== "manager");
+  // the real signal is "no rep_id and not a manager-class role" (global
+  // managers AND team admins both legitimately carry rep_id null — RFC-151).
+  const unmatched = !user || (!user.rep_id && !isManagerialRole(user.role));
   if (unmatched) {
     return (
       <div className="auth-screen">

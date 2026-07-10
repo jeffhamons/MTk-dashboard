@@ -322,15 +322,25 @@ async function migrateLocalToSupabase() {
     askRows.push({ rep_id: rep, week_index: weekIdToIdx(wid), deliverable_id: del, body: text });
   }
 
-  if (checkRows.length) {
-    await sb.from("checks").upsert(checkRows, { onConflict: "rep_id,week_index,deliverable_id", ignoreDuplicates: true });
+  // RFC-151: owner-write RLS denies writing other reps' rows, so scope the
+  // one-time migration to rows this caller may actually write (a manager
+  // still migrates everything; a rep migrates their own). Unscoped, a
+  // rep-run migration is RLS-denied and the error was never checked.
+  const me = await getMyUser();
+  const myCheckRows = checkRows.filter(r => canManageRep(me, r.rep_id));
+  const myAskRows = askRows.filter(r => canManageRep(me, r.rep_id));
+  if (myCheckRows.length) {
+    await sb.from("checks").upsert(myCheckRows, { onConflict: "rep_id,week_index,deliverable_id", ignoreDuplicates: true });
   }
-  if (askRows.length) {
-    await sb.from("asks").upsert(askRows, { onConflict: "rep_id,week_index,deliverable_id", ignoreDuplicates: true });
+  if (myAskRows.length) {
+    await sb.from("asks").upsert(myAskRows, { onConflict: "rep_id,week_index,deliverable_id", ignoreDuplicates: true });
   }
 
   localStorage.setItem(MIGRATED_KEY, new Date().toISOString());
-  return { migrated: true, checks: checkRows.length, asks: askRows.length };
+  return {
+    migrated: true, checks: myCheckRows.length, asks: myAskRows.length,
+    skipped: (checkRows.length - myCheckRows.length) + (askRows.length - myAskRows.length),
+  };
 }
 
 // ============================================================
@@ -350,7 +360,18 @@ async function getMyUser(sessionUser) {
   if (!user) return null;
   const { data, error } = await sb.from("users").select("*").eq("auth_id", user.id).maybeSingle();
   if (error) console.error("getMyUser", error);
-  return data ? { ...data, authEmail: user.email } : { auth_id: user.id, email: user.email, rep_id: null, role: "rep", authEmail: user.email };
+  const me = data
+    ? { ...data, authEmail: user.email }
+    : { auth_id: user.id, email: user.email, rep_id: null, role: "rep", authEmail: user.email };
+  // RFC-151: a team_admin's scope lives in team_admins, not users — resolve it
+  // once at login. Ordinary reps/managers skip the extra query on purpose.
+  if (me.role === "team_admin") {
+    const { data: scopes, error: scopeErr } = await sb
+      .from("team_admins").select("team_id,region").eq("auth_id", user.id);
+    if (scopeErr) console.error("getMyUser adminScopes", scopeErr);
+    me.adminScopes = scopes || [];
+  }
+  return me;
 }
 
 async function sendMagicLink(email) {
