@@ -589,6 +589,32 @@ async function loadRenewalBook() {
   return data || [];
 }
 
+// ============================================================
+// ATTAINMENT — quarter finals (historical Target Board)
+// attainment_quarter_final holds one row per (rep, fy, quarter) for every
+// COMPLETED quarter, recomputed nightly from the closed-deals ledger by
+// agents/sf_attainment_sync.py :: archive_quarter_finals. Team-shared RLS
+// (same grain as attainment_snapshot). The quarter switcher offers only
+// quarters present here — a past quarter is rendered from its archived
+// finals or not at all, never fabricated from the live snapshot.
+// ============================================================
+async function loadAttainmentQuarterFinals() {
+  const sb = client();
+  const { data, error } = await sb
+    .from("attainment_quarter_final")
+    .select("*")
+    .order("fy", { ascending: true })
+    .order("quarter", { ascending: true })
+    .order("rep_id", { ascending: true });
+  if (error) { console.error("loadAttainmentQuarterFinals", error); return []; }
+  return data || [];
+}
+
+async function loadAttainmentForQuarter(fy, quarter) {
+  const rows = await loadAttainmentQuarterFinals();
+  return rows.filter(r => Number(r.fy) === Number(fy) && Number(r.quarter) === Number(quarter));
+}
+
 async function loadCsQuarterlyTargets() {
   const sb = client();
   const { data, error } = await sb
@@ -755,6 +781,8 @@ Object.assign(window, {
   saveWins,
   subscribeWinsChanges,
   loadAttainment,
+  loadAttainmentQuarterFinals,
+  loadAttainmentForQuarter,
   loadClosedWonDeals,
   loadRenewalBook,
   loadCsQuarterlyTargets,

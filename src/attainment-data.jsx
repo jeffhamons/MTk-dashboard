@@ -80,7 +80,10 @@ function attCsCompute(rep) {
   const renewed = rep.book.filter(d => d.status === "renewed");
   const open    = rep.book.filter(d => d.status === "open");
   const churned = rep.book.filter(d => d.status === "churn");
-  const renewedSum = renewed.reduce((s, d) => s + d.amt, 0);
+  // Historical reps (quarter finals) carry the archived renewed $ directly —
+  // their book is empty because deal-level detail is current-quarter only.
+  const renewedSum = rep.renewedQ != null ? rep.renewedQ
+                                          : renewed.reduce((s, d) => s + d.amt, 0);
   const openSum    = open.reduce((s, d) => s + d.amt, 0);
   const target = rep.qTarget || 0;
   const pct = target ? Math.round(renewedSum / target * 100) : null;
@@ -183,6 +186,83 @@ function attBuildLive(snapshots, deals, book, ramps) {
   return { nb, cs };
 }
 
+// ── Historical quarter finals (attainment_quarter_final) → board shape ───────
+// Rows are written at quarter close by agents/sf_attainment_sync.py
+// (archive_quarter_finals) — real final numbers, recomputed from deal close
+// dates. NEVER fabricates: only archived rows render; MTD/YTD are null (a
+// final has no "to-date"), and deals/book stay empty because the detail
+// tables only hold the current quarter — the UI disables row expand instead.
+function attBuildQuarterFinal(rows) {
+  const pctOf = (won, target) => (Number(target) ? Math.round((Number(won) || 0) / Number(target) * 100) : null);
+  const nb = [], cs = [];
+  for (const row of (rows || [])) {
+    if (row.track === "newbiz") {
+      const won = Number(row.nb_won) || 0, target = Number(row.nb_target) || 0;
+      nb.push({
+        id: row.rep_id, hist: true,
+        pct: { mtd: null, qtd: pctOf(won, target), ytd: null },
+        won: { mtd: null, qtd: won, ytd: null },
+        target: { mtd: null, qtd: target, ytd: null },
+        quotaQ: target, deals: [],
+      });
+    } else if (row.track === "cs") {
+      const renewed = Number(row.ren_renewed) || 0;
+      const target = Number(row.ren_target) || 0;
+      cs.push({
+        id: row.rep_id, hist: true,
+        ren: { mtd: null, qtd: pctOf(renewed, target), ytd: null },
+        qTarget: target, renewedQ: renewed,
+        ramp: [], book: [],
+        upsell: row.exp_won != null ? Number(row.exp_won) : null,
+        cross: null, multi: null,
+        effective: `FY${row.fy} renewal plan`,
+      });
+    }
+  }
+  return { nb, cs };
+}
+
+// Distinct archived quarters, oldest first, EXCLUDING the current quarter —
+// these are the only lookback options the switcher may offer.
+function attQuarterFinalOptions(rows, currentFy, currentQuarter) {
+  const seen = new Set(), opts = [];
+  for (const row of (rows || [])) {
+    const fy = Number(row.fy), q = Number(row.quarter);
+    if (!fy || !q) continue;
+    if (fy === Number(currentFy) && q === Number(currentQuarter)) continue;
+    const key = `${fy}-${q}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    opts.push({ key, fy, quarter: q, label: `Q${q} ${fy}` });
+  }
+  return opts.sort((a, b) => (a.fy - b.fy) || (a.quarter - b.quarter));
+}
+
+// Sample quarter finals (Q2 2026) — sandbox/preview only, matching the DB row
+// shape so the switcher is reviewable. Production never renders these.
+const ATT_QF_SAMPLE = [
+  { rep_id: "cammy",  fy: 2026, quarter: 2, track: "newbiz", nb_won: 450000, nb_target: 600000, ren_renewed: null,   ren_target: null,   exp_won: null },
+  { rep_id: "farah",  fy: 2026, quarter: 2, track: "newbiz", nb_won: 250000, nb_target: 250000, ren_renewed: null,   ren_target: null,   exp_won: null },
+  { rep_id: "don",    fy: 2026, quarter: 2, track: "newbiz", nb_won: 200000,  nb_target: 210000, ren_renewed: null,   ren_target: null,   exp_won: null },
+  { rep_id: "dwayne", fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 240000, ren_target: 300000, exp_won: 50000 },
+  { rep_id: "meri",   fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 442526, ren_target: 500000, exp_won: 7900 },
+];
+
+// Memoized quarter-finals load (one fetch per session). Sandbox/unconfigured
+// gets the sample; a configured client gets live rows only — an error or an
+// empty table yields [] and the switcher simply doesn't render.
+let _attQFPromise = null;
+function loadQuarterFinals() {
+  if (_attQFPromise) return _attQFPromise;
+  if (!window.SUPABASE_CONFIGURED || !window.loadAttainmentQuarterFinals || window.IS_PREVIEW) {
+    _attQFPromise = Promise.resolve(ATT_QF_SAMPLE);
+    return _attQFPromise;
+  }
+  _attQFPromise = window.loadAttainmentQuarterFinals()
+    .catch(e => { console.warn("loadQuarterFinals failed:", e && e.message); return []; });
+  return _attQFPromise;
+}
+
 // Memoized live load (shared by Target Board + My Number — one fetch per session).
 let _attV2Promise = null;
 function loadAttainmentV2() {
@@ -211,5 +291,6 @@ Object.assign(window, {
   ATT_QUARTER, ATT_NB_SAMPLE, ATT_CS_SAMPLE,
   attFmtK, attFmtKRaw, attFmtFull, attFmtDate, attTierColor, attPctColor, attPctText, attBarWidth,
   attRepMeta, attNbCompute, attCsCompute, attBuildLive, loadAttainmentV2,
+  attBuildQuarterFinal, attQuarterFinalOptions, loadQuarterFinals, ATT_QF_SAMPLE,
   attCurrency, attCurrencyForRegion,
 });

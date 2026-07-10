@@ -24,14 +24,14 @@ function tbAvg(arr, fn) {
   return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
 }
 
-function TBTeamCard({ name, kind, pct, won, tar, period, badge }) {
+function TBTeamCard({ name, kind, pct, won, tar, period, badge, qLabel }) {
   const K = window.attFmtKRaw;
   const sym = badge != null ? badge : "";
   return (
     <div className="tb-tcard">
       <div className="tb-tcard__l">
         <div className="tb-tcard__name"><span className={`tb-tcard__dot tb-tcard__dot--${kind}`} />{name} · Team</div>
-        <div className="tb-tcard__money"><b>{sym}{K(won)}</b> of {sym}{K(tar)} · {window.ATT_QUARTER.label}</div>
+        <div className="tb-tcard__money"><b>{sym}{K(won)}</b> of {sym}{K(tar)} · {qLabel || window.ATT_QUARTER.label}</div>
         <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
       </div>
       <div className="tb-tcard__pct">
@@ -42,7 +42,7 @@ function TBTeamCard({ name, kind, pct, won, tar, period, badge }) {
   );
 }
 
-function TBRegionTeamCard({ region, kind, pct, won, tar, period }) {
+function TBRegionTeamCard({ region, kind, pct, won, tar, period, qLabel }) {
   const badge = region ? region.badge : "$";
   return (
     <div className="tb-tcard tb-tcard--region">
@@ -52,7 +52,7 @@ function TBRegionTeamCard({ region, kind, pct, won, tar, period }) {
           {region ? region.label : "Other"} · Team
           <span className="tb-region-badge">{badge}{region ? region.currency : "USD"}</span>
         </div>
-        <div className="tb-tcard__money">{badge}{window.attFmtKRaw(won)} of {badge}{window.attFmtKRaw(tar)} · {window.ATT_QUARTER.label}</div>
+        <div className="tb-tcard__money">{badge}{window.attFmtKRaw(won)} of {badge}{window.attFmtKRaw(tar)} · {qLabel || window.ATT_QUARTER.label}</div>
         <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
       </div>
       <div className="tb-tcard__pct">
@@ -147,7 +147,8 @@ function TBCsDetail({ rep }) {
   );
 }
 
-function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId }) {
+function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, expandable }) {
+  const canExpand = expandable !== false;
   const meta = window.attRepMeta(rep.id);
   const p = kind === "nb" ? rep.pct[period] : rep.ren[period];
 
@@ -179,8 +180,9 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId }
   }
 
   return (
-    <div className={"tb-row" + (isOpen ? " open" : "") + (rank === 1 ? " r1" : "")}>
-      <button className="tb-row__main" onClick={onToggle}>
+    <div className={"tb-row" + (canExpand && isOpen ? " open" : "") + (rank === 1 ? " r1" : "")}>
+      <button className="tb-row__main" onClick={canExpand ? onToggle : undefined}
+              style={canExpand ? undefined : { cursor: "default" }}>
         <span className="tb-row__rank">{rank}</span>
         <span className="tb-row__av" style={{ background: `oklch(0.6 0.17 ${meta.hue})` }}>{meta.initials}</span>
         <span className="tb-row__id"><span className="tb-row__name">{meta.name}</span><span className="tb-row__role">{meta.role}</span></span>
@@ -195,18 +197,20 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId }
         ) : (
           <span className="tb-row__pct" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
         )}
-        <span className="tb-row__chev"><TBChevron /></span>
+        {canExpand && <span className="tb-row__chev"><TBChevron /></span>}
       </button>
+      {canExpand && (
       <div className="tb-detail">
         <div className="tb-detail__inner">
           {kind === "nb" ? <TBNbDetail rep={rep} period={period} isManager={isManager} myRepId={myRepId} /> : <TBCsDetail rep={rep} />}
         </div>
       </div>
+      )}
     </div>
   );
 }
 
-function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
+function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId, expandable }) {
   const key = kind === "nb" ? "pct" : "ren";
   // Sort by % desc; reps with no target this period (null) sort last.
   const sorted = [...list].sort((a, b) => {
@@ -222,7 +226,7 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
   return (
     <div className="tb-board">
       {sorted.map((rep, i) => (
-        <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} />
+        <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} expandable={expandable} />
       ))}
     </div>
   );
@@ -230,7 +234,7 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId }) {
 
 // Split a rep list into region buckets and render each region with header +
 // per-region team card.
-function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRepId }) {
+function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRepId, expandable, qLabel }) {
   const reps = window.REPS || [];
   const regionOrder = window.REGION_ORDER || ["US", "EMEA", "ZA"];
   const regions = window.REGIONS || [];
@@ -245,7 +249,7 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
   }
 
   if (Object.keys(buckets).length === 0) {
-    return <TBBoard list={list} kind={kind} period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} />;
+    return <TBBoard list={list} kind={kind} period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} expandable={expandable} />;
   }
 
   const key = kind === "nb" ? "pct" : "ren";
@@ -284,12 +288,13 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
             pct={Math.round(regPct)}
             won={regWon}
             tar={regTar}
-            period={period}
+            period={qLabel ? "final" : period}
+            qLabel={qLabel}
           />
         )}
         <div className="tb-board">
           {sorted.map((rep, i) => (
-            <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} />
+            <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} expandable={expandable} />
           ))}
         </div>
       </div>
@@ -364,47 +369,90 @@ function LeaderboardView({ authedUser, activeTeam }) {
   const [displayCurrency, setDisplayCurrency] = React.useState("GBP");
   const [openSet, setOpenSet] = React.useState(() => new Set());
   const [data, setData] = React.useState(() => ({ nb: window.ATT_NB_SAMPLE || [], cs: window.ATT_CS_SAMPLE || [] }));
+  // Historical quarters: archived finals from attainment_quarter_final.
+  // selQ === null → current quarter (live board). The switcher offers only
+  // quarters that actually have archived rows — never a fabricated lookback.
+  const [qfRows, setQfRows] = React.useState([]);
+  const [selQ, setSelQ] = React.useState(null);
 
   React.useEffect(() => {
     let cancelled = false;
     if (window.loadAttainmentV2) window.loadAttainmentV2().then(d => { if (!cancelled && d) setData(d); });
+    if (window.loadQuarterFinals) window.loadQuarterFinals().then(rows => { if (!cancelled && rows) setQfRows(rows); });
     return () => { cancelled = true; };
   }, []);
 
+  const quarterOpts = window.attQuarterFinalOptions
+    ? window.attQuarterFinalOptions(qfRows, window.ATT_QUARTER.fy, window.ATT_QUARTER.quarter)
+    : [];
+  const hist = selQ != null;
+  // A quarter final has one period — the quarter itself (carried as "qtd").
+  const activePeriod = hist ? "qtd" : period;
+  const histData = React.useMemo(() => {
+    if (!hist || !window.attBuildQuarterFinal) return null;
+    return window.attBuildQuarterFinal(
+      (qfRows || []).filter(r => Number(r.fy) === selQ.fy && Number(r.quarter) === selQ.quarter));
+  }, [hist, qfRows, selQ]);
+  const board = hist ? (histData || { nb: [], cs: [] }) : data;
+  const qLabel = hist ? selQ.label : null;
+
   const toggle = (id) => setOpenSet(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
-  // Reps who departed mid-cycle drop off the current standings.
+  // Reps who departed mid-cycle drop off the current standings. Historical
+  // boards skip this filter: a rep with archived finals for that quarter
+  // belongs on that quarter's board even if they've since left.
   const visible = (rep) => {
+    if (hist) return true;
     const r = (window.REPS || []).find(x => x.id === rep.id);
     if (!r || !window.repVisibleInWeek || !window.currentWeekIndex) return true;
     return window.repVisibleInWeek(r, window.currentWeekIndex() + 1);
   };
-  const NB = (data.nb || []).filter(visible);
-  const CS = (data.cs || []).filter(visible);
+  const NB = (board.nb || []).filter(visible);
+  const CS = (board.cs || []).filter(visible);
 
-  const nbPct = tbAvg(NB, r => r.pct[period]);
-  const nbWon = convertTeamTotal(NB, period, "nb", displayCurrency);
-  const nbTar = convertTeamTarget(NB, period, "nb", displayCurrency);
-  const csPct = tbAvg(CS, r => r.ren[period]);
-  const csWon = convertTeamTotal(CS, period, "cs", displayCurrency);
-  const csTar = convertTeamTarget(CS, period, "cs", displayCurrency);
+  const nbPct = tbAvg(NB, r => r.pct[activePeriod]);
+  const nbWon = convertTeamTotal(NB, activePeriod, "nb", displayCurrency);
+  const nbTar = convertTeamTarget(NB, activePeriod, "nb", displayCurrency);
+  const csPct = tbAvg(CS, r => r.ren[activePeriod]);
+  const csWon = convertTeamTotal(CS, activePeriod, "cs", displayCurrency);
+  const csTar = convertTeamTarget(CS, activePeriod, "cs", displayCurrency);
 
   const displayCurrencies = window.DISPLAY_CURRENCIES || ["GBP", "USD", "AUD"];
 
   return (
     <div className="tb-view" data-screen-label="03 Target Board">
-      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />Global attainment · {window.ATT_QUARTER.label} · synced nightly from Salesforce</div>
+      <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />
+        {hist
+          ? <>Global attainment · {selQ.label} · quarter final (archived)</>
+          : <>Global attainment · {window.ATT_QUARTER.label} · synced nightly from Salesforce</>}
+      </div>
       <div className="tb-hrow">
         <div>
           <h1 className="tb-title"><em>Target</em> board</h1>
-          <p className="tb-sub">Ranked to target — open any row for the full picture behind the number.</p>
+          <p className="tb-sub">{hist
+            ? `Final ${selQ.label} standings from the quarter-close archive.`
+            : "Ranked to target — open any row for the full picture behind the number."}</p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
-          <div className="tb-toggle">
-            {["mtd", "qtd", "ytd"].map(k => (
-              <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
-            ))}
-          </div>
+          {quarterOpts.length > 0 && (
+            <div className="tb-toggle">
+              {quarterOpts.map(o => (
+                <button key={o.key} className={"tb-toggle__btn" + (hist && selQ.key === o.key ? " on" : "")} onClick={() => setSelQ(o)}>{o.label}</button>
+              ))}
+              <button className={"tb-toggle__btn" + (!hist ? " on" : "")} onClick={() => setSelQ(null)}>{window.ATT_QUARTER.label}</button>
+            </div>
+          )}
+          {hist ? (
+            <div className="tb-toggle">
+              <button className="tb-toggle__btn on" style={{ cursor: "default" }}>FINAL</button>
+            </div>
+          ) : (
+            <div className="tb-toggle">
+              {["mtd", "qtd", "ytd"].map(k => (
+                <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
+              ))}
+            </div>
+          )}
           <div className="tb-toggle">
             {displayCurrencies.map(c => (
               <button key={c} className={"tb-toggle__btn" + (c === displayCurrency ? " on" : "")} onClick={() => setDisplayCurrency(c)}>{c}</button>
@@ -414,8 +462,8 @@ function LeaderboardView({ authedUser, activeTeam }) {
       </div>
 
       <div className="tb-teamrow">
-        {showNB && <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={period} badge={currencyBadge(displayCurrency)} />}
-        {showCS && <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={period} badge={currencyBadge(displayCurrency)} />}
+        {showNB && <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={hist ? "final" : period} badge={currencyBadge(displayCurrency)} qLabel={qLabel} />}
+        {showCS && <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={hist ? "final" : period} badge={currencyBadge(displayCurrency)} qLabel={qLabel} />}
       </div>
 
       {showNB && (
@@ -425,7 +473,7 @@ function LeaderboardView({ authedUser, activeTeam }) {
           <h2 className="tb-section__title">New Business</h2>
           <span className="tb-section__hint">% to quota · expand for deal stack</span>
         </div>
-        <TBBoardByRegion list={NB} kind="nb" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
+        <TBBoardByRegion list={NB} kind="nb" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />
       </section>
       )}
 
@@ -439,11 +487,15 @@ function LeaderboardView({ authedUser, activeTeam }) {
             <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--exp" />upsell / cross-sell</span>
           </span>
         </div>
-        <TBBoardByRegion list={CS} kind="cs" period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} />
+        <TBBoardByRegion list={CS} kind="cs" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />
       </section>
       )}
 
-      <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>
+      {hist ? (
+        <div className="tb-note">● {selQ.label} finals from the quarter-close archive (recomputed nightly from the closed-deals ledger). Deal-level detail is kept for the current quarter only, so rows don't expand here.</div>
+      ) : (
+        <div className="tb-note">● Renewal &amp; deal detail is live from Salesforce (renewal book ships renewed rows; open/churn arrive with the renewals-pipeline feed). CS quarterly targets are from the comp letters.</div>
+      )}
     </div>
   );
 }

@@ -142,6 +142,45 @@ migration enables RLS only on the registry tables (`teams` / `reps` /
 
 ---
 
+## Quarter-final archive (historical Target Board)
+
+**One-time migration:** run `db/migration-attainment-quarter-final.sql` in the
+Supabase SQL editor (project tvdizqryowracmtjdskv). It creates
+`attainment_quarter_final` (PK `rep_id, fy, quarter`) with the RFC-151
+TEAM-SHARED READ policy — same grain as `attainment_snapshot`, because it is
+the same headline data, one quarter older.
+
+**Ordering is forgiving, but the failure is visible.** The nightly
+`sf_attainment_sync` archive step runs LAST (after the snapshot INSERT and
+detail-table sync). If the table doesn't exist yet the headline sync still
+commits; the run exits 4 with health status `ok_archive_failed`
+(`sf-attainment-last-run.json`) until the migration is applied. The dashboard
+fails soft: no archived rows → the quarter switcher simply doesn't render.
+
+**Backfill is automatic.** The first successful archive run recomputes 2026
+Q1 + Q2 finals from the closed-deals ledger (close-date windowed) and upserts
+them — no Salesforce round-trip, no manual backfill. The $ figures are
+re-upserted every night, so late ledger corrections (accepted removals,
+re-ingested CSVs) propagate into past-quarter finals rather than freezing a
+wrong first write. **Targets are the exception:** `nb_target`/`ren_target`
+are pinned at first archive write, so a later `sales_targets.yaml` edit
+(e.g. next year's quota reset) never rewrites a closed quarter's attainment
+denominator — correcting a closed quarter's target is a deliberate manual
+UPDATE on `attainment_quarter_final`.
+
+**Verify after first run:**
+
+```sql
+select fy, quarter, count(*) from attainment_quarter_final group by 1, 2 order by 1, 2;
+-- expect: 2026 Q1 + Q2 rows, one per emit:true rep
+```
+
+Then hard-refresh the board: a "Q2 2026 / Q3 2026" switcher appears above the
+period toggle; Q2 shows FINAL standings with row expansion disabled (deal-level
+detail is current-quarter only).
+
+---
+
 ## Workspace switcher (RFC-151 Phase 4)
 The nav shows a team switcher (NA BD / CS) **only for users with access to more
 than one team** — in practice, the global manager. A single-team admin (Lara)
