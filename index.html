@@ -2494,7 +2494,14 @@ function App({ authedUser, preloadedState }) {
   const viewerScope = (derivedScope.regions.length === 0 && IS_PREVIEW && !authedUser)
     ? { regions: REGION_ORDER.slice(), locked: false }
     : derivedScope;
+  // URL deep-link boot (parse once per mount via useState initializers; re-parse
+  // here is cheap and only the initializers read it). Parallel lane owns the
+  // helpers on window: parseUrlState / serializeUrlState.
+  const urlState = parseUrlState(window.location.search);
+  // RFC-152: region viewerScope + pill. URL wins over localStorage when present;
+  // stored/URL choice is still clamped to scope.regions below (never widens).
   const [rpChoice, setRpChoice] = useState(() => {
+    if (urlState.region) return urlState.region;
     try { return localStorage.getItem("mtk-region-pill-v1") || ""; } catch { return ""; }
   });
   const regionPill = (rpChoice && viewerScope.regions.includes(rpChoice)) ? rpChoice : null;
@@ -2516,9 +2523,31 @@ function App({ authedUser, preloadedState }) {
   // separately and merged in below — keeping them OUT of `state` means realtime
   // state replacements + localStorage persistence never clobber them.
   const [standupFills, setStandupFills] = useState({});
-  // Everyone lands on the home screen
-  const [view, setView] = useState("home");
-  const [weekIdx, setWeekIdx] = useState(currentWeekIndex());
+  // Nav view: page ids (APP_PAGES) or a rep id. URL encodes rep pages as
+  // view=rep&rep=<id>; page views as view=<page id>.
+  const [view, setView] = useState(() => {
+    // Canonical rep encoding
+    if (urlState.view === "rep" && urlState.rep) return urlState.rep;
+    // Known page ids (tab bar + manager/don pages from setView call sites)
+    const pageIds = new Set([
+      "home", "rollup", "leaderboard", "standup", "wins",
+      "manager:flags", "don:onboarding",
+    ]);
+    if (urlState.view && pageIds.has(urlState.view)) return urlState.view;
+    // Also accept a raw rep id in view= (defensive; primary path is view=rep)
+    if (urlState.view && REPS.some(r => r.id === urlState.view)) return urlState.view;
+    if (urlState.view && typeof APP_PAGES !== "undefined" && APP_PAGES.some(p => p.id === urlState.view)) {
+      return urlState.view;
+    }
+    return "home";
+  });
+  const [weekIdx, setWeekIdx] = useState(() => {
+    if (urlState.week) {
+      const idx = WEEKS.findIndex(w => w.id === urlState.week);
+      if (idx >= 0) return idx;
+    }
+    return currentWeekIndex();
+  });
   const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
   // If preloadedState is already in hand, we don't need a second cloud fetch
   // to consider the app "ready."
@@ -2565,6 +2594,26 @@ function App({ authedUser, preloadedState }) {
 
   // Persist locally whenever state changes (offline cache + non-cloud mode)
   useEffect(() => { saveState(state); }, [state]);
+
+  // Sync nav state → URL (replaceState, never pushState). Preserves demo/date
+  // and any other non-managed params via serializeUrlState. Rep pages encode
+  // as view=rep&rep=<id>; page views as view=<page id> with rep cleared.
+  useEffect(() => {
+    const isRepView = REPS.some(r => r.id === view);
+    const next =
+      window.location.pathname +
+      serializeUrlState(
+        {
+          view: isRepView ? "rep" : view,
+          week: WEEKS[weekIdx].id,
+          region: regionPill,
+          rep: isRepView ? view : null,
+        },
+        window.location.search
+      );
+    const cur = window.location.pathname + window.location.search;
+    if (next !== cur) history.replaceState(null, "", next);
+  }, [view, weekIdx, regionPill]);
 
   // Load standup fills (auto "Daily Standup" completion). Refreshed when the
   // view or week changes, and once cloud is ready, so posts reflect quickly.
@@ -2795,7 +2844,7 @@ function App({ authedUser, preloadedState }) {
             <img src={document.getElementById("__logo_src").src} alt="Mindtools Kineo" />
           </span>
           <span>Mindtools Kineo</span>
-          <small>Weekly Review · {activeTeamObj.short}</small>
+          <small>Weekly Review · {activeTeamObj.short}{regionPill ? ` · ${regionShortLabel(regionPill)}` : ""}</small>
         </div>
         <div className="shell-nav__right">
           {myTeams.length > 1 && (
@@ -2833,7 +2882,10 @@ function App({ authedUser, preloadedState }) {
           )}
           {(isManager || isPreview) && (
             <div className="viewas" style={{ position: "relative" }}>
-              <button className="viewas__btn" onClick={() => setViewAsOpen(o => !o)}>
+              <button className="viewas__btn"
+                aria-haspopup="menu"
+                aria-expanded={viewAsOpen}
+                onClick={() => setViewAsOpen(o => !o)}>
                 {isManager
                   ? (effectiveUser && effectiveUser.role === "team_admin"
                       ? <><span className="me-badge__role" style={{marginRight:4}}>{activeTeamObj.short} Manager</span>{(effectiveUser.authEmail || "").split("@")[0]}</>
@@ -2843,30 +2895,30 @@ function App({ authedUser, preloadedState }) {
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{marginLeft:4}}><path d="M6 9l6 6 6-6"/></svg>
               </button>
               {viewAsOpen && (
-                <div className="viewas__menu">
+                <div className="viewas__menu" role="menu">
                   <div className="viewas__menu-label">View as</div>
-                  <button className={"viewas__item" + (!devViewAs && isManager ? " is-active" : "")}
+                  <button role="menuitem" className={"viewas__item" + (!devViewAs && isManager ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"manager", rep_id:"", authEmail:"jeff.hamons@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>MGR</span> Jeff Hamons
                   </button>
-                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "lkidd@mindtools.com" ? " is-active" : "")}
+                  <button role="menuitem" className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "lkidd@mindtools.com" ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"US"},{team_id:"cs",region:"EMEA"}], authEmail:"lkidd@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>CS</span> Lara Kidd
                   </button>
-                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "james.lunn" ? " is-active" : "")}
+                  <button role="menuitem" className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "james.lunn" ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"james.lunn" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>CS</span> James Lunn
                   </button>
-                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "jodie.lemon" ? " is-active" : "")}
+                  <button role="menuitem" className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "jodie.lemon" ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"jodie.lemon" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>CS</span> Jodie Lemon
                   </button>
-                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "bridget.mccarthy" ? " is-active" : "")}
+                  <button role="menuitem" className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "bridget.mccarthy" ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"bridget.mccarthy" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>CS</span> Bridget McCarthy
                   </button>
                   {REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, WEEKS[weekIdx].index) && allowedRegionsApp.includes(r.region)).map(r => (
-                    <button key={r.id} className={"viewas__item" + (myRepId === r.id && !isManager ? " is-active" : "")}
+                    <button key={r.id} role="menuitem" className={"viewas__item" + (myRepId === r.id && !isManager ? " is-active" : "")}
                       onClick={() => { setDevViewAs({ role:"rep", rep_id: r.id, authEmail: r.id+"@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                       <Avatar rep={r} size={16}/> {r.name}
                     </button>
@@ -2924,6 +2976,7 @@ function App({ authedUser, preloadedState }) {
               <button
                 key={page.id}
                 className="tabs__tab"
+                data-view-id={page.id}
                 data-active={isActive ? "1" : "0"}
                 onClick={() => setView(page.id)}
               >
@@ -2945,6 +2998,8 @@ function App({ authedUser, preloadedState }) {
             <button
               key={rep.id}
               className="tabs__tab"
+              aria-label={rep.name}
+              data-rep-id={rep.id}
               data-active={view === rep.id ? "1" : "0"}
               onClick={() => setView(rep.id)}
             >

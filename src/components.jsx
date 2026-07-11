@@ -150,13 +150,14 @@ function BigCheck({ checked, onToggle, label, readOnly }) {
 }
 
 // ---------- Mini status dot (for rollup grid) ----------
-function StatusDot({ checked, size = 14 }) {
+function StatusDot({ checked, size = 14, label }) {
   return (
     <span
       className="statusdot"
       data-checked={checked ? "1" : "0"}
       style={{ width: size, height: size }}
-      aria-label={checked ? "complete" : "incomplete"}
+      role="img"
+      aria-label={label ? `${label} — ${checked ? "complete" : "incomplete"}` : (checked ? "complete" : "incomplete")}
     />
   );
 }

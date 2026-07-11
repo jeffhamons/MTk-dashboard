@@ -205,7 +205,7 @@ function MentionAutocomplete({ participants, query, onPick, onClose }) {
 
 // ── StandupCell ─────────────────────────────────────────────────────────────
 // Single textarea with debounced auto-save + @-mention autocomplete.
-function StandupCell({ value, onChange, readOnly, placeholder, participants, cellId }) {
+function StandupCell({ value, onChange, readOnly, placeholder, participants, cellId, label }) {
   const taRef = useStandupRef(null);
   const [local, setLocal] = useStandupState(value || "");
   const [mention, setMention] = useStandupState(null); // {start, query} | null
@@ -301,6 +301,7 @@ function StandupCell({ value, onChange, readOnly, placeholder, participants, cel
         onKeyUp={handleKeyUp}
         onBlur={() => flushRef.current()}
         placeholder={placeholder}
+        aria-label={label}
         readOnly={readOnly}
         rows={3}
       />
@@ -577,9 +578,10 @@ function StandupView({ authedUser, onStandupFlag, activeTeam, viewerScope, regio
                   </div>
                 </div>
                 {STANDUP_PROMPTS.map(prompt => (
-                  <div key={prompt.key} className="standup__cell standup__cell--input" role="cell">
+                  <div key={prompt.key} className="standup__cell standup__cell--input" role="cell" data-rep-id={p.id} data-prompt-key={prompt.key}>
                     <StandupCell
                       cellId={`standup-cell-${p.id}-${prompt.key}`}
+                      label={`${p.name} — ${prompt.label}`}
                       value={row[prompt.key]}
                       onChange={(v) => onChangeField(p.id, prompt.key, v)}
                       readOnly={!canEdit}

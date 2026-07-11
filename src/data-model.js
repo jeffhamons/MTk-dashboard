@@ -811,6 +811,57 @@ function dueLabelForRegion(regionId) {
   return `Due Friday 5 PM ${zoneAbbrev(regionId)}`;
 }
 
+// ── RFC-152 follow-up: URL state ────────────────────────────────────────────
+// Pure helpers for App deep-links. Invalid values → null (never throw).
+// serialize preserves unknown params (demo=, standup date=) untouched.
+
+const _URL_STATE_KEYS = ["view", "week", "region", "rep"];
+const _VIEW_RE = /^[a-z][a-z0-9-]*$/;
+const _WEEK_RE = /^w\d+$/;
+
+// Parse a query string (with or without leading '?') into managed URL state.
+// Unknown params ignored. Each field is string-or-null after validation.
+function parseUrlState(search) {
+  const params = new URLSearchParams(search || "");
+  const rawView = params.get("view");
+  const rawWeek = params.get("week");
+  const rawRegion = params.get("region");
+  const rawRep = params.get("rep");
+
+  const view = rawView && _VIEW_RE.test(rawView) ? rawView : null;
+  const week =
+    rawWeek && _WEEK_RE.test(rawWeek) && WEEKS.some(w => w.id === rawWeek)
+      ? rawWeek
+      : null;
+  const region =
+    rawRegion && REGION_ORDER.includes(rawRegion) ? rawRegion : null;
+  const rep = rawRep && repById(rawRep) ? rawRep : null;
+
+  return { view, week, region, rep };
+}
+
+// Build a new query string from managed state + the current search.
+// null/undefined members remove that param; other existing params (demo=,
+// date=, …) stay in original order, then managed keys view/week/region/rep.
+function serializeUrlState(state, currentSearch) {
+  const existing = new URLSearchParams(currentSearch || "");
+  const managed = new Set(_URL_STATE_KEYS);
+  const out = new URLSearchParams();
+
+  for (const [key, value] of existing.entries()) {
+    if (!managed.has(key)) out.append(key, value);
+  }
+
+  const s = state || {};
+  for (const key of _URL_STATE_KEYS) {
+    const val = s[key];
+    if (val != null) out.set(key, String(val));
+  }
+
+  const qs = out.toString();
+  return qs ? `?${qs}` : "";
+}
+
 // Expose globally for other Babel scripts
 Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY, QUARTERS,
@@ -820,6 +871,7 @@ Object.assign(window, {
   teamsForUser, defaultTeamForUser,
   viewerScopeForUser, regionsUnderScope, repsUnderScope,
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,
+  parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,

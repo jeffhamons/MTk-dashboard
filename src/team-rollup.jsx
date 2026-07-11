@@ -147,6 +147,8 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                       className="rollup__weekstrip-cell"
                       data-qtoggle="1"
                       data-expanded={isExpanded ? "1" : "0"}
+                      aria-label={`Expand ${q.label} (${fmtRange(qWeeks[0].monday, qWeeks[qWeeks.length - 1].sunday)})`}
+                      aria-expanded={isExpanded}
                       onClick={() => setQExpanded(prev => ({ ...prev, [q.id]: !prev[q.id] }))}
                     >
                       <div className="rollup__weekstrip-num">{q.label}</div>
@@ -181,6 +183,8 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                         data-selected={sel ? "1" : "0"}
                         data-current={isCur ? "1" : "0"}
                         data-past={past ? "1" : "0"}
+                        data-week-id={w.id}
+                        aria-pressed={sel}
                         onClick={() => setWeekIdx(i)}
                         title={`${quarterForWeek(w).label} · Week ${w.qIndex} · ${done}/${total} done`}
                       >
@@ -243,6 +247,9 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                     key={rep.id}
                     className="rolluprow"
                     data-clean={clean ? "1" : "0"}
+                    aria-label={`${rep.name} — ${rep.role}, ${done}/${total} deliverables done`}
+                    data-rep-id={rep.id}
+                    data-week-id={week.id}
                     onClick={() => onPickRep(rep.id)}
                   >
                     <div className="rolluprow__rep">
@@ -264,10 +271,10 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                       </div>
                     </div>
                     {counts.map((c, i) => (
-                      <div key={i} className="rolluprow__cell">
+                      <div key={i} className="rolluprow__cell" data-del-id={DELIVERABLES[i].id}>
                         {c === null
                           ? <span className="rolluprow__na" title="Not applicable for this rep">—</span>
-                          : <StatusDot checked={c} size={18} />}
+                          : <StatusDot checked={c} size={18} label={DELIVERABLES[i].title} />}
                       </div>
                     ))}
                     <div className="rolluprow__status">

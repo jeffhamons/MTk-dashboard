@@ -182,7 +182,11 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
   return (
     <div className={"tb-row" + (canExpand && isOpen ? " open" : "") + (rank === 1 ? " r1" : "")}>
       <button className="tb-row__main" onClick={canExpand ? onToggle : undefined}
-              style={canExpand ? undefined : { cursor: "default" }}>
+              style={canExpand ? undefined : { cursor: "default" }}
+              aria-label={`${meta.name}, ${meta.role}, ${window.attPctText(p)} of quota`}
+              aria-expanded={canExpand ? isOpen : false}
+              aria-controls={`tb-detail-${rep.id}`}
+              data-rep-id={rep.id}>
         <span className="tb-row__rank">{rank}</span>
         <span className="tb-row__av" style={{ background: `oklch(0.6 0.17 ${meta.hue})` }}>{meta.initials}</span>
         <span className="tb-row__id"><span className="tb-row__name">{meta.name}</span><span className="tb-row__role">{meta.role}</span></span>
@@ -200,7 +204,7 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
         {canExpand && <span className="tb-row__chev"><TBChevron /></span>}
       </button>
       {canExpand && (
-      <div className="tb-detail">
+      <div className="tb-detail" id={`tb-detail-${rep.id}`} role="region" aria-label={`${meta.name} detail`}>
         <div className="tb-detail__inner">
           {kind === "nb" ? <TBNbDetail rep={rep} period={period} isManager={isManager} myRepId={myRepId} /> : <TBCsDetail rep={rep} />}
         </div>
@@ -275,7 +279,7 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
       ? sorted.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0)
       : sorted.reduce((s, r) => s + (r.qTarget || 0), 0);
     return (
-      <div key={rid} className="tb-region-section">
+      <div key={rid} className="tb-region-section" data-region-id={rid}>
         <div className="tb-region-head">
           <span className="tb-region-head__active" />
           <span className="tb-region-head__label">{regionObj ? regionObj.label : rid}</span>
@@ -450,9 +454,9 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
           {quarterOpts.length > 0 && (
             <div className="tb-toggle">
               {quarterOpts.map(o => (
-                <button key={o.key} className={"tb-toggle__btn" + (hist && selQ.key === o.key ? " on" : "")} onClick={() => setSelQ(o)}>{o.label}</button>
+                <button key={o.key} className={"tb-toggle__btn" + (hist && selQ.key === o.key ? " on" : "")} aria-pressed={hist && selQ.key === o.key} onClick={() => setSelQ(o)}>{o.label}</button>
               ))}
-              <button className={"tb-toggle__btn" + (!hist ? " on" : "")} onClick={() => setSelQ(null)}>{window.ATT_QUARTER.label}</button>
+              <button className={"tb-toggle__btn" + (!hist ? " on" : "")} aria-pressed={!hist} onClick={() => setSelQ(null)}>{window.ATT_QUARTER.label}</button>
             </div>
           )}
           {hist ? (
@@ -462,13 +466,13 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
           ) : (
             <div className="tb-toggle">
               {["mtd", "qtd", "ytd"].map(k => (
-                <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
+                <button key={k} className={"tb-toggle__btn" + (k === period ? " on" : "")} aria-pressed={k === period} onClick={() => setPeriod(k)}>{k.toUpperCase()}</button>
               ))}
             </div>
           )}
           <div className="tb-toggle">
             {displayCurrencies.map(c => (
-              <button key={c} className={"tb-toggle__btn" + (c === displayCurrency ? " on" : "")} onClick={() => setDisplayCurrency(c)}>{c}</button>
+              <button key={c} className={"tb-toggle__btn" + (c === displayCurrency ? " on" : "")} aria-pressed={c === displayCurrency} onClick={() => setDisplayCurrency(c)}>{c}</button>
             ))}
           </div>
         </div>
