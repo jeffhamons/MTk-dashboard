@@ -236,7 +236,7 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId, expa
 // per-region team card.
 function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRepId, expandable, qLabel }) {
   const reps = window.REPS || [];
-  const regionOrder = window.REGION_ORDER || ["US", "EMEA", "ZA"];
+  const regionOrder = window.REGION_ORDER || ["US", "EMEA", "APAC"];
   const regions = window.REGIONS || [];
 
   // Bucket reps by region (look up the rep's region from REPS by id); skip reps with no region.
@@ -356,7 +356,7 @@ function currencyBadge(code) {
 // RFC-151 (was RFC-144) CS Division RBAC merged with per-audience currency:
 // keep the RBAC-aware signature (activeTeam scopes the workspace, canManageAny
 // drives the manager view) AND main's native-currency display conversion.
-function LeaderboardView({ authedUser, activeTeam }) {
+function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   const isManager = canManageAny(authedUser);
   const myRepId   = isManager ? null : ((authedUser && authedUser.rep_id) || null);
   // RFC-151 Phase 4: one board per workspace (RLS already blanks the other
@@ -364,6 +364,19 @@ function LeaderboardView({ authedUser, activeTeam }) {
   // (legacy caller) renders both, as before.
   const showNB = !activeTeam || activeTeam === "newbiz";
   const showCS = !activeTeam || activeTeam === "cs";
+
+  // RFC-152: region scope. viewerScope undefined (legacy caller) → no region
+  // filtering (allowedRegions = null → inRegion always true). When present,
+  // regionsUnderScope resolves viewerScope.regions ∩ pill to an allow-list;
+  // every board list and team-total aggregates only in-scope reps so a
+  // manager board filtered to region R is content-identical to a region-R
+  // rep's board (Decision 3 parity).
+  const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => {
+    if (!allowedRegions) return true;
+    const full = (window.REPS || []).find(x => x.id === rep.id);
+    return full && allowedRegions.includes(full.region);
+  };
 
   const [period, setPeriod] = React.useState("qtd");
   const [displayCurrency, setDisplayCurrency] = React.useState("GBP");
@@ -407,8 +420,8 @@ function LeaderboardView({ authedUser, activeTeam }) {
     if (!r || !window.repVisibleInWeek || !window.currentWeekIndex) return true;
     return window.repVisibleInWeek(r, window.currentWeekIndex() + 1);
   };
-  const NB = (board.nb || []).filter(visible);
-  const CS = (board.cs || []).filter(visible);
+  const NB = (board.nb || []).filter(visible).filter(inRegion);
+  const CS = (board.cs || []).filter(visible).filter(inRegion);
 
   const nbPct = tbAvg(NB, r => r.pct[activePeriod]);
   const nbWon = convertTeamTotal(NB, activePeriod, "nb", displayCurrency);

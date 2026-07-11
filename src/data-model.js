@@ -4,6 +4,7 @@
 
 const REPS = [
   { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168, region: "US", team: "newbiz",
+    email: "cammy.bean@kineo.com",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=Rxvq5P",
@@ -19,6 +20,7 @@ const REPS = [
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
     } },
   { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210, region: "US", team: "newbiz",
+    email: "fissa@mindtools.com",
     skips: [],
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=VeYQ0C&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMTAwLTAwMDAwMDAwMDAwMH0",
@@ -29,9 +31,11 @@ const REPS = [
     skips: [],
     links: {} },
   { id: "dwayne",  name: "Dwayne Haskell",          role: "Customer Success",   initials: "DH", hue: 280, region: "US", team: "cs",
+    email: "dwayne.haskell@kineo.com",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=0OOyTb&nav=MTVfezg2NzczMkNCLTA2NTEtQjA0NC1BOUZFLTY4N0M0NkE0NEREQX0" } },
   { id: "meri",    name: "Meri Tosh",               role: "Customer Success",   initials: "MT", hue: 130, region: "US", team: "cs",
+    email: "meri.tosh@kineo.com",
     skips: ["outreach", "commitments"],
     links: { wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=bzuua5&nav=MTVfezg3OUJBRDY5LTZCNUQtNkQ0Ny05RDQwLTE0ODlCNzlDOTM5Rn0" } },
   // EMEA CS reps — Lara's team; roster confirmed by Jeff 2026-07-10; RFC-151 Open Question 1 resolved.
@@ -39,29 +43,67 @@ const REPS = [
   // Meri are the NA CS pair.) Live in Phase 4's CS workspace — they
   // render only inside the CS section, so BD views are unaffected.
   { id: "laura",    name: "Laura Blackmore",         role: "Customer Success Manager",        initials: "LB", hue: 330, region: "EMEA", team: "cs",
+    email: "laura.blackmore@kineo.com",
     skips: ["outreach", "commitments"], links: {} },
   { id: "owen",     name: "Owen Bolding",            role: "Senior Customer Success Manager", initials: "OB", hue: 55,  region: "EMEA", team: "cs",
+    email: "owen.bolding@kineo.com",
     skips: ["outreach", "commitments"], links: {} },
   { id: "james",    name: "James Brooke",            role: "Customer Success Manager",        initials: "JB", hue: 95,  region: "EMEA", team: "cs",
     skips: ["outreach", "commitments"], links: {} },
   { id: "rowan",    name: "Rowan Donoghue",          role: "Customer Success Manager",        initials: "RD", hue: 250, region: "EMEA", team: "cs",
+    email: "rdonoghue@mindtools.com",
     skips: ["outreach", "commitments"], links: {} },
   { id: "alex",     name: "Alex Martin",             role: "Customer Success Manager",        initials: "AM", hue: 20,  region: "EMEA", team: "cs",
     skips: ["outreach", "commitments"], links: {} },
-  // EMEA stubs (emit: false — not yet active, always in data)
+  // EMEA BD — activated 2026-07-10 (join weekly rhythm; targets later).
   { id: "rory",     name: "Rory Lawson",             role: "Account Director",   initials: "RL", hue: 200, region: "EMEA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
-  { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 200, region: "EMEA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
-  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 200, region: "EMEA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
-  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 200, region: "EMEA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
-  // ZA stubs
-  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 200, region: "ZA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
-  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 200, region: "ZA", team: "newbiz",
-    emit: false, activeThrough: null, links: {} },
+    email: "rory.lawson@kineo.com",
+    skips: [], links: {} },
+  { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 175, region: "EMEA", team: "newbiz",
+    email: "steve.mackenzie@kineo.com",
+    skips: [], links: {} },
+  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 145, region: "EMEA", team: "newbiz",
+    email: "sbailie@mindtools.com",
+    skips: [], links: {} },
+  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 310, region: "EMEA", team: "newbiz",
+    email: "msaward@mindtools.com",
+    skips: [], links: {} },
+  // EMEA BD (South Africa folded into EMEA) — activated 2026-07-10.
+  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 75,  region: "EMEA", team: "newbiz",
+    email: "paul.welch@kineo.com",
+    skips: [], links: {} },
+  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 265, region: "EMEA", team: "newbiz",
+    email: "m.cawood@mindtools.com",
+    skips: [], links: {} },
+  // EMEA BD stub — starts 7/13; emit:false until activation (no email yet).
+  { id: "stuart",   name: "Stuart Chadwick",         role: "Account Director",   initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
+    emit: false, links: {} },
+  // APAC BD — activated 2026-07-10.
+  { id: "dourlay",  name: "Paul Dourlay",            role: "Account Director",   initials: "PD", hue: 160, region: "APAC", team: "newbiz",
+    email: "paul.dourlay@kineo.com.au",
+    skips: [], links: {} },
+  { id: "andrew",   name: "Andrew Bennett",          role: "Account Director",   initials: "AB", hue: 30,  region: "APAC", team: "newbiz",
+    email: "andrew.bennett@kineo.com.au",
+    skips: [], links: {} },
+  { id: "annum",    name: "Annum Sikander",          role: "Account Director",   initials: "AS", hue: 290, region: "APAC", team: "newbiz",
+    email: "annum.sikander@kineo.com.au",
+    skips: [], links: {} },
+  // APAC CS — activated 2026-07-10 (same skips as EMEA CS five).
+  { id: "angela",   name: "Angela Beck",             role: "Customer Success Manager", initials: "AB", hue: 185, region: "APAC", team: "cs",
+    email: "angela.beck@kineo.com.au",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "sarah",    name: "Sarah Flynn",             role: "Customer Success Manager", initials: "SF", hue: 50,  region: "APAC", team: "cs",
+    email: "sarah.flynn@kineo.com.au",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "aaron",    name: "Aaron Mathew",            role: "Customer Success Manager", initials: "AM", hue: 220, region: "APAC", team: "cs",
+    email: "aaron.mathew@kineo.com.au",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "suzanne",  name: "Suzanne Grennan",         role: "Customer Success Manager", initials: "SG", hue: 340, region: "APAC", team: "cs",
+    email: "suzanne.grennan@kineo.com.au",
+    skips: ["outreach", "commitments"], links: {} },
+  { id: "cindy",    name: "Cindy Nguyen",            role: "Customer Success Manager", initials: "CN", hue: 105, region: "APAC", team: "cs",
+    email: "cindy.nguyen@kineo.com.au",
+    skips: ["outreach", "commitments"], links: {} },
 ];
 
 // Deliverables — the three weekly artifacts. Order matters; this is the
@@ -543,7 +585,7 @@ function formatCurrencyAmount(amount, currency) {
 const REGIONS = [
   { id: "US",   label: "North America",  badge: "$",  currency: "USD", timezone: "America/Chicago",  color: "#2563eb" },
   { id: "EMEA", label: "EMEA",           badge: "£",  currency: "GBP", timezone: "Europe/London",    color: "#7c3aed" },
-  { id: "ZA",   label: "South Africa",   badge: "R",  currency: "ZAR", timezone: "Africa/Johannesburg", color: "#0891b2" },
+  { id: "APAC", label: "APAC",           badge: "A$", currency: "AUD", timezone: "Australia/Sydney", color: "#0d9488" },
 ];
 
 // Region object for a given rep — looks up by the rep's `region` tag vs REGIONS
@@ -580,8 +622,8 @@ function regionCurrencyLong(regionId) {
   return r ? r.currency : "USD";
 }
 
-// Canonical region sort order for the target board: US → EMEA → ZA
-const REGION_ORDER = ["US", "EMEA", "ZA"];
+// Canonical region sort order for the target board: US → EMEA → APAC
+const REGION_ORDER = ["US", "EMEA", "APAC"];
 
 // ── RFC-151: teams + team-scoped RBAC helpers ───────────────────────────────
 // Client mirror of the Phase 2 RLS predicates (db/migration-team-rbac-rls.sql).
@@ -650,6 +692,125 @@ function defaultTeamForUser(user) {
   return teamsForUser(user)[0] || "newbiz";
 }
 
+// ── RFC-152: viewerScope ────────────────────────────────────────────────────
+// Region-axis scope for the multi-region dashboard. Computed once at App
+// level (like teamsForUser for the team axis) and threaded as viewerScope.
+// locked=true → no region pill; the single region is applied unconditionally.
+// locked=false → pill All/NA/EMEA/APAC, clamped to scope.regions.
+function viewerScopeForUser(user) {
+  if (!user) return { regions: [], locked: true };
+  if (user.role === "manager") {
+    return { regions: REGION_ORDER.slice(), locked: false };
+  }
+  if (user.role === "team_admin") {
+    const allowed = new Set(REGION_ORDER);
+    const seen = new Set();
+    for (const s of user.adminScopes || []) {
+      if (s && allowed.has(s.region)) seen.add(s.region);
+    }
+    const regions = REGION_ORDER.filter(id => seen.has(id));
+    return { regions, locked: regions.length <= 1 };
+  }
+  // rep (and any other non-managerial role): own region only
+  const rep = repById(user.rep_id);
+  return { regions: rep && rep.region ? [rep.region] : [], locked: true };
+}
+
+// Resolve the active region set under a scope + optional pill selection.
+// Falsy scope → unrestricted (defensive fallback = full REGION_ORDER).
+// Valid pill contained in scope.regions narrows to [pill]; invalid pill ignored.
+function regionsUnderScope(scope, pill) {
+  if (!scope) return REGION_ORDER.slice();
+  if (pill && scope.regions && scope.regions.includes(pill)) return [pill];
+  return scope.regions;
+}
+
+// REPS visible for a week under team + viewerScope ∩ pill filters.
+// teamId optional (null/undefined = all teams). Composes with repVisibleInWeek.
+function repsUnderScope(weekIndex, teamId, scope, pill) {
+  const regions = new Set(regionsUnderScope(scope, pill));
+  return REPS.filter(rep => {
+    if (!repVisibleInWeek(rep, weekIndex)) return false;
+    if (teamId && rep.team !== teamId) return false;
+    return regions.has(rep.region);
+  });
+}
+
+// Compact region label for pills/badges: US → "NA", else the region id.
+function regionShortLabel(regionId) {
+  return regionId === "US" ? "NA" : regionId;
+}
+
+// Short timezone name for a region's IANA zone at `date` (default now).
+// e.g. "CDT", "BST", "AEST". Unknown region → "CT" fallback.
+function zoneAbbrev(regionId, date) {
+  const region = REGIONS.find(r => r.id === regionId);
+  if (!region) return "CT";
+  const d = date || new Date();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: region.timezone,
+    timeZoneName: "short",
+  }).formatToParts(d);
+  const tz = parts.find(p => p.type === "timeZoneName");
+  return tz ? tz.value : "CT";
+}
+
+// UTC instant of `hour`:00 on week.friday IN the region's IANA timezone.
+// e.g. US (America/Chicago, CDT=UTC-5) Friday 5 PM → 22:00 UTC same day.
+// No timezone libraries available (Babel-standalone browser) — probe the
+// zone's UTC offset via Intl.DateTimeFormat, then one re-check for DST edges.
+// Unknown region → browser-local Friday at hour:00 (prior behavior).
+function dueInstantForRegion(week, regionId, hour = 17) {
+  if (!week || !week.friday) return null;
+  const y = week.friday.getFullYear();
+  const m = week.friday.getMonth();
+  const d = week.friday.getDate();
+
+  const region = REGIONS.find(r => r.id === regionId);
+  if (!region || !region.timezone) {
+    const local = new Date(week.friday);
+    local.setHours(hour, 0, 0, 0);
+    return local;
+  }
+
+  // offsetMs = (wall-clock components interpreted as UTC) − true UTC ms.
+  // Positive when the zone is ahead of UTC (e.g. +1h for BST).
+  function offsetMsAt(utcMs, timeZone) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).formatToParts(new Date(utcMs));
+    const get = type => {
+      const p = parts.find(x => x.type === type);
+      return p ? Number(p.value) : 0;
+    };
+    let h = get("hour");
+    if (h === 24) h = 0; // ICU midnight quirk under some engines
+    const asUTC = Date.UTC(get("year"), get("month") - 1, get("day"), h, get("minute"), get("second"));
+    return asUTC - utcMs;
+  }
+
+  // Desired wall clock in-zone as if it were UTC numbers, then subtract offset.
+  const wallAsUTC = Date.UTC(y, m, d, hour, 0, 0);
+  let offset = offsetMsAt(wallAsUTC, region.timezone);
+  let utcMs = wallAsUTC - offset;
+  // Re-check offset at the computed instant (DST transition edges).
+  offset = offsetMsAt(utcMs, region.timezone);
+  utcMs = wallAsUTC - offset;
+  return new Date(utcMs);
+}
+
+// Cadence due-label localized to the region's timezone abbreviation.
+function dueLabelForRegion(regionId) {
+  return `Due Friday 5 PM ${zoneAbbrev(regionId)}`;
+}
+
 // Expose globally for other Babel scripts
 Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY, QUARTERS,
@@ -657,6 +818,8 @@ Object.assign(window, {
   regionCurrency, regionCurrencyLong, REGION_ORDER,
   TEAMS, repById, isManagerialRole, canManageRep, canManageAny,
   teamsForUser, defaultTeamForUser,
+  viewerScopeForUser, regionsUnderScope, repsUnderScope,
+  regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,

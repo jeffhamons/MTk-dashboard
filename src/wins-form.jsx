@@ -283,15 +283,17 @@ function WFStatus({ status, lastSaved }) {
 }
 
 // ── Main component ─────────────────────────────────────────────────────────
-function WinsFormView({ authedUser, activeTeam }) {
+function WinsFormView({ authedUser, activeTeam, viewerScope, regionPill }) {
+  const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
   const isManager = canManageAny(authedUser);
   const myRepId   = isManager ? null : (authedUser && authedUser.rep_id) || null;
   const email     = authedUser ? authedUser.authEmail : null;
 
   // Workspace-scoped roster (RFC-151 Phase 4); no activeTeam = all teams.
   const activeReps = useWFMemo(
-    () => REPS.filter(r => r.name !== "TBD" && (!activeTeam || r.team === activeTeam)),
-    [activeTeam]
+    () => REPS.filter(r => r.name !== "TBD" && (!activeTeam || r.team === activeTeam) && inRegion(r)),
+    [activeTeam, viewerScope, regionPill]
   );
   const manageableReps = useWFMemo(() =>
     isManager ? activeReps : activeReps.filter(r => canManageRep(authedUser, r.id)),
@@ -404,7 +406,7 @@ function WinsFormView({ authedUser, activeTeam }) {
               <span className="wf__week-caret" aria-hidden="true"><Icon name="chevron-down" size={14} /></span>
             </div>
             <div className="wf__week-sub">
-              {isQ1Week ? "Q1 · Historical" : isFutureWeek ? "Upcoming" : "Due Friday 5 PM CT"}
+              {isQ1Week ? "Q1 · Historical" : isFutureWeek ? "Upcoming" : (allowedRegions && allowedRegions.length === 1 ? window.dueLabelForRegion(allowedRegions[0]) : "Due Friday 5 PM local")}
             </div>
             {showPicker && (
               <>

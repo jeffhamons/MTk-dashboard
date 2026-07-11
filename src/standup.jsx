@@ -330,6 +330,7 @@ function MentionedYouBanner({ myRepId, participants, entries, onJump }) {
       const m = parseMentions(text, [myRepId]);
       if (m.length > 0) {
         const fromRep = participants.find(x => x.id === rowRepId);
+        if (!fromRep) continue;
         hits.push({ fromRep, field: p, text });
       }
     }
@@ -361,9 +362,13 @@ function MentionedYouBanner({ myRepId, participants, entries, onJump }) {
 }
 
 // ── StandupView ─────────────────────────────────────────────────────────────
-function StandupView({ authedUser, onStandupFlag, activeTeam }) {
+function StandupView({ authedUser, onStandupFlag, activeTeam, viewerScope, regionPill }) {
   const isManager = canManageAny(authedUser);
   const myRepId = (authedUser && authedUser.role === "manager") ? "manager" : (authedUser && authedUser.rep_id) || null;
+
+  // RFC-152: region scoping. viewerScope undefined => no region filtering.
+  const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
 
   const [date, setDateState] = useStandupState(() => dateFromUrl());
 
@@ -375,9 +380,10 @@ function StandupView({ authedUser, onStandupFlag, activeTeam }) {
     const wk = currentWeekIndex(WEEKS, date) + 1;
     const active = REPS.filter(r => r.name !== "TBD"
       && (!activeTeam || r.team === activeTeam)
-      && repVisibleInWeek(r, wk));
+      && repVisibleInWeek(r, wk)
+      && inRegion(r));
     return [...active, MANAGER_PARTICIPANT];
-  }, [date, activeTeam]);
+  }, [date, activeTeam, viewerScope, regionPill]);
   const participantIds = useStandupMemo(() => participants.map(p => p.id), [participants]);
   const [entries, setEntries] = useStandupState({}); // { rep_id: row }
   const [loading, setLoading] = useStandupState(true);

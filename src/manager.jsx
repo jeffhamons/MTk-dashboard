@@ -23,7 +23,11 @@ const APP_PAGES = [
 // FlagQueue — landing list of every open ask across the team, oldest first.
 // The manager's "what needs attention right now" view.
 // =====================================================================
-function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
+function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam, viewerScope, regionPill }) {
+  // RFC-152: region scoping. viewerScope undefined => no region filtering.
+  const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
+
   // Collect all open asks: state.asks is { "repId|weekId|delId": {text, at} }
   // Workspace-scoped (RFC-151 Phase 4): only the active team's flags render.
   const open = React.useMemo(() => {
@@ -38,6 +42,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
       const del = DELIVERABLES.find(d => d.id === delId);
       if (!rep || !week || !del) continue;
       if (activeTeam && rep.team !== activeTeam) continue;
+      if (!inRegion(rep)) continue;
       // Skip if the deliverable was since marked done (issue resolved itself)
       const checkKey = `${repId}|${weekId}|${delId}`;
       const done = !!state.checks[checkKey];
@@ -49,7 +54,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
       return (a.ask.at || "").localeCompare(b.ask.at || "");
     });
     return out;
-  }, [state.asks, state.checks, activeTeam]);
+  }, [state.asks, state.checks, activeTeam, viewerScope, regionPill]);
 
   const openCount = open.filter(f => !f.done).length;
 
@@ -69,7 +74,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
             They'll show up here, oldest first.
           </div>
         </div>
-        <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} />
+        <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} viewerScope={viewerScope} regionPill={regionPill} />
       </div>
     );
   }
@@ -108,7 +113,7 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
         ))}
       </div>
 
-      <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} />
+      <ResolvedSection state={state} onPickRep={onPickRep} onReopenAsk={onReopenAsk} activeTeam={activeTeam} viewerScope={viewerScope} regionPill={regionPill} />
     </div>
   );
 }
@@ -118,7 +123,9 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam }) {
 // of the FlagQueue. Filter by rep + time range; reopen or jump to the
 // rep's week view from any row.
 // =====================================================================
-function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam }) {
+function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam, viewerScope, regionPill }) {
+  const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
   const [open, setOpen] = React.useState(false);
   const [repFilter, setRepFilter] = React.useState("all");
   const [timeFilter, setTimeFilter] = React.useState("all");
@@ -136,13 +143,14 @@ function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam }) {
       const del = DELIVERABLES.find(d => d.id === delId);
       if (!rep || !week || !del) continue;
       if (activeTeam && rep.team !== activeTeam) continue;
+      if (!inRegion(rep)) continue;
       const hadNote = !!(state.managerNotes && state.managerNotes[k] && state.managerNotes[k].note);
       out.push({ key: k, repId, weekId, delId, rep, week, del, entry, hadNote });
     }
     // Newest first
     out.sort((a, b) => (b.entry.resolvedAt || "").localeCompare(a.entry.resolvedAt || ""));
     return out;
-  }, [state.resolvedAsks, state.managerNotes, activeTeam]);
+  }, [state.resolvedAsks, state.managerNotes, activeTeam, viewerScope, regionPill]);
 
   const repsPresent = React.useMemo(() => {
     const seen = new Set();

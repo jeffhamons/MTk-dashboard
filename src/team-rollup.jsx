@@ -2,9 +2,9 @@
 // Goal: glance at this and know who's on track, who's behind. No drill-down required.
 
 const { useMemo: useMemoRollup } = React;
-const { REGIONS, regionForRep, repsByRegion } = window;
+const { REGIONS, regionForRep, repsByRegion, regionsUnderScope, zoneAbbrev, dueInstantForRegion } = window;
 
-function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
+function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerScope, regionPill }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const isCurrent = weekIdx === currentWeekIndex();
@@ -25,9 +25,20 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
   // caller) means all teams.
   const inTeam = rep => !activeTeam || rep.team === activeTeam;
 
+  // RFC-152: region scope. Defensive — undefined viewerScope means no region
+  // filtering (legacy caller / data-model.js helpers not yet loaded).
+  const allowedRegions = viewerScope ? regionsUnderScope(viewerScope, regionPill) : null;
+  const inRegion = rep => !allowedRegions || allowedRegions.includes(rep.region);
+
+  // Cadence zone: single active region shows its own abbreviation; multiple
+  // regions (or legacy/all) get neutral "local" copy. Never a wrong single zone.
+  const singleRegionId = allowedRegions && allowedRegions.length === 1 ? allowedRegions[0] : null;
+  const cadenceZone = singleRegionId ? zoneAbbrev(singleRegionId) : "local";
+  const multiRegion = !singleRegionId;
+
   // For each rep, compute completion for this week, respecting per-rep skips.
   // Reps who departed mid-cycle (activeThrough) drop off from their week N+1.
-  const rows = REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, week.index)).map(rep => {
+  const rows = REPS.filter(rep => inTeam(rep) && inRegion(rep) && repVisibleInWeek(rep, week.index)).map(rep => {
     const skips = rep.skips || [];
     const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
     // We still produce a counts array aligned with the FULL DELIVERABLES list
@@ -43,15 +54,18 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
   const allClean = rows.every(r => r.done === r.total);
 
   // Group rows by region for sectioned display
-  const regionSections = REGIONS.map(reg => {
-    const rRows = rows.filter(r => {
-      const repReg = regionForRep(r.rep);
-      return repReg && repReg.id === reg.id;
-    });
-    const done = rRows.reduce((a, rr) => a + rr.done, 0);
-    const total = rRows.reduce((a, rr) => a + rr.total, 0);
-    return { region: reg, rows: rRows, done, total };
-  }).filter(s => s.rows.length > 0);
+  const regionSections = REGIONS
+    .filter(reg => !allowedRegions || allowedRegions.includes(reg.id))
+    .map(reg => {
+      const rRows = rows.filter(r => {
+        const repReg = regionForRep(r.rep);
+        return repReg && repReg.id === reg.id;
+      });
+      const done = rRows.reduce((a, rr) => a + rr.done, 0);
+      const total = rRows.reduce((a, rr) => a + rr.total, 0);
+      return { region: reg, rows: rRows, done, total };
+    })
+    .filter(s => s.rows.length > 0);
 
   // Determine subtitle — single region or multi-region, workspace-labelled
   const teamLabelWord = activeTeam === "cs" ? "CS" : "BD";
@@ -59,9 +73,11 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
     ? `${regionSections[0].region.label} ${teamLabelWord} · Weekly Operating Rhythm`
     : regionSections.map(s => s.region.label).join(" + ") + ` ${teamLabelWord} · Weekly Operating Rhythm`;
 
-  // Days until Friday 5pm CT (deliverables due)
-  const friday = new Date(week.friday);
-  friday.setHours(17, 0, 0, 0);
+  // Days until Friday 5pm cutoff (deliverables due).
+  // Single-region: true regional due instant via dueInstantForRegion.
+  // Multi-region (singleRegionId null): helper falls back to browser-local;
+  // the cadence label already says "local" in that case.
+  const friday = dueInstantForRegion(week, singleRegionId);
   const msToFriday = friday - today;
   const hrsToFriday = Math.round(msToFriday / 36e5);
   const dueLabel = hrsToFriday > 24
@@ -85,7 +101,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
           <p className="rollup__sub">
             {isCurrent ? "This week" : isPast ? "Closed week" : "Upcoming"} ·
             {quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} ·
-            Opens Mon 8:00 AM CT, due Fri 5:00 PM CT
+            {`Opens Mon 8:00 AM ${cadenceZone}, due Fri 5:00 PM ${cadenceZone}`}
           </p>
           <div className="rollup__weeknav">
             <button
@@ -149,7 +165,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
                     const sel = i === weekIdx;
                     // Compute team completion for this week (respecting per-rep skips)
                     let done = 0, total = 0;
-                    REPS.filter(rep => inTeam(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
+                    REPS.filter(rep => inTeam(rep) && inRegion(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
                       const skips = rep.skips || [];
                       DELIVERABLES.forEach(d => {
                         if (skips.includes(d.id)) return;
@@ -211,6 +227,9 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
               <div className="rollup__region-head">
                 <span className="rollup__region-head-label">{region.label}</span>
                 <span className="rollup__region-head-badge">{region.currency}</span>
+                {multiRegion && (
+                  <span className="rollup__region-head-cadence">Fri 5 PM {zoneAbbrev(region.id)}</span>
+                )}
               </div>
 
               {sectionRows.map(({ rep, counts, done, total }) => {
@@ -312,7 +331,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
           <Icon name="calendar" size={18} />
           <div>
             <div className="cadence__label">Week opens</div>
-            <div className="cadence__value">Monday · 8:00 AM CT</div>
+            <div className="cadence__value">{`Monday · 8:00 AM ${cadenceZone}`}</div>
           </div>
         </div>
         <div className="cadence__divider" />
@@ -320,7 +339,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam }) {
           <Icon name="clock" size={18} />
           <div>
             <div className="cadence__label">Deliverables due</div>
-            <div className="cadence__value">Friday · 5:00 PM CT</div>
+            <div className="cadence__value">{`Friday · 5:00 PM ${cadenceZone}`}</div>
           </div>
         </div>
         <div className="cadence__divider" />

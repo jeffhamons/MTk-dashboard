@@ -84,11 +84,16 @@ for (const repId of ALL_REP_IDS) {
                 note: namedNote || "non-self rep denied" });
 }
 
-// Scenario 4 + 6g: Lara (team_admin cs×US,EMEA) manages every CS rep
-// (dwayne, meri in US; laura, owen, james, rowan, alex in EMEA).
+// Scenario 4 + 6g: Lara (team_admin cs×US,EMEA only — not APAC per Jeff 2026-07-10)
+// manages US CS (dwayne, meri) + EMEA CS five. APAC CS are out of scope.
+const LARA_CS_REGIONS = new Set(["US", "EMEA"]);
 for (const repId of CS_REP_IDS) {
-  MATRIX.push({ persona: "Lara", user: lara, targetRep: repId, expected: true,
-                note: "covering team_admin scope" });
+  const rep = dm.repById(repId);
+  const covered = LARA_CS_REGIONS.has(rep.region);
+  MATRIX.push({ persona: "Lara", user: lara, targetRep: repId, expected: covered,
+                note: covered
+                  ? "covering team_admin scope"
+                  : "APAC CS out of Lara's US+EMEA scopes" });
 }
 // Scenario 4 + 6h: Lara manages ZERO newbiz reps — THE hard constraint.
 for (const repId of NEWBIZ_REP_IDS) {
@@ -99,7 +104,6 @@ for (const repId of NEWBIZ_REP_IDS) {
   MATRIX.push({ persona: "Lara", user: lara, targetRep: repId, expected: false,
                 note: namedNote || "newbiz not in scope" });
 }
-
 // ── Matrix iteration: one test() per persona ──────────────────────────────
 const personas = [...new Set(MATRIX.map(c => c.persona))];
 
@@ -137,8 +141,8 @@ test("R1 role-tie: Lara's scopes with role='rep' manage nothing but self", () =>
     "R1: same-team peer still denied despite inert scopes");
 });
 
-// ── Named EMEA CS reps are present in the derived roster ──────────────────
-test("derived CS roster includes all 5 named EMEA CS reps + NA CS pair", () => {
+// ── Named CS reps are present in the derived roster ───────────────────────
+test("derived CS roster includes NA + EMEA + APAC CS (12 total)", () => {
   const emeaCs = ["laura", "owen", "james", "rowan", "alex"];
   for (const id of emeaCs) {
     assert.ok(CS_REP_IDS.includes(id),
@@ -146,7 +150,12 @@ test("derived CS roster includes all 5 named EMEA CS reps + NA CS pair", () => {
   }
   assert.ok(CS_REP_IDS.includes("dwayne") && CS_REP_IDS.includes("meri"),
     "NA CS pair (dwayne, meri) missing from derived CS roster");
-  assert.equal(CS_REP_IDS.length, 7, "expected 7 CS reps (2 NA + 5 EMEA)");
+  const apacCs = ["angela", "sarah", "aaron", "suzanne", "cindy"];
+  for (const id of apacCs) {
+    assert.ok(CS_REP_IDS.includes(id),
+      `${id} missing from derived CS roster — APAC CS not landed?`);
+  }
+  assert.equal(CS_REP_IDS.length, 12, "expected 12 CS reps (2 NA + 5 EMEA + 5 APAC)");
 });
 
 // ── Workspace lockstep: teamsForUser ──────────────────────────────────────

@@ -514,3 +514,47 @@ create policy "manager or team admin deletes manager_notes" on public.manager_no
                where ta.auth_id = (select auth.uid())
                  and ta.team_id = r3.team_id and ta.region = r3.region)
   );
+
+-- ── 2026-07-10 roster upsert (parity source for tests/test_rfc151_reps_parity.py)
+-- One row per data-model.js REPS[] entry (26 as of 2026-07-10).
+-- active=false mirrors departed reps (activeThrough) and emit:false stubs;
+-- EMEA BD (rory/stephen/simon/matthew/paul/mike) activated 2026-07-10;
+-- APAC BD + CS activated 2026-07-10; stuart remains emit:false (active false).
+-- paul/mike rehomed ZA→EMEA (RFC-152 D1).
+-- OPS: live public.reps needs the same upsert (ops step, issue #4369).
+insert into public.reps (rep_id, name, team_id, region, active) values
+  ('cammy',   'Cammy Bean',               'newbiz', 'US',   true),
+  ('brenda',  'Brenda Bravener-Greville', 'newbiz', 'US',   false),
+  ('farah',   'Farah Issa',               'newbiz', 'US',   true),
+  ('don',     'Don Hazelwood',            'newbiz', 'US',   true),
+  ('dwayne',  'Dwayne Haskell',           'cs',     'US',   true),
+  ('meri',    'Meri Tosh',                'cs',     'US',   true),
+  -- EMEA CS (Lara's team).
+  ('laura',   'Laura Blackmore',          'cs',     'EMEA', true),
+  ('owen',    'Owen Bolding',             'cs',     'EMEA', true),
+  ('james',   'James Brooke',             'cs',     'EMEA', true),
+  ('rowan',   'Rowan Donoghue',           'cs',     'EMEA', true),
+  ('alex',    'Alex Martin',              'cs',     'EMEA', true),
+  -- EMEA BD activated 2026-07-10 (join weekly rhythm; targets later).
+  ('rory',    'Rory Lawson',              'newbiz', 'EMEA', true),
+  ('stephen', 'Stephen Mackenzie',        'newbiz', 'EMEA', true),
+  ('simon',   'Simon Bailie',             'newbiz', 'EMEA', true),
+  ('matthew', 'Matthew Saward',           'newbiz', 'EMEA', true),
+  -- paul/mike rehomed ZA→EMEA (RFC-152 D1) and activated 2026-07-10.
+  ('paul',    'Paul Welch',               'newbiz', 'EMEA', true),
+  ('mike',    'Mike Cawood',              'newbiz', 'EMEA', true),
+  -- EMEA BD stub — starts 7/13; active=false mirrors emit:false.
+  ('stuart',  'Stuart Chadwick',          'newbiz', 'EMEA', false),
+  -- APAC BD — activated 2026-07-10.
+  ('dourlay', 'Paul Dourlay',             'newbiz', 'APAC', true),
+  ('andrew',  'Andrew Bennett',           'newbiz', 'APAC', true),
+  ('annum',   'Annum Sikander',           'newbiz', 'APAC', true),
+  -- APAC CS — activated 2026-07-10.
+  ('angela',  'Angela Beck',              'cs',     'APAC', true),
+  ('sarah',   'Sarah Flynn',              'cs',     'APAC', true),
+  ('aaron',   'Aaron Mathew',             'cs',     'APAC', true),
+  ('suzanne', 'Suzanne Grennan',          'cs',     'APAC', true),
+  ('cindy',   'Cindy Nguyen',             'cs',     'APAC', true)
+on conflict (rep_id) do update
+  set name = excluded.name, team_id = excluded.team_id,
+      region = excluded.region, active = excluded.active;

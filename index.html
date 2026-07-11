@@ -1418,6 +1418,11 @@ button { font: inherit; color: inherit; }
 .ws-switch__btn { padding: 4px 12px; border-radius: 999px; border: none; background: transparent; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink-60); cursor: pointer; transition: all 120ms; }
 .ws-switch__btn:hover { color: var(--ink-80); }
 .ws-switch__btn[data-active="1"] { background: var(--card-bg, #fff); color: var(--ink-90); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+/* RFC-152 — region filter pill (unlocked multi-region viewers only) */
+.rpill { display: inline-flex; align-items: center; gap: 2px; height: 32px; padding: 2px; border-radius: 999px; background: var(--ink-05); border: 1px solid var(--ink-15); }
+.rpill__btn { padding: 4px 12px; border-radius: 999px; border: none; background: transparent; font: inherit; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--ink-60); cursor: pointer; transition: all 120ms; line-height: 1; }
+.rpill__btn:hover { color: var(--ink-80); }
+.rpill__btn[data-active="1"] { background: var(--card-bg, #fff); color: var(--ink-90); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
 .viewas__btn:hover { background: var(--ink-10); border-color: var(--ink-30); }
 .viewas__menu { position: absolute; top: calc(100% + 6px); right: 0; background: var(--card); border: 1px solid var(--ink-15); border-radius: 10px; box-shadow: var(--shadow-md); padding: 6px; min-width: 180px; z-index: 200; }
 .viewas__menu-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-40); padding: 4px 8px 6px; }
@@ -2058,8 +2063,16 @@ function attTier(pct) {
   return "risk";
 }
 
-function teamAttainmentFrom(data) {
-  const active = Object.entries(data).filter(([id, v]) => v && (v.mtd || v.qtd));
+function teamAttainmentFrom(data, allowedRegions) {
+  // allowedRegions = null/undefined → no region filter (defensive / unscoped).
+  // Known reps must be in allowedRegions; unknown rep ids pass through unfiltered.
+  const active = Object.entries(data).filter(([id, v]) => {
+    if (!v || !(v.mtd || v.qtd)) return false;
+    if (allowedRegions == null) return true;
+    const rep = repById(id);
+    if (!rep) return true;
+    return allowedRegions.includes(rep.region);
+  });
   if (!active.length) return { mtd: 0, qtd: 0 };
   const mtd = Math.round(active.reduce((s, [, v]) => s + v.mtd, 0) / active.length);
   const qtd = Math.round(active.reduce((s, [, v]) => s + v.qtd, 0) / active.length);
@@ -2078,7 +2091,7 @@ function AttKpi({ period, val }) {
   );
 }
 
-function AttainmentStrip({ repId, isManager }) {
+function AttainmentStrip({ repId, isManager, allowedRegions }) {
   const [liveData, setLiveData] = React.useState(null);
 
   React.useEffect(() => {
@@ -2097,7 +2110,7 @@ function AttainmentStrip({ repId, isManager }) {
   }, []);
 
   const data = liveData || SAMPLE_ATTAINMENT;
-  const team = teamAttainmentFrom(data);
+  const team = teamAttainmentFrom(data, allowedRegions);
   const rep = repId ? data[repId] : null;
 
   return (
@@ -2146,11 +2159,14 @@ function AttainmentStrip({ repId, isManager }) {
 // Reps: Weekly Review + Standup.
 // Manager: Team Rollup + Open Flags. Standup accessible via tab.
 // ─────────────────────────────────────────────────────────────────────────────
-function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, activeTeam }) {
+function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, activeTeam, viewerScope, regionPill }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const teamObj = TEAMS.find(t => t.id === activeTeam) || TEAMS[0];
   const inTeam = (repId) => { const r = repById(repId); return r && r.team === activeTeam; };
+  // RFC-152: region scope. If viewerScope is missing (defensive), skip region filtering.
+  const allowedRegions = viewerScope == null ? null : regionsUnderScope(viewerScope, regionPill);
+  const repInScope = r => allowedRegions == null || allowedRegions.includes(r.region);
 
   // Don's onboarding signal for the manager Home strip (progress + blockers).
   const [donSummary, setDonSummary] = React.useState(null);
@@ -2195,17 +2211,25 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
     ? `Today · ${fmtShort(today)}`
     : `${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][nextSD.getDay()]} · ${fmtShort(nextSD)}`;
 
-  // Manager stats — scoped to the active workspace's team
+  // Manager stats — scoped to the active workspace's team + viewer region scope
   const openFlagCount = state.asks
-    ? Object.entries(state.asks).filter(([k, a]) => a && a.text && !state.checks[k] && inTeam(k.split("|")[0])).length
+    ? Object.entries(state.asks).filter(([k, a]) => {
+        if (!a || !a.text || state.checks[k]) return false;
+        const r = repById(k.split("|")[0]);
+        return r && r.team === activeTeam && repInScope(r);
+      }).length
     : 0;
   const repRows = REPS.map(r => {
     const rSkips = r.skips || [];
     const rDels = DELIVERABLES.filter(d => !rSkips.includes(d.id));
     const rDone = rDels.filter(d => delComplete(r.id, week, d.id, state)).length;
     return { rep: r, done: rDone, total: rDels.length, clean: rDels.length > 0 && rDone === rDels.length };
-  }).filter(r => r.rep.name !== "TBD" && r.rep.team === activeTeam && repVisibleInWeek(r.rep, week.index));
+  }).filter(r => r.rep.name !== "TBD" && r.rep.team === activeTeam && repVisibleInWeek(r.rep, week.index) && repInScope(r.rep));
   const cleanCount = repRows.filter(r => r.clean).length;
+  // Single-region scope → localized due line; multi / unscoped → neutral local copy.
+  const dueLabel = (allowedRegions && allowedRegions.length === 1)
+    ? dueLabelForRegion(allowedRegions[0])
+    : "Due Friday 5 PM local";
 
   // First name
   const firstName = rep ? rep.name.split(" ")[0]
@@ -2289,7 +2313,11 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
               </div>
               {openFlagCount > 0 && (() => {
                 const topFlag = Object.entries(state.asks || {})
-                  .filter(([k, a]) => a && a.text && !state.checks[k] && inTeam(k.split("|")[0]))
+                  .filter(([k, a]) => {
+                    if (!a || !a.text || state.checks[k]) return false;
+                    const r = repById(k.split("|")[0]);
+                    return r && r.team === activeTeam && repInScope(r);
+                  })
                   .sort(([,a],[,b]) => (a.at||'').localeCompare(b.at||''))[0];
                 if (!topFlag) return null;
                 const [k, ask] = topFlag;
@@ -2318,7 +2346,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
                 <div>
                   <div className="home__card-label">Weekly Review</div>
                   <div className="home__card-title">{fmtRange(week.monday, week.friday)}</div>
-                  <div className="home__card-sub">{quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} · Due Friday 5 PM CT</div>
+                  <div className="home__card-sub">{quarterForWeek(week).label} · Week {week.qIndex} of {weeksForQuarter(week.quarter).length} · {dueLabel}</div>
                 </div>
                 <div className={"home__stamp" + (clean ? " home__stamp--done" : "")}>
                   <span className="home__stamp-num">{done}<i>/{total}</i></span>
@@ -2373,7 +2401,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
       {!isManager && myRepId && typeof MyNumber !== "undefined" && <MyNumber repId={myRepId} />}
 
       {/* Attainment strip — compact team/self summary */}
-      <AttainmentStrip repId={myRepId} isManager={isManager} />
+      <AttainmentStrip repId={myRepId} isManager={isManager} allowedRegions={allowedRegions} />
 
       {/* Team quick-status for reps */}
       {!isManager && (
@@ -2397,8 +2425,8 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
       )}
 
       {/* Onboarding quick-link for managers — Don's live ramp status.
-          Don is a newbiz rep, so this strip belongs to that workspace. */}
-      {isManager && activeTeam === "newbiz" && (
+          Don is a newbiz US rep, so this strip belongs to that workspace + region. */}
+      {isManager && activeTeam === "newbiz" && (allowedRegions == null || allowedRegions.includes(repById("don").region)) && (
         <div className="home__team-strip">
           <button className="home__team-link" onClick={() => setView("don:onboarding")}>
             <Icon name="onboarding" size={14} />
@@ -2454,6 +2482,33 @@ function App({ authedUser, preloadedState }) {
   });
   const activeTeam = myTeams.includes(wsChoice) ? wsChoice : defaultTeamForUser(effectiveUser);
   const activeTeamObj = TEAMS.find(t => t.id === activeTeam) || TEAMS[0];
+
+  // RFC-152: region viewerScope + pill. Locked viewers get no pill; unlocked
+  // multi-region viewers can narrow. Stored pill is clamped to scope.regions
+  // (stale/foreign selection → null = All) so it can never widen a view.
+  // Preview sandbox with no derivable scope (no authed user, no view-as)
+  // gets the manager-parity scope — otherwise demo mode renders zero reps.
+  // A REAL signed-in user with an empty scope stays empty (fail closed;
+  // the blank view is the misconfiguration signal, RLS is the backstop).
+  const derivedScope = viewerScopeForUser(effectiveUser);
+  const viewerScope = (derivedScope.regions.length === 0 && IS_PREVIEW && !authedUser)
+    ? { regions: REGION_ORDER.slice(), locked: false }
+    : derivedScope;
+  const [rpChoice, setRpChoice] = useState(() => {
+    try { return localStorage.getItem("mtk-region-pill-v1") || ""; } catch { return ""; }
+  });
+  const regionPill = (rpChoice && viewerScope.regions.includes(rpChoice)) ? rpChoice : null;
+  // Single App-level allow-list for badge / view-as / rep-view guards (matches HomeView).
+  const allowedRegionsApp = regionsUnderScope(viewerScope, regionPill);
+  const setRegionPill = (id) => {
+    setRpChoice(id || "");
+    try { localStorage.setItem("mtk-region-pill-v1", id || ""); } catch (e) {}
+    // If the current view is a rep outside the NEW allowed set, land on home
+    // rather than stranding a cross-region rep page after a pill change.
+    const newAllowed = regionsUnderScope(viewerScope, id || null);
+    const viewRep = REPS.find(r => r.id === view);
+    if (viewRep && !newAllowed.includes(viewRep.region)) setView("home");
+  };
 
   // Seed from AuthGate's parallel preload when available, else localStorage.
   const [state, setState] = useState(() => preloadedState || loadState());
@@ -2758,6 +2813,24 @@ function App({ authedUser, preloadedState }) {
               })}
             </div>
           )}
+          {!viewerScope.locked && viewerScope.regions.length > 1 && (
+            <div className="rpill" role="tablist" aria-label="Region">
+              <button className="rpill__btn" role="tab"
+                data-active={regionPill == null ? "1" : "0"}
+                aria-selected={regionPill == null}
+                onClick={() => setRegionPill(null)}>
+                All
+              </button>
+              {viewerScope.regions.map(id => (
+                <button key={id} className="rpill__btn" role="tab"
+                  data-active={regionPill === id ? "1" : "0"}
+                  aria-selected={regionPill === id}
+                  onClick={() => setRegionPill(id)}>
+                  {regionShortLabel(id)}
+                </button>
+              ))}
+            </div>
+          )}
           {(isManager || isPreview) && (
             <div className="viewas" style={{ position: "relative" }}>
               <button className="viewas__btn" onClick={() => setViewAsOpen(o => !o)}>
@@ -2776,11 +2849,23 @@ function App({ authedUser, preloadedState }) {
                     onClick={() => { setDevViewAs({ role:"manager", rep_id:"", authEmail:"jeff.hamons@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>MGR</span> Jeff Hamons
                   </button>
-                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" ? " is-active" : "")}
+                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "lkidd@mindtools.com" ? " is-active" : "")}
                     onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"US"},{team_id:"cs",region:"EMEA"}], authEmail:"lkidd@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                     <span className="me-badge__role" style={{fontSize:10}}>CS</span> Lara Kidd
                   </button>
-                  {REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, WEEKS[weekIdx].index)).map(r => (
+                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "james.lunn" ? " is-active" : "")}
+                    onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"james.lunn" }); setViewAsOpen(false); setView("home"); }}>
+                    <span className="me-badge__role" style={{fontSize:10}}>CS</span> James Lunn
+                  </button>
+                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "jodie.lemon" ? " is-active" : "")}
+                    onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"jodie.lemon" }); setViewAsOpen(false); setView("home"); }}>
+                    <span className="me-badge__role" style={{fontSize:10}}>CS</span> Jodie Lemon
+                  </button>
+                  <button className={"viewas__item" + (devViewAs && devViewAs.role === "team_admin" && (devViewAs.authEmail || "") === "bridget.mccarthy" ? " is-active" : "")}
+                    onClick={() => { setDevViewAs({ role:"team_admin", rep_id:"", adminScopes:[{team_id:"cs",region:"APAC"}], authEmail:"bridget.mccarthy" }); setViewAsOpen(false); setView("home"); }}>
+                    <span className="me-badge__role" style={{fontSize:10}}>CS</span> Bridget McCarthy
+                  </button>
+                  {REPS.filter(r => r.name !== "TBD" && repVisibleInWeek(r, WEEKS[weekIdx].index) && allowedRegionsApp.includes(r.region)).map(r => (
                     <button key={r.id} className={"viewas__item" + (myRepId === r.id && !isManager ? " is-active" : "")}
                       onClick={() => { setDevViewAs({ role:"rep", rep_id: r.id, authEmail: r.id+"@mindtools.com" }); setViewAsOpen(false); setView("home"); }}>
                       <Avatar rep={r} size={16}/> {r.name}
@@ -2831,7 +2916,7 @@ function App({ authedUser, preloadedState }) {
               const openCount = Object.entries(state.asks).filter(([k, a]) => {
                 if (!a || !a.text || state.checks[k] || k.includes("|onboarding:")) return false;
                 const flagRep = repById(k.split("|")[0]);
-                return flagRep && flagRep.team === activeTeam;
+                return flagRep && flagRep.team === activeTeam && allowedRegionsApp.includes(flagRep.region);
               }).length;
               if (openCount > 0) badge = <span className="tabs__badge">{openCount}</span>;
             }
@@ -2852,7 +2937,11 @@ function App({ authedUser, preloadedState }) {
         {/* Rep tabs — only shown in weekly review context */}
         {(view === "rollup" || REPS.some(r => r.id === view)) && (<>
           <span className="tabs__divider" aria-hidden="true" />
-          {REPS.filter(rep => rep.team === activeTeam && repVisibleInWeek(rep, WEEKS[weekIdx].index)).map(rep => (
+          {REPS.filter(rep => {
+            if (rep.team !== activeTeam || !repVisibleInWeek(rep, WEEKS[weekIdx].index)) return false;
+            const allowed = regionsUnderScope(viewerScope, regionPill);
+            return allowed.includes(rep.region);
+          }).map(rep => (
             <button
               key={rep.id}
               className="tabs__tab"
@@ -2878,6 +2967,8 @@ function App({ authedUser, preloadedState }) {
                 authedUser={effectiveUser}
                 setView={setView}
                 activeTeam={activeTeam}
+                viewerScope={viewerScope}
+                regionPill={regionPill}
               />
             </div>
           ) : view === "rollup" ? (
@@ -2888,25 +2979,31 @@ function App({ authedUser, preloadedState }) {
                 setWeekIdx={setWeekIdx}
                 onPickRep={(id) => setView(id)}
                 activeTeam={activeTeam}
+                viewerScope={viewerScope}
+                regionPill={regionPill}
               />
             </div>
           ) : view === "leaderboard" ? (
-            <LeaderboardView authedUser={effectiveUser} activeTeam={activeTeam} />
+            <LeaderboardView authedUser={effectiveUser} activeTeam={activeTeam} viewerScope={viewerScope} regionPill={regionPill} />
           ) : view === "standup" ? (
             <div data-screen-label="02 Standup">
-              <StandupView authedUser={effectiveUser} onStandupFlag={onStandupFlag} activeTeam={activeTeam} />
+              <StandupView authedUser={effectiveUser} onStandupFlag={onStandupFlag} activeTeam={activeTeam} viewerScope={viewerScope} regionPill={regionPill} />
             </div>
           ) : view === "wins" ? (
             <div data-screen-label="04 Weekly Wins">
               <WinsFormView
                 authedUser={effectiveUser}
                 activeTeam={activeTeam}
+                viewerScope={viewerScope}
+                regionPill={regionPill}
               />
             </div>
           ) : view === "manager:flags" ? (
             <FlagQueue
               state={state}
               activeTeam={activeTeam}
+              viewerScope={viewerScope}
+              regionPill={regionPill}
               onPickRep={(repId, weekId) => {
                 if (weekId) {
                   const idx = WEEKS.findIndex(w => w.id === weekId);
@@ -2920,7 +3017,7 @@ function App({ authedUser, preloadedState }) {
             typeof DonOnboarding !== "undefined"
               ? <DonOnboarding viewerIsManager={isManager} viewerRepId={myRepId} onFlag={onAccessFlag} />
               : null
-          ) : activeRep ? (
+          ) : activeRep && allowedRegionsApp.includes(activeRep.region) && activeRep.team === activeTeam ? (
             <div data-screen-label={`02 Rep · ${activeRep.name}`}>
               {isReadOnly && (
                 <div className="peer-banner">
@@ -2943,6 +3040,22 @@ function App({ authedUser, preloadedState }) {
                 isManager={isManager}
                 onOpenWins={() => setView("wins")}
                 onOpenStandup={() => setView("standup")}
+              />
+            </div>
+          ) : activeRep ? (
+            // Rep is outside current region/team scope (e.g. pill change left a
+            // stale view id) — render home rather than the out-of-scope rep page.
+            <div data-screen-label="00 Home">
+              <HomeView
+                state={stateForViews}
+                weekIdx={weekIdx}
+                isManager={isManager}
+                myRepId={myRepId}
+                authedUser={effectiveUser}
+                setView={setView}
+                activeTeam={activeTeam}
+                viewerScope={viewerScope}
+                regionPill={regionPill}
               />
             </div>
           ) : null}
