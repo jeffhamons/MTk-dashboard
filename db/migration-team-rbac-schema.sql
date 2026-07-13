@@ -90,7 +90,7 @@ insert into public.reps (rep_id, name, team_id, region, active) values
   ('rowan',   'Rowan Donoghue',           'cs',     'EMEA', true),
   ('alex',    'Alex Martin',              'cs',     'EMEA', true),
   ('rory',    'Rory Lawson',              'newbiz', 'EMEA', false),
-  ('stephen', 'Stephen Mackenzie',        'newbiz', 'EMEA', false),
+  ('stephen', 'Steve Mackenzie',          'newbiz', 'EMEA', false),
   ('simon',   'Simon Bailie',             'newbiz', 'EMEA', false),
   ('matthew', 'Matthew Saward',           'newbiz', 'EMEA', false),
   ('paul',    'Paul Welch',               'newbiz', 'ZA',   false),
