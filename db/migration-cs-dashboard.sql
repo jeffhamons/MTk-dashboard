@@ -36,7 +36,7 @@ create table if not exists public.cs_targets (
   updated_by   text,                                    -- email of last editor
   updated_at   timestamptz not null default now(),
   constraint cs_targets_period_shape_check check (
-    (period_type = 'monthly'   and period between 1 and 12)
+    (period_type = 'monthly'   and (period is null or period between 1 and 12))  -- null = standing monthly target (Lara's model keeps one set, not per-month rows)
     or (period_type = 'quarterly' and period between 1 and 4)
     or (period_type = 'ytd'       and period is null)
   )
@@ -227,7 +227,7 @@ create index if not exists cs_team_focus_person_idx
 create table if not exists public.cs_dashboard_snapshot (
   id             uuid        primary key default gen_random_uuid(),
   snapshot_date  date        not null,
-  region         text        not null check (region in ('US', 'EMEA', 'APAC')),
+  region         text        not null check (region in ('company', 'US', 'EMEA', 'APAC')),  -- 'company' = the companyTargetLastWeek WoW row
   metric         text        not null,
   pct            numeric,
   numerator      numeric,
