@@ -129,6 +129,9 @@ const DELIVERABLES = [
     docLabel: null,
     docHref: null,
     icon: "outreach",
+    // Retired as a weekly requirement from w12 (2026-07-13) onward. Weeks 1–11
+    // keep it — history and past attainment are unchanged; see deliverablesForWeek().
+    activeThrough: 11,
   },
   {
     id: "sf-hygiene",
@@ -147,6 +150,9 @@ const DELIVERABLES = [
     docLabel: "Open the tracker",
     docHref: "#commitments-doc",
     icon: "tracker",
+    // Retired as a weekly requirement from w12 (2026-07-13) onward. Weeks 1–11
+    // keep it — history and past attainment are unchanged; see deliverablesForWeek().
+    activeThrough: 11,
   },
   {
     id: "standup",
@@ -160,6 +166,25 @@ const DELIVERABLES = [
     icon: "standup",
   },
 ];
+
+// Deliverables in force for a given week (by 1-based week index). A deliverable
+// with `activeThrough: N` is required through week N and gone from N+1 onward —
+// the same temporal model reps use via `activeThrough`. Retirement is global
+// (rep-independent); per-rep `skips` are layered on top by activeDeliverablesFor.
+// This is what keeps history intact: past weeks (index <= activeThrough) still
+// carry the deliverable, so their completion + attainment denominators are unchanged.
+function deliverablesForWeek(weekIndex) {
+  return DELIVERABLES.filter(d => d.activeThrough == null || weekIndex <= d.activeThrough);
+}
+
+// Deliverables a specific rep must complete in a given week: the week's in-force
+// set minus that rep's skips. Callers that render a shared grid should use
+// deliverablesForWeek() for the COLUMN set and null out skipped cells, so columns
+// stay aligned across reps; use this when they only need one rep's own count.
+function activeDeliverablesFor(rep, weekIndex) {
+  const skips = (rep && rep.skips) || [];
+  return deliverablesForWeek(weekIndex).filter(d => !skips.includes(d.id));
+}
 
 // Quarters — each starts on a Monday. Q2 dates (w1..w10) are frozen: storage
 // keys and Supabase rows key on those week ids; never renumber or re-date them.
@@ -379,8 +404,7 @@ function seedState() {
 //   Sent from Mindtools Kineo · Weekly Review (V1)
 // =====================================================================
 function buildWeekEmail(rep, week, state) {
-  const skips = rep.skips || [];
-  const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
+  const activeDels = activeDeliverablesFor(rep, week.index);
   const lines = [];
 
   // Greeting line — addressed to the lead
@@ -432,8 +456,9 @@ function buildWeekEmail(rep, week, state) {
 // Build a full-quarter recap (used at end of cycle). Defaults to the quarter
 // containing today; pass quarterId ("Q2" / "Q3") to pin a specific one.
 function buildQuarterEmail(rep, state, quarterId = currentQuarterId()) {
-  const skips = rep.skips || [];
-  const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
+  // activeDels is recomputed per week below — the in-force deliverable set
+  // changes across the quarter (e.g. outreach/tracker retired from w12), so a
+  // single top-level list would blend the wrong denominators.
   const qWeeks = weeksForQuarter(quarterId);
   const q = QUARTERS.find(x => x.id === quarterId);
   const qLabel = (q && q.label) || quarterId;
@@ -445,6 +470,7 @@ function buildQuarterEmail(rep, state, quarterId = currentQuarterId()) {
 
   let cleanWeeks = 0;
   qWeeks.forEach(w => {
+    const activeDels = activeDeliverablesFor(rep, w.index);
     const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
@@ -455,6 +481,7 @@ function buildQuarterEmail(rep, state, quarterId = currentQuarterId()) {
   lines.push(``);
 
   qWeeks.forEach(w => {
+    const activeDels = activeDeliverablesFor(rep, w.index);
     const checks = activeDels.map(d => delComplete(rep.id, w, d.id, state));
     const done = checks.filter(Boolean).length;
     const total = activeDels.length;
@@ -877,6 +904,7 @@ Object.assign(window, {
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
   currentWeekIndex, repVisibleInWeek,
+  deliverablesForWeek, activeDeliverablesFor,
   weeksForQuarter, quarterForWeek, currentQuarterId,
   fmtShort, fmtLong, fmtRange, DAYS,
   loadState, saveState, checkKey,

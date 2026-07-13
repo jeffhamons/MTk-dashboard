@@ -36,18 +36,24 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
   const cadenceZone = singleRegionId ? zoneAbbrev(singleRegionId) : "local";
   const multiRegion = !singleRegionId;
 
+  // Deliverable columns shown for THIS week: the week's in-force set (a
+  // deliverable retired via activeThrough drops off from its N+1 week). All of
+  // header, rep rows, and subtotal/total spacers key off this one list, and
+  // --deliv-count is set to its length, so the grid stays aligned.
+  const weekDels = deliverablesForWeek(week.index);
+
   // For each rep, compute completion for this week, respecting per-rep skips.
   // Reps who departed mid-cycle (activeThrough) drop off from their week N+1.
   const rows = REPS.filter(rep => inTeam(rep) && inRegion(rep) && repVisibleInWeek(rep, week.index)).map(rep => {
     const skips = rep.skips || [];
-    const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
-    // We still produce a counts array aligned with the FULL DELIVERABLES list
-    // so the rollup grid columns line up across all reps. Skipped cells get null.
-    const counts = DELIVERABLES.map(d =>
+    // counts aligns to weekDels; a rep's own skips null their cell (the column
+    // still exists for other reps who don't skip it).
+    const counts = weekDels.map(d =>
       skips.includes(d.id) ? null : delComplete(rep.id, week, d.id, state)
     );
     const done = counts.filter(c => c === true).length;
-    return { rep, counts, done, total: activeDels.length };
+    const total = weekDels.filter(d => !skips.includes(d.id)).length;
+    return { rep, counts, done, total };
   });
   const teamDone = rows.reduce((a, r) => a + r.done, 0);
   const teamTotal = rows.reduce((a, r) => a + r.total, 0);
@@ -168,9 +174,8 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                     // Compute team completion for this week (respecting per-rep skips)
                     let done = 0, total = 0;
                     REPS.filter(rep => inTeam(rep) && inRegion(rep) && repVisibleInWeek(rep, w.index)).forEach(rep => {
-                      const skips = rep.skips || [];
-                      DELIVERABLES.forEach(d => {
-                        if (skips.includes(d.id)) return;
+                      // Each strip week uses its own in-force set (retirement + skips).
+                      activeDeliverablesFor(rep, w.index).forEach(d => {
                         total += 1;
                         if (delComplete(rep.id, w, d.id, state)) done += 1;
                       });
@@ -211,10 +216,10 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
       </div>
 
       {/* The grid — reps × deliverables */}
-      <div className="rollup__grid">
+      <div className="rollup__grid" style={{ "--deliv-count": weekDels.length }}>
         <div className="rollup__grid-head">
           <div className="rollup__grid-head-rep">Rep</div>
-          {DELIVERABLES.map(d => (
+          {weekDels.map(d => (
             <div key={d.id} className="rollup__grid-head-cell">
               <div className="rollup__grid-head-icon"><Icon name={d.icon} size={16} /></div>
               <div className="rollup__grid-head-text">{d.title}</div>
@@ -238,7 +243,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
 
               {sectionRows.map(({ rep, counts, done, total }) => {
                 const clean = done === total;
-                const flags = (state.asks && DELIVERABLES
+                const flags = (state.asks && weekDels
                   .filter(d => state.asks[`${rep.id}|${week.id}|${d.id}`])
                 ) || [];
                 const flagCount = flags.length;
@@ -271,10 +276,10 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                       </div>
                     </div>
                     {counts.map((c, i) => (
-                      <div key={i} className="rolluprow__cell" data-del-id={DELIVERABLES[i].id}>
+                      <div key={i} className="rolluprow__cell" data-del-id={weekDels[i].id}>
                         {c === null
                           ? <span className="rolluprow__na" title="Not applicable for this rep">—</span>
-                          : <StatusDot checked={c} size={18} label={DELIVERABLES[i].title} />}
+                          : <StatusDot checked={c} size={18} label={weekDels[i].title} />}
                       </div>
                     ))}
                     <div className="rolluprow__status">
@@ -298,7 +303,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
                     <div className="rolluprow__rep-role">{region.currency}</div>
                   </div>
                 </div>
-                {DELIVERABLES.map((d, i) => <span key={i} />)}
+                {weekDels.map((d, i) => <span key={i} />)}
                 <div className="rolluprow__status">
                   <div className="rolluprow__status-bar">
                     <div className="rolluprow__status-bar-fill" style={{ width: `${(secTotal ? (secDone/secTotal)*100 : 0)}%` }} />
@@ -320,7 +325,7 @@ function TeamRollup({ state, weekIdx, setWeekIdx, onPickRep, activeTeam, viewerS
               <div className="rolluprow__rep-role">GBP</div>
             </div>
           </div>
-          {DELIVERABLES.map((d, i) => <span key={i} />)}
+          {weekDels.map((d, i) => <span key={i} />)}
           <div className="rolluprow__status">
             <div className="rolluprow__status-bar">
               <div className="rolluprow__status-bar-fill" style={{ width: `${(teamTotal ? (teamDone/teamTotal)*100 : 0)}%` }} />

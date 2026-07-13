@@ -4,8 +4,8 @@
 function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskResponse, onSaveNote, onBack, readOnly, isManager, onOpenWins, onOpenStandup }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
-  const skips = rep.skips || [];
-  const activeDeliverables = DELIVERABLES.filter(d => !skips.includes(d.id));
+  // Deliverables in force for the SELECTED week (retirement + per-rep skips).
+  const activeDeliverables = activeDeliverablesFor(rep, week.index);
   const checks = activeDeliverables.map(d => delComplete(rep.id, week, d.id, state));
   const done = checks.filter(Boolean).length;
   const total = activeDeliverables.length;
@@ -80,9 +80,12 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
             if (isExpanded) {
               for (const w of qWeeks) {
                 const i = w.index - 1;
-                const wChecks = activeDeliverables.map(d => delComplete(rep.id, w, d.id, state));
+                // Each strip cell uses its OWN week's in-force set — a past week
+                // may require more deliverables than the current one.
+                const wActive = activeDeliverablesFor(rep, w.index);
+                const wChecks = wActive.map(d => delComplete(rep.id, w, d.id, state));
                 const wDone = wChecks.filter(Boolean).length;
-                const wClean = wDone === activeDeliverables.length;
+                const wClean = wDone === wActive.length;
                 const isSel = i === weekIdx;
                 const isCur = i === cur;
                 const past = w.sunday < today;
