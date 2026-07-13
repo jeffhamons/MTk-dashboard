@@ -1927,6 +1927,12 @@ button { font: inherit; color: inherit; }
 
 <script type="text/babel" src="src/data-model.js"></script>
 <script type="text/babel" src="src/cs-data.jsx"></script>
+<script type="text/babel" src="src/cs-performance.jsx"></script>
+<script type="text/babel" src="src/cs-region.jsx"></script>
+<script type="text/babel" src="src/cs-pipeline.jsx"></script>
+<script type="text/babel" src="src/cs-targets-view.jsx"></script>
+<script type="text/babel" src="src/cs-team.jsx"></script>
+<script type="text/babel" src="src/cs-risks-focus.jsx"></script>
 <script type="text/babel" src="src/components.jsx"></script>
 <script type="text/babel" src="src/manager.jsx"></script>
 <script type="text/babel" src="src/team-rollup.jsx"></script>
@@ -2534,6 +2540,8 @@ function App({ authedUser, preloadedState }) {
     // Known page ids (tab bar + manager/don pages from setView call sites)
     const pageIds = new Set([
       "home", "rollup", "leaderboard", "standup", "wins",
+      "cs:home", "cs:region", "cs:pipeline", "cs:wonlost",
+      "cs:targets", "cs:team", "cs:risks", "cs:focus",
       "manager:flags", "don:onboarding", "stuart:onboarding",
     ]);
     if (urlState.view && pageIds.has(urlState.view)) return urlState.view;
@@ -2956,6 +2964,9 @@ function App({ authedUser, preloadedState }) {
         {APP_PAGES
           .filter(p => p.requires === "any"
             || (p.requires === "manager" && isManager)
+            // RFC-158 Phase 3 — CS pages only when the CS workspace is active
+            // (mirrors don/stuart activeTeam gating on requires tokens).
+            || (p.requires === "cs" && activeTeam === "cs")
             // Don is a newbiz rep — his onboarding tab belongs to that workspace.
             || (p.requires === "don-or-manager" && (isManager || myRepId === "don") && activeTeam === "newbiz")
             // Stuart is an EMEA newbiz rep — same workspace gating as Don.
@@ -3058,6 +3069,24 @@ function App({ authedUser, preloadedState }) {
                 regionPill={regionPill}
               />
             </div>
+          ) : (APP_PAGES.find(p => p.id === view && p.component)) ? (
+            // RFC-158 Phase 3 — CS pages registered on APP_PAGES with component.
+            // Regions uses the shell region pill (fallback: first scoped region).
+            (() => {
+              const page = APP_PAGES.find(p => p.id === view && p.component);
+              const Comp = page && page.component;
+              if (typeof Comp !== "function") return null;
+              const region = regionPill || allowedRegionsApp[0] || "US";
+              return (
+                <Comp
+                  region={region}
+                  authedUser={effectiveUser}
+                  activeTeam={activeTeam}
+                  viewerScope={viewerScope}
+                  regionPill={regionPill}
+                />
+              );
+            })()
           ) : view === "manager:flags" ? (
             <FlagQueue
               state={state}

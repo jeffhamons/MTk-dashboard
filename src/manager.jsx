@@ -15,6 +15,16 @@ const APP_PAGES = [
   { id: "leaderboard",   label: "Leaderboard",  icon: "leaderboard", requires: "any"     },
   { id: "standup",       label: "Standup",      icon: "standup",     requires: "any"     },
   { id: "wins",          label: "Weekly Wins",  icon: "wins",        requires: "any"     },
+  // RFC-158 Phase 3 — CS workspace pages. requires:"cs" is filtered in App
+  // nav the same way don-or-manager / stuart-or-manager gate on activeTeam.
+  { id: "cs:home",       label: "CS Home",      icon: "home",        requires: "cs", component: window.CsPerformancePage },
+  { id: "cs:region",     label: "Regions",      icon: "calendar",    requires: "cs", component: window.CsRegionPage },
+  { id: "cs:pipeline",   label: "Pipeline",     icon: "tracker",     requires: "cs", component: window.CsPipelinePage },
+  { id: "cs:wonlost",    label: "Won / Lost",   icon: "check",       requires: "cs", component: window.CsWonLostPage },
+  { id: "cs:targets",    label: "Targets",      icon: "leaderboard", requires: "cs", component: window.CsTargetsPage },
+  { id: "cs:team",       label: "CS Team",      icon: "user",        requires: "cs", component: window.CsTeamPage },
+  { id: "cs:risks",      label: "Risks",        icon: "flag",        requires: "cs", component: window.CsRisksPage },
+  { id: "cs:focus",      label: "Current Focus",icon: "outreach",    requires: "cs", component: window.CsFocusPage },
   { id: "manager:flags", label: "Open flags",   icon: "flag",        requires: "manager" },
   { id: "don:onboarding", label: "Don — Onboarding", icon: "onboarding", requires: "don-or-manager" },
   { id: "stuart:onboarding", label: "Stuart — Onboarding", icon: "onboarding", requires: "stuart-or-manager" },
