@@ -1940,6 +1940,8 @@ button { font: inherit; color: inherit; }
 <script src="src/don-induction-content.js"></script>
 <script src="src/onboarding-links.js"></script>
 <script type="text/babel" src="src/don-onboarding.jsx"></script>
+<script src="src/stuart-induction-content.js"></script>
+<script type="text/babel" src="src/stuart-onboarding.jsx"></script>
 
 <script type="text/babel">
 const { useState, useEffect } = React;
@@ -2531,7 +2533,7 @@ function App({ authedUser, preloadedState }) {
     // Known page ids (tab bar + manager/don pages from setView call sites)
     const pageIds = new Set([
       "home", "rollup", "leaderboard", "standup", "wins",
-      "manager:flags", "don:onboarding",
+      "manager:flags", "don:onboarding", "stuart:onboarding",
     ]);
     if (urlState.view && pageIds.has(urlState.view)) return urlState.view;
     // Also accept a raw rep id in view= (defensive; primary path is view=rep)
@@ -2954,7 +2956,9 @@ function App({ authedUser, preloadedState }) {
           .filter(p => p.requires === "any"
             || (p.requires === "manager" && isManager)
             // Don is a newbiz rep — his onboarding tab belongs to that workspace.
-            || (p.requires === "don-or-manager" && (isManager || myRepId === "don") && activeTeam === "newbiz"))
+            || (p.requires === "don-or-manager" && (isManager || myRepId === "don") && activeTeam === "newbiz")
+            // Stuart is an EMEA newbiz rep — same workspace gating as Don.
+            || (p.requires === "stuart-or-manager" && (isManager || myRepId === "stuart") && activeTeam === "newbiz"))
           .map(page => {
             const isActive = view === page.id;
             // Compute optional badge (e.g. open flag count)
@@ -3071,6 +3075,10 @@ function App({ authedUser, preloadedState }) {
           ) : view === "don:onboarding" ? (
             typeof DonOnboarding !== "undefined"
               ? <DonOnboarding viewerIsManager={isManager} viewerRepId={myRepId} onFlag={onAccessFlag} />
+              : null
+          ) : view === "stuart:onboarding" ? (
+            typeof StuartOnboarding !== "undefined"
+              ? <StuartOnboarding viewerIsManager={isManager} viewerRepId={myRepId} onFlag={onAccessFlag} />
               : null
           ) : activeRep && allowedRegionsApp.includes(activeRep.region) && activeRep.team === activeTeam ? (
             <div data-screen-label={`02 Rep · ${activeRep.name}`}>

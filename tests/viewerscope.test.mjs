@@ -171,7 +171,7 @@ test("repsUnderScope respects team + region + week visibility", () => {
   assert.ok(!locked.includes("dwayne"));
 });
 
-test("repsUnderScope: APAC CS five + APAC BD three; stuart never appears", () => {
+test("repsUnderScope: APAC CS five + APAC BD three; stuart (EMEA newbiz) appears in EMEA/full only", () => {
   const wk = dm.currentWeekIndex();
   const apacCsScope = dm.viewerScopeForUser(apacCsAdmin);
   assert.deepEqual(Array.from(apacCsScope.regions), ["APAC"]);
@@ -185,14 +185,15 @@ test("repsUnderScope: APAC CS five + APAC BD three; stuart never appears", () =>
   const apacBd = Array.from(dm.repsUnderScope(wk, "newbiz", full, "APAC").map(r => r.id)).sort();
   assert.deepEqual(apacBd, ["andrew", "annum", "dourlay"]);
 
-  // stuart is emit:false — never rendered under any team/region scope
+  // stuart activated 2026-07-12 (EMEA newbiz, 7/13 start) — now appears under
+  // EMEA newbiz + full scope, but never under APAC (he's EMEA) or CS (newbiz).
   const emeaBd = Array.from(dm.repsUnderScope(wk, "newbiz", full, "EMEA").map(r => r.id));
   assert.ok(emeaBd.includes("rory") && emeaBd.includes("paul"), "activated EMEA BD visible");
-  assert.ok(!emeaBd.includes("stuart"), "stuart stays emit:false");
+  assert.ok(emeaBd.includes("stuart"), "stuart now activated in EMEA newbiz");
   assert.ok(!apacCs.includes("stuart"));
-  assert.ok(!apacBd.includes("stuart"));
+  assert.ok(!apacBd.includes("stuart"), "stuart is EMEA, not APAC");
   const allVisible = Array.from(dm.repsUnderScope(wk, null, full, null).map(r => r.id));
-  assert.ok(!allVisible.includes("stuart"), "stuart never appears in full scope");
+  assert.ok(allVisible.includes("stuart"), "stuart now appears in full scope");
 });
 // ── helpers: short labels + due labels ──────────────────────────────────────
 

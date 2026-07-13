@@ -75,9 +75,11 @@ const REPS = [
   { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 265, region: "EMEA", team: "newbiz",
     email: "m.cawood@mindtools.com",
     skips: [], links: {} },
-  // EMEA BD stub — starts 7/13; emit:false until activation (no email yet).
+  // EMEA BD — activated 2026-07-12 for Stuart's 2026-07-13 start.
+  // Registered in Supabase reps + allowed_emails (role 'rep', rep_id 'stuart').
   { id: "stuart",   name: "Stuart Chadwick",         role: "Account Director",   initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
-    emit: false, links: {} },
+    email: "stuart.chadwick@mindtools-kineo.com",
+    skips: [], links: {} },
   // APAC BD — activated 2026-07-10.
   { id: "dourlay",  name: "Paul Dourlay",            role: "Account Director",   initials: "PD", hue: 160, region: "APAC", team: "newbiz",
     email: "paul.dourlay@kineo.com.au",
