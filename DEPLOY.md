@@ -1,28 +1,14 @@
 # Deploy — Mindtools Weekly Review
 
 ## What this is
-A static single-page app (HTML + JSX compiled in-browser via Babel). No build step. All vendor JS is bundled in `vendor/`. Backend is Supabase (Postgres + Auth + Realtime).
+A static single-page app (HTML + JSX). In **local dev** the JSX is compiled in-browser by
+Babel-standalone, so no build step is needed. For a **production deploy** a build step runs
+`python3 build/bundle.py`, which re-packs `src/`, `vendor/`, `assets/`, and CSS into one
+self-contained `dist/index.html`. All vendor JS is pinned in `vendor/`. Backend is Supabase
+(Postgres + Auth + Realtime).
 
----
-
-## Files
-```
-weekly-review-dashboard/
-  index.html              ← single entry point, all CSS + App shell
-  src/
-    supabase-client.js    ← Supabase config + all DB calls
-    data-model.js         ← REPS, WEEKS, DELIVERABLES constants
-    components.jsx        ← Avatar, BigCheck, AskForHelp, etc.
-    manager.jsx           ← FlagQueue, ManagerNote, APP_PAGES registry
-    standup.jsx           ← StandupView + @-mention autocomplete
-    team-rollup.jsx       ← Team rollup grid
-    rep-view.jsx          ← Per-rep week view
-    tweaks-panel.jsx      ← In-app Tweaks panel (design tool)
-    auth-gate.jsx         ← Supabase magic-link auth wrapper
-  vendor/                 ← React 18, ReactDOM, Babel, Supabase UMD (all pinned)
-  db/
-    migration-resolved-flags.sql  ← Run once in Supabase SQL editor
-```
+> **File map + architecture live in [README.md](README.md)** — the single source of truth for
+> this app. This file (DEPLOY.md) covers only deploy and the team-admin seating runbook.
 
 ---
 
@@ -41,12 +27,11 @@ The URL and anon key are already set in `src/supabase-client.js` (lines 10–11)
 ### 3. Static host — any of these work
 | Host | Steps |
 |------|-------|
-| **Netlify** | Drag-and-drop the `weekly-review-dashboard/` folder onto app.netlify.com → deploys instantly |
-| **Vercel** | `vercel --cwd weekly-review-dashboard` |
-| **S3 / CloudFront** | Upload folder contents to bucket root, set `index.html` as default document |
-| **Any nginx/Apache** | Drop folder in webroot; no rewrites needed (no client-side routing) |
+| **Netlify (git — canonical)** | Push to the linked branch. Netlify runs `python3 build/bundle.py` and publishes `dist/` per `netlify.toml`. |
+| **Netlify (manual)** | Run `python3 build/bundle.py` locally, then drag-drop the generated `dist/` folder (NOT the source folder) onto app.netlify.com. |
+| **Any static host** | Run `python3 build/bundle.py`, then serve `dist/index.html`. It is one self-contained file — no rewrites needed (no client-side routing). |
 
-No build step, no npm install, no environment variables — the Supabase keys are hardcoded (the anon key is safe to expose).
+No npm install and no environment variables — the Supabase keys are hardcoded (the anon key is safe to expose). The only build step is `python3 build/bundle.py` (Python stdlib only); publish the resulting `dist/`, never the raw source folder, or you ship the un-bundled dev shell.
 
 ---
 

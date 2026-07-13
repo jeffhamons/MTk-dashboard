@@ -3,7 +3,7 @@
 // Architecture: each manager feature is a self-contained component that
 // reads from the shared `state` object and writes via the same handlers
 // the rest of the app uses. To add a new manager page, drop a new
-// component below and add it to APP_PAGES in pages.jsx.
+// component below and add it to APP_PAGES in this file (manager.jsx).
 
 // =====================================================================
 // PAGE REGISTRY — single source of truth for nav.
