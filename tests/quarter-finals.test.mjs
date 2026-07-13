@@ -36,7 +36,7 @@ test("attBuildQuarterFinal maps NB rows to board shape with quarter-final pct", 
   const c = nb[0];
   assert.equal(c.id, "cammy");
   assert.equal(c.hist, true);
-  assert.equal(c.pct.qtd, 94);                 // round(450000/600000*100)
+  assert.equal(c.pct.qtd, 75);                 // round(450000/600000*100)
   assert.equal(c.pct.mtd, null);               // no MTD/YTD in a quarter final
   assert.equal(c.pct.ytd, null);
   assert.equal(c.won.qtd, 450000);
@@ -51,7 +51,7 @@ test("attBuildQuarterFinal maps CS rows: renewedQ + qTarget + expansion activity
   const d = cs[0];
   assert.equal(d.id, "dwayne");
   assert.equal(d.hist, true);
-  assert.equal(d.ren.qtd, 92);                 // round(240000/300000*100)
+  assert.equal(d.ren.qtd, 80);                 // round(240000/300000*100)
   assert.equal(d.ren.mtd, null);
   assert.equal(d.ren.ytd, null);
   assert.equal(d.qTarget, 300000);
@@ -79,7 +79,7 @@ test("attCsCompute reads renewedQ for historical reps (empty book)", () => {
   const hist = { qTarget: 300000, renewedQ: 240000, book: [] };
   const c = att.attCsCompute(hist);
   assert.equal(c.renewedSum, 240000);
-  assert.equal(c.pct, 92);
+  assert.equal(c.pct, 80);
   assert.equal(c.gap, 300000 - 240000);
 });
 
