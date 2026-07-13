@@ -2,16 +2,14 @@
 //  Stuart Chadwick — Induction content  ·  src/stuart-induction-content.js
 //
 //  HAND-AUTHORED (2026-07-12) by adapting Don Hazelwood's NA induction to
-//  Stuart's EMEA New-Business Account Director role, start date Mon 2026-07-13.
-//  Unlike don-induction-content.js (auto-derived from a OneDrive master),
-//  there is NO Stuart master yet — this is a first draft. Once a
-//  "EMEA Sales/Team/Stuart/Induction" master exists, switch this file to the
-//  same strip-and-derive flow and stop hand-editing.
-//
-//  Items marked with a "> ⚠ TBC" note are gaps that need Jeff's input:
-//    • EMEA line manager + onboarding buddy (Don's were Jeff + Cammy — NA)
-//    • EMEA enablement pack location (Don's was "NA Sales/Enablement/…")
-//    • EMEA CRM / prospecting tooling (Don's was Salesforce + ZoomInfo — NA)
+//  Stuart's EMEA Lead Business Development role, start date Mon 2026-07-13.
+//  Details confirmed by Jeff 2026-07-13: manager Jeff Hamons, buddy Rory
+//  Lawson, pack at "EMEA Sales/Enablement/Onboarding/", CRM Salesforce
+//  (e3learning.my.salesforce.com), prospecting HubSpot (app-eu1.hubspot.com),
+//  e-signature DocuSign (comes later). Unlike don-induction-content.js
+//  (auto-derived from a OneDrive master), there is NO Stuart master yet.
+//  Once a "EMEA Sales/Team/Stuart/Induction" master exists, switch this file
+//  to the same strip-and-derive flow and stop hand-editing.
 //
 //  FORMAT IS PARSER-STRICT (see parseInduction in stuart-onboarding.jsx):
 //    • Section headers: "## Day N — <Weekday> M/DD · <Title>"  (em-dash + " · ")
@@ -24,12 +22,12 @@
 // ============================================================
 window.STUART_INDUCTION_MD = `# Stuart Chadwick — Induction
 
-**Role:** Account Director, New Business EMEA | MindTools | Kineo
-**Manager:** Jeff Hamons   ·   **Peer buddy:** TBC
+**Role:** Lead Business Development – EMEA | MindTools | Kineo
+**Manager:** Jeff Hamons   ·   **Peer buddy:** Rory Lawson
 **Induction Day 1:** Monday, 2026-07-13
 **Cadence:** 1:1 with Jeff twice a week through month one, then weekly
 
-> How this works: each day has a short, checkable list. Do them in order where you can. Anything with a REF link points to a file in your pack. If something's blocked (access not live, a file won't open), flag Jeff in your next 1:1 or by Teams — don't sit on it. Anything marked "⚠ TBC" is still being confirmed on our side; flag it and move on.
+> How this works: each day has a short, checkable list. Do them in order where you can. Anything with a REF link points to a file in your pack. If something's blocked (access not live, a file won't open), flag Jeff in your next 1:1 or by Teams — don't sit on it.
 
 ---
 
@@ -42,8 +40,6 @@ Anything already sorted before Monday. Check what's actually done so we both kno
 - [ ] d0-accounts :: IT has created your MindTools | Kineo accounts (email, SSO)
 - [ ] d0-pack :: Induction pack received and saved — the full set of product, competitor, and Totara materials (REF: EMEA Sales/Enablement/Onboarding/)
 
-> ⚠ TBC: confirm the EMEA enablement pack location. This draft points REF links at "EMEA Sales/Enablement/Onboarding/"; until that folder + a share link exist, every REF opens the shared pack folder.
-
 ---
 
 ## Day 1 — Monday 7/13 · Get oriented and operational
@@ -52,13 +48,11 @@ The point of today: confirm every system actually works and get the lay of the p
 
 **Access — confirm each one actually opens (not just "should work")**
 - [ ] d1-sso :: Microsoft 365 SSO — Outlook, Teams, SharePoint, OneDrive all open
-- [ ] d1-crm :: CRM — log in AND confirm you can see the accounts assigned to you (flag immediately if your territory is empty)
-- [ ] d1-prospecting :: Prospecting / data tool — seat is live and you can run a search
-- [ ] d1-esign :: E-signature tool — you can access it
+- [ ] d1-crm :: Salesforce — log in at https://e3learning.my.salesforce.com and confirm you can see the accounts assigned to you (flag immediately if your territory is empty)
+- [ ] d1-prospecting :: HubSpot (prospecting) — your seat is live at https://app-eu1.hubspot.com/ and you can run a search
+- [ ] d1-esign :: DocuSign (e-signature) — access comes later; nothing to set up on day one
 - [ ] d1-demo :: Product demo access — Totara / Mindtools / Content Hub / Kineo Courses
 - [ ] d1-teams-channels :: Added to the EMEA Sales Teams channel, standup invite, and the Jeff 1:1 series
-
-> ⚠ TBC: EMEA CRM + prospecting tooling. Don's NA induction used Salesforce + ZoomInfo; confirm the EMEA equivalents (or that it's the same instances) and I'll name them here.
 
 > Access notes — anything broken, slow, or half-working? Log it here so Jeff can clear it before your next 1:1. Note which system, what you tried, and what happened.
 - [text] d1-access-notes :: e.g. "CRM logs in but my territory is empty" / "prospecting seat not active yet"
@@ -66,8 +60,6 @@ The point of today: confirm every system actually works and get the lay of the p
 **Orient**
 - [ ] d1-coreproducts :: Read the Core Product Lines doc — what we sell, in one pass (REF: EMEA Sales/Enablement/Onboarding/1-Start-Here/)
 - [ ] d1-offering :: Skim the Product Offering Overview for the shape of the portfolio (REF: EMEA Sales/Enablement/Onboarding/1-Start-Here/)
-- [ ] d1-newlogo :: Read the new-logo mandate — this is the job, net-new is the focus
-- [ ] d1-team :: Say hi to the EMEA team in the channel — meet your buddy and the other Account Directors (Rory, Stephen, Simon, Matthew, Paul, Mike)
 - [ ] d1-nextoneonone :: Confirm your next 1:1 with Jeff is on the calendar
 
 ---
@@ -114,7 +106,7 @@ This is where it gets real. You and Jeff walk your territory and you start build
 
 ## Day 5 — Friday 7/17 · First motion + week-1 gate
 
-- [ ] d5-sequences-out :: First sequences out the door
+- [ ] d5-sequences-out :: Start planning and sketching out your first sequence
 - [ ] d5-discovery :: Discovery framework — how we run a first call
 - [ ] d5-pricing :: Pricing introduced (Jeff brings this in at the planned point)
 - [ ] d5-gate :: End-of-week-1 gate with Jeff — what's clear, what's still fuzzy, what you need
@@ -156,9 +148,9 @@ _Clock starts Day 1, 7/13._
 
 ## Your resource pack — what's in it and where
 
-Everything below lives in OneDrive \`EMEA Sales/Enablement/Onboarding/\` (⚠ TBC — confirm the EMEA pack location; the product and competitor materials are shared with NA and can be reused).
+Everything below lives in OneDrive \`EMEA Sales/Enablement/Onboarding/\`. The product and competitor materials are shared with NA and can be reused.
 
-- **1-Start-Here** — Core Product Lines (with new-logo mandate appendix) · Product Offering Overview
+- **1-Start-Here** — Core Product Lines · Product Offering Overview
 - **2-Product-Collateral** — M Suite tiers (long) · Learning Services · Custom Learning Design · Building Better Managers · Manager Skills Workshop · Ask M Coach · What's New in V20 · Consultancy & Insights
 - **3-Competitor-Battlecards** — 19 battlecards: Cornerstone, Docebo, Workday, SAP SuccessFactors, Microsoft Viva, Adobe Learning Manager, Absorb, LearnUpon, Talent LMS, 360Learning, Learning Pool, Cypher, Disprz, Sana, Thrive, Kallidus, eFront, Safety Culture, Avendoo
 - **4-Totara-Sales-Decks** — Totara Suite intro · Learn · Perform · Mobile · POV deck · Design Examples · 2 product roadmap resources · 2 roadmap webinars (video)

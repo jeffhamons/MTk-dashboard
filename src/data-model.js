@@ -77,7 +77,7 @@ const REPS = [
     skips: [], links: {} },
   // EMEA BD — activated 2026-07-12 for Stuart's 2026-07-13 start.
   // Registered in Supabase reps + allowed_emails (role 'rep', rep_id 'stuart').
-  { id: "stuart",   name: "Stuart Chadwick",         role: "Account Director",   initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
+  { id: "stuart",   name: "Stuart Chadwick",         role: "Lead Business Development – EMEA",   initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
     email: "stuart.chadwick@mindtools-kineo.com",
     skips: [], links: {} },
   // APAC BD — activated 2026-07-10.
