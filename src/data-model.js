@@ -3,7 +3,7 @@
 // The state engine doesn't care how many there are.
 
 const REPS = [
-  { id: "cammy",   name: "Cammy Bean",              role: "Account Director",   initials: "CB", hue: 168, region: "US", team: "newbiz",
+  { id: "cammy",   name: "Cammy Bean",              role: "Accounts Director",  initials: "CB", hue: 168, region: "US", team: "newbiz",
     email: "cammy.bean@kineo.com",
     skips: [],
     links: {
@@ -19,7 +19,7 @@ const REPS = [
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=ZnLAD9&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMjAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
     } },
-  { id: "farah",   name: "Farah Issa",              role: "Account Executive",  initials: "FI", hue: 210, region: "US", team: "newbiz",
+  { id: "farah",   name: "Farah Issa",              role: "Content Account Executive", initials: "FI", hue: 210, region: "US", team: "newbiz",
     email: "fissa@mindtools.com",
     skips: [],
     links: {
@@ -62,32 +62,32 @@ const REPS = [
   { id: "stephen",  name: "Stephen Mackenzie",       role: "Account Director",   initials: "SM", hue: 175, region: "EMEA", team: "newbiz",
     email: "steve.mackenzie@kineo.com",
     skips: [], links: {} },
-  { id: "simon",    name: "Simon Bailie",            role: "Account Director",   initials: "SB", hue: 145, region: "EMEA", team: "newbiz",
+  { id: "simon",    name: "Simon Bailie",            role: "Senior Account Executive", initials: "SB", hue: 145, region: "EMEA", team: "newbiz",
     email: "sbailie@mindtools.com",
     skips: [], links: {} },
-  { id: "matthew",  name: "Matthew Saward",          role: "Account Director",   initials: "MS", hue: 310, region: "EMEA", team: "newbiz",
+  { id: "matthew",  name: "Matthew Saward",          role: "Senior Account Executive", initials: "MS", hue: 310, region: "EMEA", team: "newbiz",
     email: "msaward@mindtools.com",
     skips: [], links: {} },
   // EMEA BD (South Africa folded into EMEA) — activated 2026-07-10.
-  { id: "paul",     name: "Paul Welch",              role: "Account Director",   initials: "PW", hue: 75,  region: "EMEA", team: "newbiz",
+  { id: "paul",     name: "Paul Welch",              role: "Account Executive",  initials: "PW", hue: 75,  region: "EMEA", team: "newbiz",
     email: "paul.welch@kineo.com",
     skips: [], links: {} },
-  { id: "mike",     name: "Mike Cawood",             role: "Account Director",   initials: "MC", hue: 265, region: "EMEA", team: "newbiz",
+  { id: "mike",     name: "Mike Cawood",             role: "Senior Account Executive", initials: "MC", hue: 265, region: "EMEA", team: "newbiz",
     email: "m.cawood@mindtools.com",
     skips: [], links: {} },
   // EMEA BD — activated 2026-07-12 for Stuart's 2026-07-13 start.
   // Registered in Supabase reps + allowed_emails (role 'rep', rep_id 'stuart').
-  { id: "stuart",   name: "Stuart Chadwick",         role: "Lead Business Development – EMEA",   initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
+  { id: "stuart",   name: "Stuart Chadwick",         role: "Business Development Leader - EMEA", initials: "SC", hue: 40,  region: "EMEA", team: "newbiz",
     email: "stuart.chadwick@mindtools-kineo.com",
     skips: [], links: {} },
   // APAC BD — activated 2026-07-10.
-  { id: "dourlay",  name: "Paul Dourlay",            role: "Account Director",   initials: "PD", hue: 160, region: "APAC", team: "newbiz",
+  { id: "dourlay",  name: "Paul Dourlay",            role: "Account Executive",  initials: "PD", hue: 160, region: "APAC", team: "newbiz",
     email: "paul.dourlay@kineo.com.au",
     skips: [], links: {} },
-  { id: "andrew",   name: "Andrew Bennett",          role: "Account Director",   initials: "AB", hue: 30,  region: "APAC", team: "newbiz",
+  { id: "andrew",   name: "Andrew Bennett",          role: "Account Executive",  initials: "AB", hue: 30,  region: "APAC", team: "newbiz",
     email: "andrew.bennett@kineo.com.au",
     skips: [], links: {} },
-  { id: "annum",    name: "Annum Sikander",          role: "Account Director",   initials: "AS", hue: 290, region: "APAC", team: "newbiz",
+  { id: "annum",    name: "Annum Sikander",          role: "Account Executive",  initials: "AS", hue: 290, region: "APAC", team: "newbiz",
     email: "annum.sikander@kineo.com.au",
     skips: [], links: {} },
   // APAC CS — activated 2026-07-10 (same skips as EMEA CS five).
