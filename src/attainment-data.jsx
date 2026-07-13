@@ -97,38 +97,38 @@ function attCsCompute(rep) {
 // match the live assembly exactly (CS ren.mtd === null per the comp plan).
 // ════════════════════════════════════════════════════════════════════════════
 const ATT_NB_SAMPLE = [
-  { id: "cammy", pct: { mtd: 112, qtd: 94, ytd: 87 }, won: { mtd: 200000, qtd: 450000, ytd: 1000000 }, target: { mtd: 200000, qtd: 600000, ytd: 1200000 }, quotaQ: 600000, deals: [
-    { acct: "Mega Retail Group", amt: 140000, date: "Apr 14" },
-    { acct: "Lumen Health",      amt: 112000, date: "May 2"  },
-    { acct: "Drake Labs",        amt: 77000,  date: "May 21" },
+  { id: "cammy", pct: { mtd: 100, qtd: 80, ytd: 70 }, won: { mtd: 200000, qtd: 500000, ytd: 1000000 }, target: { mtd: 200000, qtd: 600000, ytd: 1200000 }, quotaQ: 600000, deals: [
+    { acct: "Mega Retail Group", amt: 100000, date: "Apr 14" },
+    { acct: "Lumen Health",      amt: 100000, date: "May 2"  },
+    { acct: "Drake Labs",        amt: 100000,  date: "May 21" },
   ] },
-  { id: "farah", pct: { mtd: 71, qtd: 67, ytd: 74 }, won: { mtd: 100000, qtd: 250000, ytd: 500000 }, target: { mtd: 100000, qtd: 250000, ytd: 1000000 }, quotaQ: 250000, deals: [
-    { acct: "Acme Corp",         amt: 58000,  date: "Apr 9"  },
-    { acct: "Globex",            amt: 74000,  date: "May 6"  },
+  { id: "farah", pct: { mtd: 60, qtd: 50, ytd: 60 }, won: { mtd: 100000, qtd: 250000, ytd: 500000 }, target: { mtd: 100000, qtd: 250000, ytd: 1000000 }, quotaQ: 250000, deals: [
+    { acct: "Acme Corp",         amt: 100000,  date: "Apr 9"  },
+    { acct: "Globex",            amt: 100000,  date: "May 6"  },
   ] },
-  { id: "don", pct: { mtd: 8, qtd: 12, ytd: 12 }, won: { mtd: 5600, qtd: 200000, ytd: 800000 }, target: { mtd: 70000, qtd: 210000, ytd: 840000 }, quotaQ: 210000, deals: [
-    { acct: "Northwind Traders", amt: 26000,  date: "Jun 9"  },
+  { id: "don", pct: { mtd: 50, qtd: 60, ytd: 50 }, won: { mtd: 50000, qtd: 200000, ytd: 800000 }, target: { mtd: 100000, qtd: 250000, ytd: 1000000 }, quotaQ: 250000, deals: [
+    { acct: "Northwind Traders", amt: 100000,  date: "Jun 9"  },
   ] },
 ];
 const ATT_CS_SAMPLE = [
   // qTarget = current-quarter (Q3) ramp amount. ren.qtd is early-quarter (~Jul 6 start).
   // Prior-quarter ramp fills stay as historical; only Q3 carries cur: true.
-  { id: "dwayne", ren: { mtd: null, qtd: 6, ytd: 88 }, qTarget: 250000,
-    ramp: [ { q: "Q1", na: true }, { q: "Q2", amt: 300000, fill: 92 }, { q: "Q3", amt: 250000, fill: 6, cur: true }, { q: "Q4", amt: 250000, fill: 0 } ],
+  { id: "dwayne", ren: { mtd: null, qtd: 50, ytd: 70 }, qTarget: 250000,
+    ramp: [ { q: "Q1", na: true }, { q: "Q2", amt: 250000, fill: 90 }, { q: "Q3", amt: 250000, fill: 50, cur: true }, { q: "Q4", amt: 250000, fill: 0 } ],
     book: [
-      { acct: "Atlas Group",   amt: 128000, date: "Renewed Apr 18", status: "renewed" },
-      { acct: "Brightline",    amt: 96000,  date: "Renewed May 7",  status: "renewed" },
-      { acct: "Cardinal Care", amt: 40000,  date: "Renewed May 22", status: "renewed" },
+      { acct: "Atlas Group",   amt: 100000, date: "Renewed Apr 18", status: "renewed" },
+      { acct: "Brightline",    amt: 100000,  date: "Renewed May 7",  status: "renewed" },
+      { acct: "Cardinal Care", amt: 100000,  date: "Renewed May 22", status: "renewed" },
     ],
     upsell: 50000, cross: 50000, multi: 2, effective: "Plan effective 01 Apr 2026" },
-  { id: "meri", ren: { mtd: null, qtd: 5, ytd: 81 }, qTarget: 200000,
-    ramp: [ { q: "Q1", amt: 100000, fill: 100 }, { q: "Q2", amt: 500000, fill: 86 }, { q: "Q3", amt: 200000, fill: 5, cur: true }, { q: "Q4", amt: 300000, fill: 0 } ],
+  { id: "meri", ren: { mtd: null, qtd: 60, ytd: 80 }, qTarget: 200000,
+    ramp: [ { q: "Q1", amt: 100000, fill: 100 }, { q: "Q2", amt: 500000, fill: 80 }, { q: "Q3", amt: 200000, fill: 60, cur: true }, { q: "Q4", amt: 300000, fill: 0 } ],
     book: [
-      { acct: "Acuity Group", amt: 182000, date: "Renewed Apr 16", status: "renewed" },
-      { acct: "Halden Foods", amt: 124500, date: "Renewed May 4",  status: "renewed" },
-      { acct: "Trellis Co",   amt: 136700, date: "Renewed May 20", status: "renewed" },
+      { acct: "Acuity Group", amt: 100000, date: "Renewed Apr 16", status: "renewed" },
+      { acct: "Halden Foods", amt: 100000, date: "Renewed May 4",  status: "renewed" },
+      { acct: "Trellis Co",   amt: 100000, date: "Renewed May 20", status: "renewed" },
     ],
-    upsell: 0, cross: 7900, multi: 1, effective: "Annual target $1,000,000" },
+    upsell: 0, cross: 50000, multi: 1, effective: "Annual target $1,000,000" },
 ];
 
 // ── Live assembly: snapshot + deal/book/ramp tables → ATT_NB / ATT_CS ─────────
@@ -241,11 +241,11 @@ function attQuarterFinalOptions(rows, currentFy, currentQuarter) {
 // Sample quarter finals (Q2 2026) — sandbox/preview only, matching the DB row
 // shape so the switcher is reviewable. Production never renders these.
 const ATT_QF_SAMPLE = [
-  { rep_id: "cammy",  fy: 2026, quarter: 2, track: "newbiz", nb_won: 450000, nb_target: 600000, ren_renewed: null,   ren_target: null,   exp_won: null },
+  { rep_id: "cammy",  fy: 2026, quarter: 2, track: "newbiz", nb_won: 500000, nb_target: 600000, ren_renewed: null,   ren_target: null,   exp_won: null },
   { rep_id: "farah",  fy: 2026, quarter: 2, track: "newbiz", nb_won: 250000, nb_target: 250000, ren_renewed: null,   ren_target: null,   exp_won: null },
-  { rep_id: "don",    fy: 2026, quarter: 2, track: "newbiz", nb_won: 200000,  nb_target: 210000, ren_renewed: null,   ren_target: null,   exp_won: null },
-  { rep_id: "dwayne", fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 240000, ren_target: 300000, exp_won: 50000 },
-  { rep_id: "meri",   fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 442526, ren_target: 500000, exp_won: 7900 },
+  { rep_id: "don",    fy: 2026, quarter: 2, track: "newbiz", nb_won: 200000, nb_target: 250000, ren_renewed: null,   ren_target: null,   exp_won: null },
+  { rep_id: "dwayne", fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 250000, ren_target: 250000, exp_won: 50000 },
+  { rep_id: "meri",   fy: 2026, quarter: 2, track: "cs",     nb_won: null,   nb_target: null,   ren_renewed: 500000, ren_target: 500000, exp_won: 50000 },
 ];
 
 // Memoized quarter-finals load (one fetch per session). Sandbox/unconfigured
