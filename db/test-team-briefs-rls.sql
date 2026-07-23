@@ -14,10 +14,10 @@
 
 begin;
 
-create temp table _tb_test_state (
-  key text primary key,
-  id  uuid not null
-);
+-- Cross-block fixture IDs live in transaction-local custom settings. This
+-- avoids relying on a temporary table: Supabase SQL Editor role transitions
+-- can hide an unqualified temp relation even within a single pasted script.
+-- ROLLBACK clears these settings with the rest of the verification state.
 
 -- ═══════════════════════ 1. Catalog/static security ═════════
 
@@ -274,10 +274,9 @@ begin
   delete from public.team_admins
   where auth_id = v_lara and team_id = 'cs' and region = 'APAC';
 
-  insert into _tb_test_state (key, id) values
-    ('jeff', v_jeff),
-    ('lara', v_lara),
-    ('dwayne', v_dwayne);
+  perform pg_catalog.set_config('rfc163_test.jeff', v_jeff::text, true);
+  perform pg_catalog.set_config('rfc163_test.lara', v_lara::text, true);
+  perform pg_catalog.set_config('rfc163_test.dwayne', v_dwayne::text, true);
 
   raise notice 'PASS [4] required live personas resolved; Lara normalized in-transaction';
 end
@@ -287,7 +286,7 @@ $$;
 
 do $$
 declare
-  v_lara uuid := (select id from _tb_test_state where key = 'lara');
+  v_lara uuid := pg_catalog.current_setting('rfc163_test.lara')::uuid;
   v_brief uuid;
   v_team_denied boolean := false;
   v_sibling_denied boolean := false;
@@ -375,7 +374,7 @@ begin
       v_team_denied, v_sibling_denied, v_region_denied, v_all_denied;
   end if;
 
-  insert into _tb_test_state (key, id) values ('lara_brief', v_brief);
+  perform pg_catalog.set_config('rfc163_test.lara_brief', v_brief::text, true);
   raise notice 'PASS [5] exact team_region allowed; team/sibling/region/all denied';
 exception when others then
   execute 'reset role';
@@ -385,7 +384,7 @@ $$;
 
 do $$
 declare
-  v_lara uuid := (select id from _tb_test_state where key = 'lara');
+  v_lara uuid := pg_catalog.current_setting('rfc163_test.lara')::uuid;
   v_denied boolean := false;
 begin
   -- R1: scope rows remain, but changing the role label makes them inert.
@@ -430,7 +429,7 @@ $$;
 
 do $$
 declare
-  v_jeff uuid := (select id from _tb_test_state where key = 'jeff');
+  v_jeff uuid := pg_catalog.current_setting('rfc163_test.jeff')::uuid;
   v_brief uuid;
   v_alias_brief uuid;
   v_expected integer;
@@ -520,9 +519,8 @@ begin
     raise exception 'FAIL [audience expansion] manager/admin entered denominator';
   end if;
 
-  insert into _tb_test_state (key, id) values
-    ('main_brief', v_brief),
-    ('alias_brief', v_alias_brief);
+  perform pg_catalog.set_config('rfc163_test.main_brief', v_brief::text, true);
+  perform pg_catalog.set_config('rfc163_test.alias_brief', v_alias_brief::text, true);
   raise notice 'PASS [7] global manager published all four modes; team_region expansion exact';
 exception when others then
   execute 'reset role';
@@ -534,7 +532,7 @@ $$;
 -- read denominator and acknowledgement receipt remain one row per rep_id.
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'alias_brief');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.alias_brief')::uuid;
   v_rep_id text;
   v_aliases uuid[];
   v_first_read timestamptz;
@@ -624,7 +622,7 @@ $$;
 
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
   v_member uuid;
   v_rep text;
   v_region text;
@@ -663,7 +661,7 @@ begin
     raise exception 'FAIL [frozen audience] roster mutation changed materialized rows';
   end if;
 
-  insert into _tb_test_state (key, id) values ('member', v_member);
+  perform pg_catalog.set_config('rfc163_test.member', v_member::text, true);
   raise notice 'PASS [9] audience count and team/region snapshot remain frozen after roster mutation';
 end
 $$;
@@ -672,8 +670,8 @@ $$;
 
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
-  v_member uuid := (select id from _tb_test_state where key = 'member');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
+  v_member uuid := pg_catalog.current_setting('rfc163_test.member')::uuid;
   v_member_rep text;
   v_first timestamptz;
   v_second timestamptz;
@@ -722,7 +720,7 @@ begin
     raise exception 'FAIL [comment trim] stored body was not trimmed';
   end if;
 
-  insert into _tb_test_state (key, id) values ('comment', v_comment);
+  perform pg_catalog.set_config('rfc163_test.comment', v_comment::text, true);
   raise notice 'PASS [10] explicit ack is rep-idempotent; comment is trimmed and stored';
 exception when others then
   execute 'reset role';
@@ -732,8 +730,8 @@ $$;
 
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
-  v_dwayne uuid := (select id from _tb_test_state where key = 'dwayne');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
+  v_dwayne uuid := pg_catalog.current_setting('rfc163_test.dwayne')::uuid;
   v_count integer;
   v_comment_denied boolean := false;
   v_ack_denied boolean := false;
@@ -785,10 +783,10 @@ $$;
 
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
-  v_first_member uuid := (select id from _tb_test_state where key = 'member');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
+  v_first_member uuid := pg_catalog.current_setting('rfc163_test.member')::uuid;
   v_second_member uuid;
-  v_comment uuid := (select id from _tb_test_state where key = 'comment');
+  v_comment uuid := pg_catalog.current_setting('rfc163_test.comment')::uuid;
   v_count integer;
 begin
   select am.auth_id into v_second_member
@@ -827,9 +825,9 @@ $$;
 
 do $$
 declare
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
-  v_member uuid := (select id from _tb_test_state where key = 'member');
-  v_comment uuid := (select id from _tb_test_state where key = 'comment');
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
+  v_member uuid := pg_catalog.current_setting('rfc163_test.member')::uuid;
+  v_comment uuid := pg_catalog.current_setting('rfc163_test.comment')::uuid;
   v_update_denied boolean := false;
   v_delete_denied boolean := false;
 begin
@@ -871,9 +869,9 @@ $$;
 
 do $$
 declare
-  v_jeff uuid := (select id from _tb_test_state where key = 'jeff');
-  v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
-  v_comment uuid := (select id from _tb_test_state where key = 'comment');
+  v_jeff uuid := pg_catalog.current_setting('rfc163_test.jeff')::uuid;
+  v_brief uuid := pg_catalog.current_setting('rfc163_test.main_brief')::uuid;
+  v_comment uuid := pg_catalog.current_setting('rfc163_test.comment')::uuid;
   v_deleted timestamptz;
   v_archived timestamptz;
   v_count integer;
@@ -926,8 +924,8 @@ $$;
 
 do $$
 declare
-  v_member uuid := (select id from _tb_test_state where key = 'member');
-  v_comment uuid := (select id from _tb_test_state where key = 'comment');
+  v_member uuid := pg_catalog.current_setting('rfc163_test.member')::uuid;
+  v_comment uuid := pg_catalog.current_setting('rfc163_test.comment')::uuid;
   v_count integer;
 begin
   perform pg_catalog.set_config(
