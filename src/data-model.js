@@ -842,6 +842,240 @@ function dueLabelForRegion(regionId) {
   return `Due Friday 5 PM ${zoneAbbrev(regionId)}`;
 }
 
+// ── RFC-163: Team Briefs client policy mirror + time helpers ───────────────
+// These helpers drive UI affordances and focused tests. Supabase RLS and the
+// publish RPC remain the enforcement boundary.
+const TEAM_BRIEF_TYPES = [
+  "morning_message",
+  "fyi",
+  "reminder",
+  "action_required",
+];
+const TEAM_BRIEF_AUDIENCE_MODES = ["sales_all", "region", "team", "team_region"];
+const TEAM_BRIEF_DISPLAY_RULES = [
+  "today_only",
+  "for_days",
+  "until_acknowledged",
+  "until_date",
+  "manual_clear",
+];
+const TEAM_BRIEF_COMMENT_MAX_LENGTH = 2000;
+const TEAM_BRIEF_SOON_DAYS = 3;
+
+function teamBriefAudiencePairs(audienceOrMode, teamId, regionId) {
+  const spec = typeof audienceOrMode === "object" && audienceOrMode
+    ? audienceOrMode
+    : {
+        audience_mode: audienceOrMode,
+        audience_team_id: teamId || null,
+        audience_region: regionId || null,
+      };
+  const mode = spec.audience_mode;
+  const team = spec.audience_team_id || null;
+  const region = spec.audience_region || null;
+
+  if (mode === "sales_all") {
+    return TEAMS.flatMap(t => REGION_ORDER.map(r => ({ team_id: t.id, region: r })));
+  }
+  if (mode === "region" && REGION_ORDER.includes(region)) {
+    return TEAMS.map(t => ({ team_id: t.id, region }));
+  }
+  if (mode === "team" && TEAMS.some(t => t.id === team)) {
+    return REGION_ORDER.map(r => ({ team_id: team, region: r }));
+  }
+  if (
+    mode === "team_region"
+    && TEAMS.some(t => t.id === team)
+    && REGION_ORDER.includes(region)
+  ) {
+    return [{ team_id: team, region }];
+  }
+  return [];
+}
+
+function canPublishTeamBrief(user, audience) {
+  if (!user) return false;
+  const pairs = teamBriefAudiencePairs(audience);
+  if (!pairs.length) return false;
+  if (user.role === "manager") return true;
+  if (user.role !== "team_admin" || !Array.isArray(user.adminScopes)) return false;
+  return pairs.every(pair =>
+    user.adminScopes.some(scope =>
+      scope.team_id === pair.team_id && scope.region === pair.region
+    )
+  );
+}
+
+function teamBriefAudienceMatches(rep, audience) {
+  if (!rep || !audience) return false;
+  const repTeam = rep.team_id || rep.team;
+  if (!TEAMS.some(team => team.id === repTeam) || !REGION_ORDER.includes(rep.region)) return false;
+  const mode = audience.audience_mode;
+  if (mode === "sales_all") return true;
+  if (mode === "region") return rep.region === audience.audience_region;
+  if (mode === "team") return repTeam === audience.audience_team_id;
+  if (mode === "team_region") {
+    return repTeam === audience.audience_team_id && rep.region === audience.audience_region;
+  }
+  return false;
+}
+
+// Pure mirror of the publish RPC's materialization query. Only active roster
+// reps with a real rep-role users row count in read-receipt denominators.
+function expandTeamBriefAudience(users, reps, audience) {
+  const repMap = new Map((reps || []).map(rep => [rep.rep_id || rep.id, rep]));
+  const seenAuth = new Set();
+  const seenRep = new Set();
+  const out = [];
+  for (const user of (users || [])) {
+    if (!user || user.role !== "rep" || !user.auth_id || !user.rep_id) continue;
+    const rep = repMap.get(user.rep_id);
+    if (!rep || rep.active === false || !teamBriefAudienceMatches(rep, audience)) continue;
+    if (seenAuth.has(user.auth_id) || seenRep.has(user.rep_id)) {
+      throw new Error("Duplicate Team Brief audience seating");
+    }
+    seenAuth.add(user.auth_id);
+    seenRep.add(user.rep_id);
+    out.push({
+      auth_id: user.auth_id,
+      rep_id: user.rep_id,
+      team_id: rep.team_id || rep.team,
+      region: rep.region,
+    });
+  }
+  return out;
+}
+
+function teamBriefAudienceLabel(brief) {
+  if (!brief) return "Unknown audience";
+  const teamLabel = brief.audience_team_id === "newbiz" ? "BD" : "CS";
+  const regionLabel = brief.audience_region === "US" ? "North America" : brief.audience_region;
+  if (brief.audience_mode === "sales_all") return "All Sales";
+  if (brief.audience_mode === "region") return regionLabel || "Region";
+  if (brief.audience_mode === "team") return teamLabel;
+  if (brief.audience_mode === "team_region") return `${teamLabel} ${regionLabel || ""}`.trim();
+  return "Unknown audience";
+}
+
+function teamBriefTimezoneForAudience(audience, fallbackRegion) {
+  const regionId =
+    audience && (audience.audience_mode === "region" || audience.audience_mode === "team_region")
+      ? audience.audience_region
+      : fallbackRegion;
+  const region = REGIONS.find(r => r.id === regionId) || REGIONS[0];
+  return region.timezone;
+}
+
+function _zoneOffsetMsAt(utcMs, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(utcMs));
+  const get = type => {
+    const part = parts.find(p => p.type === type);
+    return part ? Number(part.value) : 0;
+  };
+  let hour = get("hour");
+  if (hour === 24) hour = 0;
+  return Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    hour,
+    get("minute"),
+    get("second")
+  ) - utcMs;
+}
+
+// Convert an HTML datetime-local value into a concrete instant in `timeZone`.
+// Returns null for malformed values or unsupported zones.
+function zonedLocalDateTimeToIso(localValue, timeZone) {
+  const match = String(localValue || "").match(
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (!match || !timeZone) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6] || 0);
+  const wallAsUTC = Date.UTC(year, month - 1, day, hour, minute, second);
+  try {
+    let offset = _zoneOffsetMsAt(wallAsUTC, timeZone);
+    let instant = wallAsUTC - offset;
+    offset = _zoneOffsetMsAt(instant, timeZone);
+    instant = wallAsUTC - offset;
+    return new Date(instant).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+function _teamBriefLocalDayNumber(value, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = type => Number(parts.find(p => p.type === type).value);
+  return Date.UTC(get("year"), get("month") - 1, get("day")) / 86400000;
+}
+
+function teamBriefUrgency(brief, now) {
+  if (!brief || !brief.due_at) return "normal";
+  const current = now ? new Date(now) : new Date();
+  const due = new Date(brief.due_at);
+  if (!Number.isFinite(due.getTime())) return "normal";
+  if (due.getTime() <= current.getTime()) return "overdue";
+  const timeZone = brief.timezone || REGIONS[0].timezone;
+  try {
+    const days = _teamBriefLocalDayNumber(due, timeZone)
+      - _teamBriefLocalDayNumber(current, timeZone);
+    if (days <= 0) return "today";
+    if (days === 1) return "tomorrow";
+    if (days <= TEAM_BRIEF_SOON_DAYS) return "soon";
+  } catch {
+    const days = Math.ceil((due.getTime() - current.getTime()) / 86400000);
+    if (days <= 1) return "tomorrow";
+    if (days <= TEAM_BRIEF_SOON_DAYS) return "soon";
+  }
+  return "normal";
+}
+
+function teamBriefIsVisible(brief, acknowledged, now) {
+  if (!brief || brief.status !== "published" || brief.archived_at) return false;
+  const currentMs = now ? new Date(now).getTime() : Date.now();
+  const publishMs = new Date(brief.publish_at).getTime();
+  if (Number.isFinite(publishMs) && publishMs > currentMs) return false;
+  if (brief.expires_at) {
+    const expiresMs = new Date(brief.expires_at).getTime();
+    if (Number.isFinite(expiresMs) && expiresMs <= currentMs) return false;
+  }
+  if (brief.display_rule === "until_acknowledged" && acknowledged) return false;
+  return true;
+}
+
+function normalizeTeamBriefComment(body) {
+  const value = String(body == null ? "" : body).trim();
+  if (!value) return { ok: false, value: "", error: "Comment cannot be empty." };
+  if (value.length > TEAM_BRIEF_COMMENT_MAX_LENGTH) {
+    return {
+      ok: false,
+      value,
+      error: `Comment must be ${TEAM_BRIEF_COMMENT_MAX_LENGTH} characters or fewer.`,
+    };
+  }
+  return { ok: true, value, error: null };
+}
+
 // ── RFC-152 follow-up: URL state ────────────────────────────────────────────
 // Pure helpers for App deep-links. Invalid values → null (never throw).
 // serialize preserves unknown params (demo=, standup date=) untouched.
@@ -902,6 +1136,12 @@ Object.assign(window, {
   teamsForUser, defaultTeamForUser,
   viewerScopeForUser, regionsUnderScope, repsUnderScope,
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,
+  TEAM_BRIEF_TYPES, TEAM_BRIEF_AUDIENCE_MODES, TEAM_BRIEF_DISPLAY_RULES,
+  TEAM_BRIEF_COMMENT_MAX_LENGTH, TEAM_BRIEF_SOON_DAYS,
+  teamBriefAudiencePairs, canPublishTeamBrief, teamBriefAudienceMatches,
+  expandTeamBriefAudience, teamBriefAudienceLabel,
+  teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
+  teamBriefUrgency, teamBriefIsVisible, normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,

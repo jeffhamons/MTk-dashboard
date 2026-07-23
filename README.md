@@ -90,6 +90,8 @@ RLS is the real data boundary; the client only mirrors it. Roles:
 - `src/supabase-client.js` - Supabase client, auth helpers, DB read/write
   functions, and realtime subscriptions.
 - `src/components.jsx` - shared UI primitives.
+- `src/team-briefs.jsx` - RFC-163 manager composer/tracking page plus the
+  rep-facing Today panel; owns its own Team Briefs load/realtime cycle.
 - `src/manager.jsx` - `APP_PAGES` nav registry plus `FlagQueue`,
   `ResolvedSection`, `ManagerNote`, `MarkedByStamp`.
 - `src/rep-view.jsx` - `RepView`, one rep's selected-week view.
@@ -165,6 +167,8 @@ RLS is the real data boundary; the client only mirrors it. Roles:
   clobber shared state.
 - `WinsFormView` and `StandupView` each run their own load/save/subscribe
   cycle.
+- Team Briefs also runs a separate load/save/subscribe cycle. It must never
+  be folded into `loadStateFromSupabase` or the shared `subscribeRealtime`.
 
 - `devViewAs` lets managers and preview mode impersonate another user for
   testing.
@@ -224,6 +228,11 @@ Core data lives in `src/data-model.js` and is exported with `Object.assign`.
 - RBAC: `repById`, `isManagerialRole`, `canManageRep`, `canManageAny`,
   `teamsForUser`, `defaultTeamForUser`, `viewerScopeForUser`,
   `regionsUnderScope`, `repsUnderScope`.
+- Team Briefs: `canPublishTeamBrief`, `teamBriefAudiencePairs`,
+  `expandTeamBriefAudience`, `teamBriefAudienceLabel`,
+  `teamBriefTimezoneForAudience`, `zonedLocalDateTimeToIso`,
+  `teamBriefUrgency`, `teamBriefIsVisible`, and
+  `normalizeTeamBriefComment`.
 
 ### Supabase
 
@@ -250,6 +259,9 @@ Project: tvdizqryowracmtjdskv.supabase.co.
   `loadAttainmentForQuarter`, `loadClosedWonDeals`, `loadRenewalBook`,
   `loadCsQuarterlyTargets`, `deriveAttainmentPcts`, `loadInductionState`,
   `loadInductionStateFor`, `setInductionItem`.
+- Team Briefs: `loadTeamBriefs`, `publishTeamBrief`,
+  `acknowledgeTeamBrief`, `addTeamBriefComment`, `archiveTeamBrief`,
+  `softDeleteTeamBriefComment`, and `subscribeTeamBriefs`.
 
 Supabase tables:
 
@@ -265,6 +277,10 @@ Supabase tables:
 | teams | id, label | Team registry. |
 | reps | rep_id, team_id, region, active | Server roster used by RLS. |
 | team_admins | auth_id, team_id, region | Per-region scopes; inert unless user role is team_admin. |
+| team_briefs | id, type, audience target, concrete lifecycle instants | Published/archived manager messages. No drafts or scheduled publishing in MVP. |
+| team_brief_audience_members | brief_id, auth_id, rep/team/region snapshots | Frozen active seated-rep audience and read denominator. |
+| team_brief_reads | brief_id, auth_id, read_at | Explicit, idempotent check-mark acknowledgements. |
+| team_brief_comments | id, brief_id, author, body, deleted_at | Plain-text follow-ups; manager soft-delete only. |
 
 - `db/migration-team-rbac-schema.sql` adds teams, reps, team admins, and
   widened role checks.
@@ -281,6 +297,39 @@ Supabase tables:
   `db/migration-attainment-quarter-final.sql` support attainment.
 - `db/verify-rls-cutover.sql` and `db/test-team-rbac-rls.sql` verify RLS
   behavior.
+- `db/migration-team-briefs.sql` creates the RFC-163 tables, RPC-only
+  mutations, frozen-audience publish transaction, RLS, and realtime
+  publication entries.
+- `db/test-team-briefs-rls.sql` is the rollback-only verification suite for
+  audience expansion, publisher denial, frozen audiences, read idempotency,
+  comment visibility, and archive behavior.
+
+### Team Briefs security and lifecycle
+
+- Route id is `team-briefs`. The manager tab is only a UI affordance; RLS and
+  RPC checks are the authorization boundary.
+- Global `manager` may publish to every audience. A `team_admin` must have
+  every explicit canonical scope row covered by the target: one row for a
+  team-region, three rows for a whole team, two rows for a bare region, and
+  all six team×region rows for All Sales.
+- Publishing is one database transaction. It inserts the brief and freezes
+  active `users.role = 'rep'` identities joined to active `reps`; managers,
+  team admins, inactive reps, and reps without `users.auth_id` never enter
+  read denominators.
+- Audience rows never re-expand when roster or seating changes. Reads and
+  comments key eligibility to that frozen audience.
+- Acknowledgement is an explicit check mark, not completion. The
+  `action_required` default uses manual clear so acknowledged overdue work
+  remains visible until archive.
+- Comments are trimmed plain text with a 2,000-character maximum. Reps add
+  follow-up comments; they cannot edit or delete comments. Authorized
+  managers can soft-delete only.
+- `publish_at`, `expires_at`, and `due_at` are concrete `timestamptz`
+  instants. Region and team-region briefs use that region's canonical IANA
+  timezone; multi-region targets use the manager-selected operational
+  timezone.
+- The SQL migration is not self-deploying. Apply it to Supabase before the UI
+  can publish or load live Team Briefs.
 
 - `checks` and `asks` use integer `week_index`.
 - `manager_notes` uses string `week_id`.
@@ -325,6 +374,12 @@ Supabase tables:
     retirement behavior.
   - `tests/quarter-finals.test.mjs` checks `attBuildQuarterFinal` NB and CS
     shapes.
+  - `tests/team-briefs-helpers.test.mjs` checks audience expansion, scoped
+    publishing, frozen membership, timezone conversion, urgency, and comment
+    normalization.
+  - `tests/team-briefs-integration.test.mjs` checks script order, route
+    registration, HomeView wiring, window exports, and the independent data
+    cycle.
 - Python parity suite:
   - `tests/test_rfc151_reps_parity.py` guards parity between `REPS[]` in
     `src/data-model.js` and the server `reps` backfill rows in
@@ -368,6 +423,11 @@ live outside this repo). Do not assume landing the PR updates the live
   must be a case handled by `Icon`), add a routing case in `App`, and thread
   `authedUser`, `activeTeam`, `viewerScope`, and `regionPill` into the new
   view as needed.
+- Apply Team Briefs: run `db/migration-team-briefs.sql` in the Supabase SQL
+  editor, then run `db/test-team-briefs-rls.sql` as a privileged operator.
+  The verification script wraps fixtures in a transaction and rolls back.
+  CS APAC still needs the explicit `team_admins` scope row, and BD APAC
+  roster parity must be confirmed separately before broad production use.
 - Add a quarter: append one entry to `QUARTERS` in `src/data-model.js`. Do
   not modify existing Q2 or Q3 entries. The new `startMonday` must be the
   Monday immediately after the previous quarter's last week. Q3 ends at w23:
