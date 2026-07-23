@@ -344,6 +344,157 @@ async function migrateLocalToSupabase() {
 }
 
 // ============================================================
+// TEAM BRIEFS — independent load / write / realtime cycle.
+//
+// Deliberately kept out of loadStateFromSupabase + subscribeRealtime:
+// Team Briefs has its own lifecycle, audience rows, read receipts, and
+// comment thread. Nested relation aliases keep the UI data shape compact:
+// { ...brief, audience: [], reads: [], comments: [] }.
+// ============================================================
+
+function teamBriefFailure(action, error) {
+  const detail = error && (error.message || error.details || error.hint);
+  const wrapped = new Error(`Team Briefs ${action} failed${detail ? `: ${detail}` : ""}`);
+  if (error && error.code) wrapped.code = error.code;
+  if (error && error.details) wrapped.details = error.details;
+  if (error && error.hint) wrapped.hint = error.hint;
+  return wrapped;
+}
+
+function requireTeamBriefId(id, label) {
+  const value = String(id || "").trim();
+  if (!value) throw new Error(`Team Briefs ${label || "operation"} requires an id`);
+  return value;
+}
+
+async function loadTeamBriefs({ includeArchived = false } = {}) {
+  const sb = client();
+  let query = sb
+    .from("team_briefs")
+    .select(`
+      *,
+      audience:team_brief_audience_members(*),
+      reads:team_brief_reads(*),
+      comments:team_brief_comments(*)
+    `)
+    .order("publish_at", { ascending: false });
+
+  if (!includeArchived) query = query.eq("status", "published");
+
+  const { data, error } = await query;
+  if (error) throw teamBriefFailure("load", error);
+
+  return (data || []).map((brief) => ({
+    ...brief,
+    audience: brief.audience || [],
+    reads: brief.reads || [],
+    comments: (brief.comments || []).slice().sort(
+      (a, b) => String(a.created_at || "").localeCompare(String(b.created_at || ""))
+    ),
+  }));
+}
+
+async function publishTeamBrief(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new TypeError("Team Briefs publish requires a payload");
+  }
+  const title = String(payload.title || "").trim();
+  const body = String(payload.body || "").trim();
+  if (!title) throw new Error("Team Briefs publish requires a title");
+  if (!body) throw new Error("Team Briefs publish requires a body");
+  if (!payload.brief_type) throw new Error("Team Briefs publish requires a brief type");
+  if (!payload.audience_mode) throw new Error("Team Briefs publish requires an audience");
+  if (!payload.timezone) throw new Error("Team Briefs publish requires a timezone");
+
+  const params = {
+    p_title: title,
+    p_body: body,
+    p_brief_type: payload.brief_type,
+    p_audience_mode: payload.audience_mode,
+    p_audience_region: payload.audience_region || null,
+    p_audience_team_id: payload.audience_team_id || null,
+    p_timezone: payload.timezone,
+    p_display_rule: payload.display_rule || "manual_clear",
+    p_display_days: payload.display_days == null || payload.display_days === ""
+      ? null
+      : Number(payload.display_days),
+    p_expires_at: payload.expires_at || null,
+    p_due_at: payload.due_at || null,
+    p_require_ack: payload.require_ack !== false,
+    p_allow_comments: payload.allow_comments !== false,
+    p_auto_escalate: payload.auto_escalate === true,
+  };
+  const { data, error } = await client().rpc("publish_team_brief", params);
+  if (error) throw teamBriefFailure("publish", error);
+  if (!data) throw new Error("Team Briefs publish failed: RPC returned no brief");
+  return data;
+}
+
+async function acknowledgeTeamBrief(id) {
+  const briefId = requireTeamBriefId(id, "acknowledgement");
+  const { data, error } = await client().rpc("acknowledge_team_brief", {
+    p_brief_id: briefId,
+  });
+  if (error) throw teamBriefFailure("acknowledgement", error);
+  if (!data) throw new Error("Team Briefs acknowledgement failed: RPC returned no timestamp");
+  return data;
+}
+
+async function addTeamBriefComment(id, body) {
+  const briefId = requireTeamBriefId(id, "comment");
+  const normalized = window.normalizeTeamBriefComment
+    ? window.normalizeTeamBriefComment(body)
+    : {
+        ok: !!String(body || "").trim() && String(body || "").trim().length <= 2000,
+        value: String(body || "").trim(),
+        error: "Comment must be between 1 and 2000 characters.",
+      };
+  if (!normalized.ok) throw new Error(`Team Briefs ${normalized.error}`);
+  const { data, error } = await client().rpc("add_team_brief_comment", {
+    p_brief_id: briefId,
+    p_body: normalized.value,
+  });
+  if (error) throw teamBriefFailure("comment", error);
+  if (!data) throw new Error("Team Briefs comment failed: RPC returned no comment id");
+  return data;
+}
+
+async function archiveTeamBrief(id) {
+  const briefId = requireTeamBriefId(id, "archive");
+  const { data, error } = await client().rpc("archive_team_brief", {
+    p_brief_id: briefId,
+  });
+  if (error) throw teamBriefFailure("archive", error);
+  if (!data) throw new Error("Team Briefs archive failed: RPC returned no timestamp");
+  return data;
+}
+
+async function softDeleteTeamBriefComment(commentId) {
+  const id = requireTeamBriefId(commentId, "comment moderation");
+  const { data, error } = await client().rpc("soft_delete_team_brief_comment", {
+    p_comment_id: id,
+  });
+  if (error) throw teamBriefFailure("comment moderation", error);
+  if (!data) throw new Error("Team Briefs comment moderation failed: RPC returned no timestamp");
+  return data;
+}
+
+function subscribeTeamBriefs(onChange) {
+  if (typeof onChange !== "function") {
+    throw new TypeError("subscribeTeamBriefs requires an onChange callback");
+  }
+  const sb = client();
+  const notify = (payload) => onChange(payload);
+  const channel = sb.channel("team-briefs")
+    .on("postgres_changes", { event: "*", schema: "public", table: "team_briefs" }, notify)
+    .on("postgres_changes", { event: "*", schema: "public", table: "team_brief_audience_members" }, notify)
+    .on("postgres_changes", { event: "*", schema: "public", table: "team_brief_reads" }, notify)
+    .on("postgres_changes", { event: "*", schema: "public", table: "team_brief_comments" }, notify)
+    .subscribe();
+  return () => sb.removeChannel(channel);
+}
+
+// ============================================================
 // AUTH — magic link
 // ============================================================
 async function getSession() {
@@ -763,6 +914,13 @@ Object.assign(window, {
   setAskResponseSupabase,
   setManagerNoteSupabase,
   subscribeRealtime,
+  loadTeamBriefs,
+  publishTeamBrief,
+  acknowledgeTeamBrief,
+  addTeamBriefComment,
+  archiveTeamBrief,
+  softDeleteTeamBriefComment,
+  subscribeTeamBriefs,
   migrateLocalToSupabase,
   getCurrentRep,
   setCurrentRep,

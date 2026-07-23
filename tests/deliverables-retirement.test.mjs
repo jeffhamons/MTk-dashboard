@@ -57,12 +57,12 @@ test("activeDeliverablesFor: newbiz drops 2 at w12; CS unchanged (already skippe
   assert.equal(dm.activeDeliverablesFor(csRep, 12).length, 3, "CS 3 @ w12");
 });
 
-test("retirement cutover matches 'effective this week' (today = w12)", () => {
+test("retirement cutover remains effective from w12 onward", () => {
   // currentWeekIndex() is 0-based; +1 gives the 1-based week index.
   const currentWeekIndex1Based = dm.currentWeekIndex() + 1;
-  assert.equal(currentWeekIndex1Based, 12, "today is w12");
+  assert.ok(currentWeekIndex1Based >= 12, "today is at or after the w12 cutover");
   // The retired deliverables must be present in the LAST fully-required week
-  // (w11) and absent in the current week (w12).
-  assert.ok(ids(dm.deliverablesForWeek(currentWeekIndex1Based - 1)).includes("outreach"));
+  // (w11) and absent in every current/future week.
+  assert.ok(ids(dm.deliverablesForWeek(11)).includes("outreach"));
   assert.ok(!ids(dm.deliverablesForWeek(currentWeekIndex1Based)).includes("outreach"));
 });

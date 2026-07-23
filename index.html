@@ -1934,6 +1934,7 @@ button { font: inherit; color: inherit; }
 <script type="text/babel" src="src/cs-team.jsx"></script>
 <script type="text/babel" src="src/cs-risks-focus.jsx"></script>
 <script type="text/babel" src="src/components.jsx"></script>
+<script type="text/babel" src="src/team-briefs.jsx"></script>
 <script type="text/babel" src="src/manager.jsx"></script>
 <script type="text/babel" src="src/team-rollup.jsx"></script>
 <script type="text/babel" src="src/rep-view.jsx"></script>
@@ -2406,6 +2407,17 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
         )}
       </div>
 
+      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle. */}
+      {!isManager && myRepId && typeof TeamBriefsTodayPanel !== "undefined" && (
+        <TeamBriefsTodayPanel
+          authedUser={authedUser}
+          activeTeam={activeTeam}
+          viewerScope={viewerScope}
+          regionPill={regionPill}
+          onOpen={() => setView("team-briefs")}
+        />
+      )}
+
       {/* My Number — V2 personal target deep-dive (reps only) */}
       {!isManager && myRepId && typeof MyNumber !== "undefined" && <MyNumber repId={myRepId} />}
 
@@ -2542,7 +2554,7 @@ function App({ authedUser, preloadedState }) {
       "home", "rollup", "leaderboard", "standup", "wins",
       "cs:home", "cs:region", "cs:pipeline", "cs:wonlost",
       "cs:targets", "cs:team", "cs:risks", "cs:focus",
-      "manager:flags", "don:onboarding", "stuart:onboarding",
+      "team-briefs", "manager:flags", "don:onboarding", "stuart:onboarding",
     ]);
     if (urlState.view && pageIds.has(urlState.view)) return urlState.view;
     // Also accept a raw rep id in view= (defensive; primary path is view=rep)
