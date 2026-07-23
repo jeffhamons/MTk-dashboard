@@ -278,8 +278,8 @@ Supabase tables:
 | reps | rep_id, team_id, region, active | Server roster used by RLS. |
 | team_admins | auth_id, team_id, region | Per-region scopes; inert unless user role is team_admin. |
 | team_briefs | id, type, audience target, concrete lifecycle instants | Published/archived manager messages. No drafts or scheduled publishing in MVP. |
-| team_brief_audience_members | brief_id, auth_id, rep/team/region snapshots | Frozen active seated-rep audience and read denominator. |
-| team_brief_reads | brief_id, auth_id, read_at | Explicit, idempotent check-mark acknowledgements. |
+| team_brief_audience_members | brief_id, auth_id, rep/team/region snapshots | Frozen access rows for every seated login identity; reporting deduplicates by rep_id. |
+| team_brief_reads | brief_id, rep_id, auth_id, read_at | One explicit, idempotent acknowledgement per rep; auth_id records the first alias used. |
 | team_brief_comments | id, brief_id, author, body, deleted_at | Plain-text follow-ups; manager soft-delete only. |
 
 - `db/migration-team-rbac-schema.sql` adds teams, reps, team admins, and
@@ -313,9 +313,13 @@ Supabase tables:
   team-region, three rows for a whole team, two rows for a bare region, and
   all six team×region rows for All Sales.
 - Publishing is one database transaction. It inserts the brief and freezes
-  active `users.role = 'rep'` identities joined to active `reps`; managers,
-  team admins, inactive reps, and reps without `users.auth_id` never enter
-  read denominators.
+  every active `users.role = 'rep'` login identity joined to an active
+  `reps` row; managers, team admins, inactive reps, and reps without
+  `users.auth_id` never enter the audience.
+- Multiple authenticated email identities may intentionally map to the same
+  `rep_id`. Each frozen identity can open and interact with the brief, while
+  the acknowledgement denominator and receipt are one per distinct rep.
+  Acknowledging from either identity acknowledges the brief for that rep.
 - Audience rows never re-expand when roster or seating changes. Reads and
   comments key eligibility to that frozen audience.
 - Acknowledgement is an explicit check mark, not completion. The

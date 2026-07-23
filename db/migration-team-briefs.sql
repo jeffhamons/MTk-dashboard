@@ -134,28 +134,87 @@ create table if not exists public.team_brief_audience_members (
   expires_at timestamptz,
   created_at timestamptz not null default now(),
   primary key (brief_id, auth_id),
-  constraint team_brief_audience_one_seat_per_rep unique (brief_id, rep_id),
   constraint team_brief_audience_team_check check (team_id in ('newbiz', 'cs')),
   constraint team_brief_audience_region_check check (region in ('US', 'EMEA', 'APAC'))
 );
+
+-- A rep may intentionally have multiple working magic-link identities. Each
+-- frozen auth row grants access, while the read denominator is rep-grained.
+-- Drop the original MVP constraint when upgrading an already-applied schema.
+alter table public.team_brief_audience_members
+  drop constraint if exists team_brief_audience_one_seat_per_rep;
+
+-- Supports the receipt FK that proves the acknowledging auth alias belongs to
+-- the same frozen rep denominator recorded on the receipt.
+create unique index if not exists team_brief_audience_identity_rep_uidx
+  on public.team_brief_audience_members (brief_id, auth_id, rep_id);
 
 create index if not exists team_brief_audience_auth_idx
   on public.team_brief_audience_members (auth_id, brief_id);
 
 create table if not exists public.team_brief_reads (
   brief_id uuid        not null,
+  rep_id   text        not null,
   auth_id  uuid        not null,
   read_at  timestamptz not null default now(),
-  primary key (brief_id, auth_id),
+  primary key (brief_id, rep_id),
   constraint team_brief_reads_brief_fk
     foreign key (brief_id)
     references public.team_briefs (id)
     on delete cascade,
   constraint team_brief_reads_audience_fk
-    foreign key (brief_id, auth_id)
-    references public.team_brief_audience_members (brief_id, auth_id)
+    foreign key (brief_id, auth_id, rep_id)
+    references public.team_brief_audience_members (brief_id, auth_id, rep_id)
     on delete cascade
 );
+
+-- In-place upgrade from the originally-applied auth-grained read table.
+-- Existing receipts (if any) inherit their frozen audience rep_id. The
+-- production rollout currently has no committed Team Brief rows, but fail
+-- explicitly rather than discarding data if inconsistent legacy rows exist.
+alter table public.team_brief_reads
+  add column if not exists rep_id text;
+
+update public.team_brief_reads r
+set rep_id = am.rep_id
+from public.team_brief_audience_members am
+where r.rep_id is null
+  and am.brief_id = r.brief_id
+  and am.auth_id = r.auth_id;
+
+do $$
+begin
+  if exists (
+    select 1
+    from public.team_brief_reads r
+    where r.rep_id is null
+  ) then
+    raise exception 'cannot upgrade Team Brief reads: receipt has no frozen audience rep';
+  end if;
+  if exists (
+    select 1
+    from public.team_brief_reads r
+    group by r.brief_id, r.rep_id
+    having count(*) > 1
+  ) then
+    raise exception 'cannot upgrade Team Brief reads: multiple alias receipts already exist for one rep';
+  end if;
+end
+$$;
+
+alter table public.team_brief_reads
+  alter column rep_id set not null;
+alter table public.team_brief_reads
+  drop constraint if exists team_brief_reads_audience_fk;
+alter table public.team_brief_reads
+  drop constraint if exists team_brief_reads_pkey;
+alter table public.team_brief_reads
+  add constraint team_brief_reads_pkey primary key (brief_id, rep_id);
+alter table public.team_brief_reads
+  add constraint team_brief_reads_audience_fk
+  foreign key (brief_id, auth_id, rep_id)
+  references public.team_brief_audience_members (brief_id, auth_id, rep_id)
+  on delete cascade;
 
 create index if not exists team_brief_reads_auth_idx
   on public.team_brief_reads (auth_id, brief_id);
@@ -413,8 +472,9 @@ begin
   )
   returning id into v_brief_id;
 
-  -- Frozen denominator: current active reps who have a dashboard identity and
-  -- whose platform role is rep. Managers/team_admins never enter read counts.
+  -- Frozen access rows: every working auth identity for each current active
+  -- seated rep. Reporting counts distinct rep_id values, so intentional
+  -- aliases do not inflate the denominator. Managers/team_admins never enter.
   insert into public.team_brief_audience_members (
     brief_id, auth_id, rep_id, team_id, region, due_at, expires_at, created_at
   )
@@ -454,23 +514,33 @@ set search_path = ''
 as $$
 declare
   v_uid     uuid := auth.uid();
+  v_rep_id  text;
   v_read_at timestamptz;
 begin
-  if v_uid is null
-     or not public.current_user_is_team_brief_member(p_brief_id)
-     or not public.team_brief_accepts_interaction(p_brief_id)
-  then
+  if v_uid is null or not public.team_brief_accepts_interaction(p_brief_id) then
     raise exception 'brief is not available for acknowledgement'
       using errcode = '42501';
   end if;
 
-  insert into public.team_brief_reads (brief_id, auth_id, read_at)
-  values (p_brief_id, v_uid, pg_catalog.statement_timestamp())
-  on conflict (brief_id, auth_id) do nothing;
+  select am.rep_id into v_rep_id
+  from public.team_brief_audience_members am
+  where am.brief_id = p_brief_id
+    and am.auth_id = v_uid;
+
+  if v_rep_id is null then
+    raise exception 'brief is not available for acknowledgement'
+      using errcode = '42501';
+  end if;
+
+  -- First acknowledgement wins at the rep grain. Any frozen alias can make
+  -- the click; every alias subsequently observes the same preserved receipt.
+  insert into public.team_brief_reads (brief_id, rep_id, auth_id, read_at)
+  values (p_brief_id, v_rep_id, v_uid, pg_catalog.statement_timestamp())
+  on conflict (brief_id, rep_id) do nothing;
 
   select r.read_at into v_read_at
   from public.team_brief_reads r
-  where r.brief_id = p_brief_id and r.auth_id = v_uid;
+  where r.brief_id = p_brief_id and r.rep_id = v_rep_id;
 
   return v_read_at;
 end;
@@ -628,8 +698,14 @@ drop policy if exists "self or manager reads team brief reads" on public.team_br
 create policy "self or manager reads team brief reads"
   on public.team_brief_reads for select to authenticated
   using (
-    auth_id = (select auth.uid())
-    or public.current_user_can_manage_team_brief(brief_id)
+    public.current_user_can_manage_team_brief(brief_id)
+    or exists (
+      select 1
+      from public.team_brief_audience_members am
+      where am.brief_id = team_brief_reads.brief_id
+        and am.rep_id = team_brief_reads.rep_id
+        and am.auth_id = (select auth.uid())
+    )
   );
 
 drop policy if exists "audience or manager reads team brief comments" on public.team_brief_comments;

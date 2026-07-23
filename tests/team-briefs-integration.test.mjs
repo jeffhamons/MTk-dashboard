@@ -36,6 +36,14 @@ test("manager and rep surfaces are window-attached and wired through HomeView", 
   assert.match(html, /onOpen=\{\(\) => setView\("team-briefs"\)\}/);
 });
 
+test("multi-email aliases acknowledge and report once per rep", () => {
+  const source = read("src/team-briefs.jsx");
+  assert.match(source, /function teamBriefAudienceByRep/);
+  assert.match(source, /member\.rep_id[\s\S]*read\.rep_id === member\.rep_id/);
+  assert.match(source, /teamBriefReadBy\(brief,\s*authedUser\)/);
+  assert.match(source, /acknowledged\.length\}\/\{audience\.length\}/);
+});
+
 test("Team Briefs owns a separate load and realtime cycle", () => {
   const source = read("src/supabase-client.js");
   const sharedLoadStart = source.indexOf("async function loadStateFromSupabase");

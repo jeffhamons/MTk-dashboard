@@ -88,6 +88,61 @@ test("audience expansion includes only active, seated rep identities", () => {
   }]);
 });
 
+test("audience expansion keeps auth aliases while the rep denominator stays distinct", () => {
+  const reps = [
+    { rep_id: "mike", team_id: "newbiz", region: "EMEA", active: true },
+  ];
+  const users = [
+    { auth_id: "mike-mindtools", rep_id: "mike", role: "rep" },
+    { auth_id: "mike-kineo", rep_id: "mike", role: "rep" },
+  ];
+
+  const expanded = Array.from(
+    dm.expandTeamBriefAudience(users, reps, audience("team_region", "newbiz", "EMEA")),
+    row => ({ ...row })
+  );
+
+  assert.deepEqual(expanded, [
+    {
+      auth_id: "mike-mindtools",
+      rep_id: "mike",
+      team_id: "newbiz",
+      region: "EMEA",
+    },
+    {
+      auth_id: "mike-kineo",
+      rep_id: "mike",
+      team_id: "newbiz",
+      region: "EMEA",
+    },
+  ]);
+  assert.equal(expanded.length, 2, "each authenticated alias receives an access row");
+  assert.equal(
+    new Set(expanded.map(row => row.rep_id)).size,
+    1,
+    "read-receipt denominator counts the rep once"
+  );
+});
+
+test("audience expansion rejects duplicate auth identities", () => {
+  const reps = [
+    { rep_id: "mike", team_id: "newbiz", region: "EMEA", active: true },
+  ];
+  const users = [
+    { auth_id: "same-auth", rep_id: "mike", role: "rep" },
+    { auth_id: "same-auth", rep_id: "mike", role: "rep" },
+  ];
+
+  assert.throws(
+    () => dm.expandTeamBriefAudience(
+      users,
+      reps,
+      audience("team_region", "newbiz", "EMEA")
+    ),
+    /Duplicate Team Brief audience auth identity/
+  );
+});
+
 test("materialized audience snapshots stay frozen when roster seating changes", () => {
   const reps = [
     { rep_id: "cammy", team_id: "newbiz", region: "US", active: true },

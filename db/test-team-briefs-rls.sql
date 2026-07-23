@@ -148,6 +148,10 @@ do $$
 declare
   v_table text;
   v_direct_brief_fks integer;
+  v_reads_pk_columns text[];
+  v_audience_fk_columns text[];
+  v_audience_fk_ref_columns text[];
+  v_alias_index_unique boolean;
 begin
   foreach v_table in array array[
     'team_briefs',
@@ -183,7 +187,59 @@ begin
       v_direct_brief_fks;
   end if;
 
-  raise notice 'PASS [3] SELECT-only table ACLs; unambiguous direct reads embed FK';
+  select array_agg(a.attname order by k.ordinality)
+    into v_reads_pk_columns
+  from pg_catalog.pg_constraint c
+  cross join lateral unnest(c.conkey) with ordinality as k(attnum, ordinality)
+  join pg_catalog.pg_attribute a
+    on a.attrelid = c.conrelid and a.attnum = k.attnum
+  where c.conrelid = 'public.team_brief_reads'::regclass
+    and c.conname = 'team_brief_reads_pkey'
+    and c.contype = 'p';
+
+  if v_reads_pk_columns is distinct from array['brief_id', 'rep_id']::text[] then
+    raise exception 'FAIL [reads denominator PK] got %, want {brief_id,rep_id}',
+      v_reads_pk_columns;
+  end if;
+
+  select
+    array_agg(local_a.attname order by local_k.ordinality),
+    array_agg(ref_a.attname order by local_k.ordinality)
+    into v_audience_fk_columns, v_audience_fk_ref_columns
+  from pg_catalog.pg_constraint c
+  cross join lateral unnest(c.conkey) with ordinality
+    as local_k(attnum, ordinality)
+  cross join lateral unnest(c.confkey) with ordinality
+    as ref_k(attnum, ordinality)
+  join pg_catalog.pg_attribute local_a
+    on local_a.attrelid = c.conrelid and local_a.attnum = local_k.attnum
+  join pg_catalog.pg_attribute ref_a
+    on ref_a.attrelid = c.confrelid and ref_a.attnum = ref_k.attnum
+  where c.conrelid = 'public.team_brief_reads'::regclass
+    and c.confrelid = 'public.team_brief_audience_members'::regclass
+    and c.conname = 'team_brief_reads_audience_fk'
+    and c.contype = 'f'
+    and local_k.ordinality = ref_k.ordinality;
+
+  if v_audience_fk_columns is distinct from
+       array['brief_id', 'auth_id', 'rep_id']::text[]
+     or v_audience_fk_ref_columns is distinct from
+       array['brief_id', 'auth_id', 'rep_id']::text[]
+  then
+    raise exception 'FAIL [reads audience FK] local=% referenced=%',
+      v_audience_fk_columns, v_audience_fk_ref_columns;
+  end if;
+
+  select i.indisunique into v_alias_index_unique
+  from pg_catalog.pg_index i
+  where i.indexrelid =
+    pg_catalog.to_regclass('public.team_brief_audience_identity_rep_uidx');
+
+  if v_alias_index_unique is distinct from true then
+    raise exception 'FAIL [alias identity index] expected unique audience identity/rep index';
+  end if;
+
+  raise notice 'PASS [3] SELECT-only ACLs; rep-grained PK and alias integrity FKs/indexes';
 end
 $$;
 
@@ -376,6 +432,7 @@ do $$
 declare
   v_jeff uuid := (select id from _tb_test_state where key = 'jeff');
   v_brief uuid;
+  v_alias_brief uuid;
   v_expected integer;
   v_actual integer;
 begin
@@ -401,7 +458,7 @@ begin
 
   -- Along with the team_region probe below, these prove that the global
   -- manager can publish every MVP audience mode.
-  perform public.publish_team_brief(
+  v_alias_brief := public.publish_team_brief(
     p_title => 'RFC163 manager sales all',
     p_body => 'Global audience-mode probe.',
     p_brief_type => 'fyi',
@@ -463,8 +520,102 @@ begin
     raise exception 'FAIL [audience expansion] manager/admin entered denominator';
   end if;
 
-  insert into _tb_test_state (key, id) values ('main_brief', v_brief);
+  insert into _tb_test_state (key, id) values
+    ('main_brief', v_brief),
+    ('alias_brief', v_alias_brief);
   raise notice 'PASS [7] global manager published all four modes; team_region expansion exact';
+exception when others then
+  execute 'reset role';
+  raise;
+end
+$$;
+
+-- Intentional identity aliases: both auth IDs are frozen for access, but the
+-- read denominator and acknowledgement receipt remain one row per rep_id.
+do $$
+declare
+  v_brief uuid := (select id from _tb_test_state where key = 'alias_brief');
+  v_rep_id text;
+  v_aliases uuid[];
+  v_first_read timestamptz;
+  v_second_read timestamptz;
+  v_comment uuid;
+  v_count integer;
+  v_audience_rows integer;
+  v_denominator integer;
+begin
+  -- Mike Cawood intentionally keeps two working magic-link identities in the
+  -- target project. This is a named production fixture, not accidental drift.
+  select am.rep_id, array_agg(am.auth_id order by am.auth_id)
+    into v_rep_id, v_aliases
+  from public.team_brief_audience_members am
+  where am.brief_id = v_brief
+    and am.rep_id = 'mike'
+  group by am.rep_id
+  having count(*) >= 2;
+
+  if v_rep_id is null or cardinality(v_aliases) < 2 then
+    raise exception 'FAIL [alias fixture] All Sales did not freeze both intentional mike auth identities';
+  end if;
+
+  select count(*), count(distinct am.rep_id)
+    into v_audience_rows, v_denominator
+  from public.team_brief_audience_members am
+  where am.brief_id = v_brief;
+  if v_audience_rows <= v_denominator then
+    raise exception 'FAIL [alias audience] alias rows did not exceed rep denominator';
+  end if;
+
+  perform pg_catalog.set_config(
+    'request.jwt.claims',
+    pg_catalog.json_build_object('sub', v_aliases[1], 'role', 'authenticated')::text,
+    true
+  );
+  perform pg_catalog.set_config('role', 'authenticated', true);
+  v_first_read := public.acknowledge_team_brief(v_brief);
+  v_comment := public.add_team_brief_comment(
+    v_brief, 'Alias one comment must be visible through alias two.'
+  );
+  execute 'reset role';
+
+  perform pg_catalog.set_config(
+    'request.jwt.claims',
+    pg_catalog.json_build_object('sub', v_aliases[2], 'role', 'authenticated')::text,
+    true
+  );
+  perform pg_catalog.set_config('role', 'authenticated', true);
+  v_second_read := public.acknowledge_team_brief(v_brief);
+
+  select count(*) into v_count
+  from public.team_brief_reads r
+  where r.brief_id = v_brief and r.rep_id = v_rep_id;
+  if v_count <> 1 then
+    raise exception 'FAIL [cross-alias read visibility] second alias sees % receipts, want 1',
+      v_count;
+  end if;
+
+  select count(*) into v_count
+  from public.team_brief_comments c
+  where c.id = v_comment;
+  if v_count <> 1 then
+    raise exception 'FAIL [cross-alias comment visibility] second alias sees % comments, want 1',
+      v_count;
+  end if;
+  execute 'reset role';
+
+  if v_first_read is distinct from v_second_read then
+    raise exception 'FAIL [cross-alias idempotency] first=% second=%',
+      v_first_read, v_second_read;
+  end if;
+  select count(*) into v_count
+  from public.team_brief_reads r
+  where r.brief_id = v_brief and r.rep_id = v_rep_id;
+  if v_count <> 1 then
+    raise exception 'FAIL [rep denominator] got % receipts for %, want 1',
+      v_count, v_rep_id;
+  end if;
+
+  raise notice 'PASS [8] two aliases share one rep denominator/read and comment access';
 exception when others then
   execute 'reset role';
   raise;
@@ -513,7 +664,7 @@ begin
   end if;
 
   insert into _tb_test_state (key, id) values ('member', v_member);
-  raise notice 'PASS [8] audience count and team/region snapshot remain frozen after roster mutation';
+  raise notice 'PASS [9] audience count and team/region snapshot remain frozen after roster mutation';
 end
 $$;
 
@@ -523,11 +674,17 @@ do $$
 declare
   v_brief uuid := (select id from _tb_test_state where key = 'main_brief');
   v_member uuid := (select id from _tb_test_state where key = 'member');
+  v_member_rep text;
   v_first timestamptz;
   v_second timestamptz;
   v_count integer;
   v_comment uuid;
 begin
+  select am.rep_id into strict v_member_rep
+  from public.team_brief_audience_members am
+  where am.brief_id = v_brief
+    and am.auth_id = v_member;
+
   perform pg_catalog.set_config(
     'request.jwt.claims',
     pg_catalog.json_build_object('sub', v_member, 'role', 'authenticated')::text,
@@ -555,7 +712,7 @@ begin
   end if;
   select count(*) into v_count
   from public.team_brief_reads r
-  where r.brief_id = v_brief and r.auth_id = v_member;
+  where r.brief_id = v_brief and r.rep_id = v_member_rep;
   if v_count <> 1 then
     raise exception 'FAIL [ack idempotency] got % read rows, want 1', v_count;
   end if;
@@ -566,7 +723,7 @@ begin
   end if;
 
   insert into _tb_test_state (key, id) values ('comment', v_comment);
-  raise notice 'PASS [9] explicit ack is idempotent; comment is trimmed and stored';
+  raise notice 'PASS [10] explicit ack is rep-idempotent; comment is trimmed and stored';
 exception when others then
   execute 'reset role';
   raise;
@@ -619,7 +776,7 @@ begin
     raise exception 'FAIL [non-audience write] comment_denied=% ack_denied=%',
       v_comment_denied, v_ack_denied;
   end if;
-  raise notice 'PASS [10] non-audience sees nothing and cannot comment/ack';
+  raise notice 'PASS [11] non-audience sees nothing and cannot comment/ack';
 exception when others then
   execute 'reset role';
   raise;
@@ -661,7 +818,7 @@ begin
     raise exception 'FAIL [peer comment visibility] second audience member sees % rows, want 1',
       v_count;
   end if;
-  raise notice 'PASS [11] second audience member sees first member comment';
+  raise notice 'PASS [12] second audience member sees first member comment';
 exception when others then
   execute 'reset role';
   raise;
@@ -703,7 +860,7 @@ begin
     raise exception 'FAIL [rep comment immutability] update_denied=% delete_denied=%',
       v_update_denied, v_delete_denied;
   end if;
-  raise notice 'PASS [12] rep direct comment UPDATE and DELETE are denied';
+  raise notice 'PASS [13] rep direct comment UPDATE and DELETE are denied';
 exception when others then
   execute 'reset role';
   raise;
@@ -760,7 +917,7 @@ begin
     raise exception 'FAIL [archive] brief did not enter archived state';
   end if;
 
-  raise notice 'PASS [13] manager sees tracking data, soft-deletes, and archives';
+  raise notice 'PASS [14] manager sees tracking data, soft-deletes, and archives';
 exception when others then
   execute 'reset role';
   raise;
@@ -789,7 +946,7 @@ begin
   if v_count <> 0 then
     raise exception 'FAIL [soft-delete visibility] audience member still sees deleted body';
   end if;
-  raise notice 'PASS [14] soft-deleted comment hidden from audience member';
+  raise notice 'PASS [15] soft-deleted comment hidden from audience member';
 exception when others then
   execute 'reset role';
   raise;
@@ -824,10 +981,10 @@ begin
       end if;
     end loop;
   end if;
-  raise notice 'PASS [15] realtime publication membership present (when publication exists)';
+  raise notice 'PASS [16] realtime publication membership present (when publication exists)';
 end
 $$;
 
-select 'RFC-163 TEAM BRIEFS: ALL RLS/RPC ASSERTIONS PASSED' as result;
+select 'RFC-163 TEAM BRIEFS: ALL 16 RLS/RPC ASSERTIONS PASSED' as result;
 
 rollback;

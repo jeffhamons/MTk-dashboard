@@ -79,8 +79,39 @@ const TEAM_BRIEF_STYLES = `
 @media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}}
 `;
 
-function teamBriefReadBy(brief, authId) {
-  return (brief.reads || []).some(read => read.auth_id === authId);
+function teamBriefReadBy(brief, authedUser) {
+  const repId = authedUser && typeof authedUser === "object" ? authedUser.rep_id : null;
+  const authId = authedUser && typeof authedUser === "object" ? authedUser.auth_id : authedUser;
+  return (brief.reads || []).some(read =>
+    (repId && read.rep_id === repId)
+    || (authId && read.auth_id === authId)
+  );
+}
+
+function teamBriefAudienceByRep(brief) {
+  const seats = new Map();
+  (brief.audience || []).forEach(member => {
+    const key = member.rep_id ? `rep:${member.rep_id}` : `auth:${member.auth_id}`;
+    const existing = seats.get(key);
+    if (existing) {
+      if (member.auth_id && !existing.auth_ids.includes(member.auth_id)) {
+        existing.auth_ids.push(member.auth_id);
+      }
+      return;
+    }
+    seats.set(key, {
+      ...member,
+      auth_ids: member.auth_id ? [member.auth_id] : [],
+    });
+  });
+  return Array.from(seats.values());
+}
+
+function teamBriefAudienceMemberRead(brief, member) {
+  return (brief.reads || []).some(read =>
+    (member.rep_id && read.rep_id === member.rep_id)
+    || (read.auth_id && member.auth_ids.includes(read.auth_id))
+  );
 }
 
 function teamBriefRepName(repId) {
@@ -103,13 +134,13 @@ function teamBriefFormatDate(value, timezone) {
   }
 }
 
-function teamBriefSort(a, b, authId) {
+function teamBriefSort(a, b, authedUser) {
   const ranks = { overdue: 0, today: 1, tomorrow: 2, soon: 3, normal: 4 };
   const ar = ranks[teamBriefUrgency(a)] ?? 4;
   const br = ranks[teamBriefUrgency(b)] ?? 4;
   if (ar !== br) return ar - br;
-  const aRead = teamBriefReadBy(a, authId);
-  const bRead = teamBriefReadBy(b, authId);
+  const aRead = teamBriefReadBy(a, authedUser);
+  const bRead = teamBriefReadBy(b, authedUser);
   if (aRead !== bRead) return aRead ? 1 : -1;
   return String(b.publish_at || "").localeCompare(String(a.publish_at || ""));
 }
@@ -144,8 +175,7 @@ function useTeamBriefs(includeArchived) {
 }
 
 function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
-  const authId = authedUser && authedUser.auth_id;
-  const read = teamBriefReadBy(brief, authId);
+  const read = teamBriefReadBy(brief, authedUser);
   const urgency = teamBriefUrgency(brief);
   const [commentOpen, setCommentOpen] = React.useState(false);
   const [comment, setComment] = React.useState("");
@@ -153,9 +183,9 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
   const [error, setError] = React.useState("");
   const active = brief.status === "published" && !brief.archived_at;
   const visibleComments = (brief.comments || []).filter(c => managerial || !c.deleted_at);
-  const audience = brief.audience || [];
-  const reads = brief.reads || [];
-  const unread = audience.filter(member => !reads.some(readRow => readRow.auth_id === member.auth_id));
+  const audience = teamBriefAudienceByRep(brief);
+  const acknowledged = audience.filter(member => teamBriefAudienceMemberRead(brief, member));
+  const unread = audience.filter(member => !teamBriefAudienceMemberRead(brief, member));
 
   async function act(fn) {
     setBusy(true);
@@ -204,7 +234,7 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
       {managerial && (
         <>
           <div className="tb-track">
-            <div className="tb-track__cell"><strong>{reads.length}/{audience.length}</strong><span>Acknowledged</span></div>
+            <div className="tb-track__cell"><strong>{acknowledged.length}/{audience.length}</strong><span>Acknowledged</span></div>
             <div className="tb-track__cell"><strong>{unread.length}</strong><span>Unread</span></div>
             <div className="tb-track__cell"><strong>{visibleComments.filter(c => !c.deleted_at).length}</strong><span>Comments</span></div>
           </div>
@@ -283,10 +313,9 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
 
 function TeamBriefsTodayPanel({ authedUser, onOpen }) {
   const { briefs, loading, error, refresh } = useTeamBriefs(false);
-  const authId = authedUser && authedUser.auth_id;
   const active = briefs
-    .filter(brief => teamBriefIsVisible(brief, teamBriefReadBy(brief, authId)))
-    .sort((a, b) => teamBriefSort(a, b, authId));
+    .filter(brief => teamBriefIsVisible(brief, teamBriefReadBy(brief, authedUser)))
+    .sort((a, b) => teamBriefSort(a, b, authedUser));
 
   if (!loading && !error && active.length === 0) {
     return (
@@ -415,12 +444,11 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
     }
   }
 
-  const authId = authedUser && authedUser.auth_id;
   const filtered = briefs
     .filter(brief => managerial
       ? (tab === "archived" ? brief.status === "archived" : brief.status === "published")
-      : teamBriefIsVisible(brief, teamBriefReadBy(brief, authId)))
-    .sort((a, b) => teamBriefSort(a, b, authId));
+      : teamBriefIsVisible(brief, teamBriefReadBy(brief, authedUser)))
+    .sort((a, b) => teamBriefSort(a, b, authedUser));
 
   return (
     <div className="team-briefs" data-screen-label="Team Briefs">

@@ -921,21 +921,21 @@ function teamBriefAudienceMatches(rep, audience) {
 }
 
 // Pure mirror of the publish RPC's materialization query. Only active roster
-// reps with a real rep-role users row count in read-receipt denominators.
+// reps with a real rep-role users row are materialized. A rep may intentionally
+// have multiple authenticated email aliases: each distinct auth_id gets an
+// access row, while receipt reporting deduplicates the rows by rep_id.
 function expandTeamBriefAudience(users, reps, audience) {
   const repMap = new Map((reps || []).map(rep => [rep.rep_id || rep.id, rep]));
   const seenAuth = new Set();
-  const seenRep = new Set();
   const out = [];
   for (const user of (users || [])) {
     if (!user || user.role !== "rep" || !user.auth_id || !user.rep_id) continue;
     const rep = repMap.get(user.rep_id);
     if (!rep || rep.active === false || !teamBriefAudienceMatches(rep, audience)) continue;
-    if (seenAuth.has(user.auth_id) || seenRep.has(user.rep_id)) {
-      throw new Error("Duplicate Team Brief audience seating");
+    if (seenAuth.has(user.auth_id)) {
+      throw new Error("Duplicate Team Brief audience auth identity");
     }
     seenAuth.add(user.auth_id);
-    seenRep.add(user.rep_id);
     out.push({
       auth_id: user.auth_id,
       rep_id: user.rep_id,
