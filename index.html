@@ -2274,6 +2274,17 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
         </div>
       ); })()}
 
+      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle. */}
+      {!isManager && myRepId && typeof TeamBriefsTodayPanel !== "undefined" && (
+        <TeamBriefsTodayPanel
+          authedUser={authedUser}
+          activeTeam={activeTeam}
+          viewerScope={viewerScope}
+          regionPill={regionPill}
+          onOpen={() => setView("team-briefs")}
+        />
+      )}
+
       <div className="home__cards">
         {isManager ? (
           <>
@@ -2406,17 +2417,6 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
           </>
         )}
       </div>
-
-      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle. */}
-      {!isManager && myRepId && typeof TeamBriefsTodayPanel !== "undefined" && (
-        <TeamBriefsTodayPanel
-          authedUser={authedUser}
-          activeTeam={activeTeam}
-          viewerScope={viewerScope}
-          regionPill={regionPill}
-          onOpen={() => setView("team-briefs")}
-        />
-      )}
 
       {/* My Number — V2 personal target deep-dive (reps only) */}
       {!isManager && myRepId && typeof MyNumber !== "undefined" && <MyNumber repId={myRepId} />}

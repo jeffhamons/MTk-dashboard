@@ -57,8 +57,17 @@ const TEAM_BRIEF_STYLES = `
 .tb-card__body{white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--ink)}
 .tb-card__sub{font-size:11px;color:var(--muted)}
 .tb-card__actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
-.tb-ack{display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:white;border-radius:8px;padding:7px 10px;font-size:11px;font-weight:750;cursor:pointer}
-.tb-ack[data-read="1"]{color:#166534;background:#f0fdf4;border-color:#bbf7d0}
+.tb-ack-callout{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 13px;border:1px solid var(--brand-light);background:var(--brand-tint);border-radius:10px}
+.tb-ack-callout[data-read="1"]{border-color:var(--done-light);background:var(--done-tint)}
+.tb-ack-callout__copy{display:grid;gap:3px}
+.tb-ack-callout__label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--brand-deep)}
+.tb-ack-callout[data-read="1"] .tb-ack-callout__label{color:var(--done-deep)}
+.tb-ack-callout__help{font-size:11px;line-height:1.4;color:var(--ink-70)}
+.tb-ack{min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px;flex:none;border:1px solid var(--brand-deep);background:var(--brand-deep);color:white;border-radius:9px;padding:10px 17px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 7px rgba(25,20,55,.14);transition:transform 140ms,box-shadow 140ms,background 140ms}
+.tb-ack:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 10px rgba(25,20,55,.2)}
+.tb-ack:focus-visible{outline:3px solid var(--brand-light);outline-offset:2px}
+.tb-ack:disabled:not([data-read="1"]){opacity:.6;cursor:wait}
+.tb-ack[data-read="1"]{color:var(--done-deep);background:white;border-color:var(--done-light);box-shadow:none;cursor:default}
 .tb-track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .tb-track__cell{border-radius:8px;background:#f6f5f9;padding:9px}
 .tb-track__cell strong{display:block;font-size:16px}
@@ -76,7 +85,7 @@ const TEAM_BRIEF_STYLES = `
 .tb-today__head span{font-size:11px;color:var(--muted)}
 .tb-today--quiet{padding:12px 15px}
 .tb-loading{color:var(--muted);font-size:12px}
-@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}.tb-ack-callout{align-items:stretch;flex-direction:column}.tb-ack{width:100%}}
 `;
 
 function teamBriefReadBy(brief, authedUser) {
@@ -245,17 +254,32 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
       )}
 
       {error && <div className="tb-error">{error}</div>}
-      <div className="tb-card__actions">
-        {!managerial && active && brief.require_ack && (
+      {!managerial && active && brief.require_ack && (
+        <div className="tb-ack-callout" data-read={read ? "1" : "0"}>
+          <div className="tb-ack-callout__copy">
+            <div className="tb-ack-callout__label">
+              {read ? "Acknowledged" : "Acknowledgement required"}
+            </div>
+            <div className="tb-ack-callout__help">
+              {read
+                ? "You confirmed that you read this brief."
+                : brief.brief_type === "action_required"
+                  ? "Read the brief, then click to confirm. This does not mark the action complete."
+                  : "Read the brief, then click to confirm that you've seen it."}
+            </div>
+          </div>
           <button
             className="tb-ack"
             data-read={read ? "1" : "0"}
+            aria-label={read ? "Brief acknowledged" : "Acknowledge this brief"}
             disabled={read || busy}
             onClick={() => act(() => window.acknowledgeTeamBrief(brief.id))}
           >
-            <Icon name="check" size={13} /> {read ? "Acknowledged" : "Acknowledge"}
+            <Icon name="check" size={16} /> {read ? "Acknowledged" : "Confirm I've read this"}
           </button>
-        )}
+        </div>
+      )}
+      <div className="tb-card__actions">
         {active && brief.allow_comments && (
           <button className="tb-btn" disabled={busy} onClick={() => setCommentOpen(open => !open)}>
             Comment{visibleComments.length ? ` (${visibleComments.filter(c => !c.deleted_at).length})` : ""}
