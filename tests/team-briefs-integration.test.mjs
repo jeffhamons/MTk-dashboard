@@ -36,6 +36,24 @@ test("manager and rep surfaces are window-attached and wired through HomeView", 
   assert.match(html, /onOpen=\{\(\) => setView\("team-briefs"\)\}/);
 });
 
+test("rep Morning Brief renders above the two Home hero cards", () => {
+  const html = read("index.html");
+  const homeStart = html.indexOf("function HomeView");
+  const homeEnd = html.indexOf("// ── App", homeStart);
+  const home = html.slice(homeStart, homeEnd);
+  assert.ok(home.indexOf("<TeamBriefsTodayPanel") >= 0);
+  assert.ok(home.indexOf("<TeamBriefsTodayPanel") < home.indexOf('<div className="home__cards">'));
+});
+
+test("required acknowledgement is a prominent, explicit action band", () => {
+  const source = read("src/team-briefs.jsx");
+  assert.match(source, /className="tb-ack-callout"/);
+  assert.match(source, /Acknowledgement required/);
+  assert.match(source, /Confirm I've read this/);
+  assert.match(source, /This does not mark the action complete/);
+  assert.match(source, /\.tb-ack\{min-height:44px/);
+});
+
 test("multi-email aliases acknowledge and report once per rep", () => {
   const source = read("src/team-briefs.jsx");
   assert.match(source, /function teamBriefAudienceByRep/);
