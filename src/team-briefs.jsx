@@ -80,6 +80,7 @@ const TEAM_BRIEF_STYLES = `
 .tb-comment__head{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-bottom:3px}
 .tb-comment--deleted{font-style:italic;color:var(--muted)}
 .tb-comment-box{display:grid;gap:6px}
+.tb-comment-box__visibility{padding:8px 10px;border-radius:8px;background:#f6f5f9;color:var(--ink-70);font-size:11px;line-height:1.4}
 .tb-comment-box__actions{display:flex;justify-content:flex-end;gap:7px}
 .tb-today{margin:18px 0;border:1px solid var(--line);background:linear-gradient(135deg,#fff,#f8f7ff);border-radius:14px;padding:16px;display:grid;gap:12px}
 .tb-today__head{display:flex;justify-content:space-between;gap:12px;align-items:center}
@@ -233,7 +234,13 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
   const read = teamBriefReadBy(brief, authedUser);
   const urgency = teamBriefUrgency(brief);
   const historical = readOnly;
-  const [commentOpen, setCommentOpen] = React.useState(false);
+  const [commentOpen, setCommentOpen] = React.useState(() =>
+    !managerial
+    && !readOnly
+    && brief.status === "published"
+    && !brief.archived_at
+    && brief.allow_comments
+  );
   const [comment, setComment] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -334,7 +341,7 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
         </div>
       )}
       <div className="tb-card__actions">
-        {!historical && active && brief.allow_comments && (
+        {!historical && active && brief.allow_comments && (managerial || !commentOpen) && (
           <button className="tb-btn" disabled={busy} onClick={() => setCommentOpen(open => !open)}>
             Comment{visibleComments.length ? ` (${visibleComments.filter(c => !c.deleted_at).length})` : ""}
           </button>
@@ -372,11 +379,14 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
 
       {commentOpen && !historical && active && (
         <div className="tb-comment-box">
+          <div className="tb-comment-box__visibility">
+            Visible to everyone who received this brief — this is not a private message.
+          </div>
           <textarea
             value={comment}
             maxLength={TEAM_BRIEF_COMMENT_MAX_LENGTH}
             onChange={event => setComment(event.target.value)}
-            placeholder="Add a plain-text follow-up…"
+            placeholder="Write a comment for everyone on this brief…"
             rows={3}
           />
           <div className="tb-comment-box__actions">
