@@ -43,6 +43,8 @@ const TEAM_BRIEF_STYLES = `
 .tb-checks{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
 .tb-checks label{display:flex;gap:7px;align-items:center;font-size:12px}
 .tb-list{display:grid;gap:12px}
+.tb-history-group{display:grid;gap:10px}
+.tb-history-group__heading{margin:5px 0 0;font-size:13px;letter-spacing:.02em;color:var(--muted)}
 .tb-empty{border:1px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);font-size:13px}
 .tb-card{border:1px solid var(--line);border-left:4px solid #c7c6d8;background:var(--paper);border-radius:12px;padding:15px;display:grid;gap:11px}
 .tb-card[data-urgency="soon"]{border-left-color:#f59e0b}
@@ -154,6 +156,50 @@ function teamBriefSort(a, b, authedUser) {
   return String(b.publish_at || "").localeCompare(String(a.publish_at || ""));
 }
 
+function teamBriefHistoryDateKey(brief) {
+  const published = new Date(brief.publish_at);
+  const timestamp = Number.isFinite(published.getTime()) ? published.getTime() : 0;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: brief.timezone || undefined,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(published);
+    const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+    return {
+      key: `${values.year}-${values.month}-${values.day}`,
+      label: new Intl.DateTimeFormat(undefined, {
+        timeZone: brief.timezone || undefined,
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }).format(published),
+      timestamp,
+    };
+  } catch {
+    return {
+      key: `${published.getFullYear()}-${String(published.getMonth() + 1).padStart(2, "0")}-${String(published.getDate()).padStart(2, "0")}`,
+      label: published.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }),
+      timestamp,
+    };
+  }
+}
+
+function teamBriefHistoryGroups(briefs) {
+  const groups = new Map();
+  [...briefs]
+    .sort((a, b) => String(b.publish_at || "").localeCompare(String(a.publish_at || "")))
+    .forEach(brief => {
+      const date = teamBriefHistoryDateKey(brief);
+      const group = groups.get(date.key) || { ...date, briefs: [] };
+      group.briefs.push(brief);
+      group.timestamp = Math.max(group.timestamp, date.timestamp);
+      groups.set(date.key, group);
+    });
+  return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key) * -1);
+}
+
 function useTeamBriefs(includeArchived) {
   const [briefs, setBriefs] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -183,15 +229,16 @@ function useTeamBriefs(includeArchived) {
   return { briefs, loading, error, refresh };
 }
 
-function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
+function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, readOnly = false }) {
   const read = teamBriefReadBy(brief, authedUser);
   const urgency = teamBriefUrgency(brief);
+  const historical = readOnly;
   const [commentOpen, setCommentOpen] = React.useState(false);
   const [comment, setComment] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
   const active = brief.status === "published" && !brief.archived_at;
-  const visibleComments = (brief.comments || []).filter(c => managerial || !c.deleted_at);
+  const visibleComments = (brief.comments || []).filter(c => !c.deleted_at || (managerial && !historical));
   const audience = teamBriefAudienceByRep(brief);
   const acknowledged = audience.filter(member => teamBriefAudienceMemberRead(brief, member));
   const unread = audience.filter(member => !teamBriefAudienceMemberRead(brief, member));
@@ -254,7 +301,14 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
       )}
 
       {error && <div className="tb-error">{error}</div>}
-      {!managerial && active && brief.require_ack && (
+      {!managerial && historical && (
+        <div className="tb-card__sub">
+          {brief.require_ack
+            ? (read ? "Acknowledged" : "Not acknowledged")
+            : "Acknowledgement not required"}
+        </div>
+      )}
+      {!managerial && !historical && active && brief.require_ack && (
         <div className="tb-ack-callout" data-read={read ? "1" : "0"}>
           <div className="tb-ack-callout__copy">
             <div className="tb-ack-callout__label">
@@ -280,12 +334,12 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
         </div>
       )}
       <div className="tb-card__actions">
-        {active && brief.allow_comments && (
+        {!historical && active && brief.allow_comments && (
           <button className="tb-btn" disabled={busy} onClick={() => setCommentOpen(open => !open)}>
             Comment{visibleComments.length ? ` (${visibleComments.filter(c => !c.deleted_at).length})` : ""}
           </button>
         )}
-        {managerial && active && (
+        {managerial && !historical && active && (
           <button className="tb-btn" disabled={busy} onClick={() => act(() => window.archiveTeamBrief(brief.id))}>
             Archive
           </button>
@@ -300,7 +354,7 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
                 <span>{teamBriefRepName(entry.rep_id)}</span>
                 <span>
                   {teamBriefFormatDate(entry.created_at, brief.timezone)}
-                  {managerial && !entry.deleted_at && (
+                  {managerial && !historical && !entry.deleted_at && (
                     <button
                       className="tb-btn"
                       style={{ marginLeft: 7, padding: "2px 6px" }}
@@ -316,7 +370,7 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact }) {
         </div>
       )}
 
-      {commentOpen && active && (
+      {commentOpen && !historical && active && (
         <div className="tb-comment-box">
           <textarea
             value={comment}
@@ -381,8 +435,9 @@ function TeamBriefsTodayPanel({ authedUser, onOpen }) {
 
 function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const managerial = canManageAny(authedUser);
-  const { briefs, loading, error, refresh } = useTeamBriefs(managerial);
-  const [tab, setTab] = React.useState("active");
+  const { briefs, loading, error, refresh } = useTeamBriefs(true);
+  const [tab, setTab] = React.useState(managerial ? "active" : "current");
+  const [historyQuery, setHistoryQuery] = React.useState("");
   const [publishError, setPublishError] = React.useState("");
   const [publishing, setPublishing] = React.useState(false);
   const allowedAudiences = TEAM_BRIEF_AUDIENCES.filter(spec => canPublishTeamBrief(authedUser, spec));
@@ -468,11 +523,23 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
     }
   }
 
-  const filtered = briefs
-    .filter(brief => managerial
-      ? (tab === "archived" ? brief.status === "archived" : brief.status === "published")
-      : teamBriefIsVisible(brief, teamBriefReadBy(brief, authedUser)))
-    .sort((a, b) => teamBriefSort(a, b, authedUser));
+  const now = Date.now();
+  const currentOrHistory = !managerial ? briefs.filter(brief =>
+    teamBriefRepSection(brief, teamBriefReadBy(brief, authedUser), now) === tab
+  ) : [];
+  const normalizedHistoryQuery = historyQuery.trim().toLowerCase();
+  const historyMatches = brief => !normalizedHistoryQuery
+    || `${brief.title || ""}\n${brief.body || ""}`.toLowerCase().includes(normalizedHistoryQuery);
+  const filtered = managerial
+    ? briefs
+      .filter(brief => tab === "archived" ? brief.status === "archived" : brief.status === "published")
+      .sort((a, b) => teamBriefSort(a, b, authedUser))
+    : currentOrHistory
+      .filter(brief => tab !== "history" || historyMatches(brief))
+      .sort((a, b) => tab === "history"
+        ? String(b.publish_at || "").localeCompare(String(a.publish_at || ""))
+        : teamBriefSort(a, b, authedUser));
+  const historyGroups = !managerial && tab === "history" ? teamBriefHistoryGroups(filtered) : [];
 
   return (
     <div className="team-briefs" data-screen-label="Team Briefs">
@@ -482,10 +549,15 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
           <h1>Team Briefs</h1>
           <p>{managerial ? "Publish operational context and track acknowledgement." : "Messages and actions for your team."}</p>
         </div>
-        {managerial && (
+        {managerial ? (
           <div className="tb-tabs">
             <button className="tb-tab" data-active={tab === "active" ? "1" : "0"} onClick={() => setTab("active")}>Active</button>
             <button className="tb-tab" data-active={tab === "archived" ? "1" : "0"} onClick={() => setTab("archived")}>Archived</button>
+          </div>
+        ) : (
+          <div className="tb-tabs">
+            <button className="tb-tab" data-active={tab === "current" ? "1" : "0"} onClick={() => setTab("current")}>Current</button>
+            <button className="tb-tab" data-active={tab === "history" ? "1" : "0"} onClick={() => setTab("history")}>History</button>
           </div>
         )}
       </header>
@@ -562,9 +634,29 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
 
       {loading && <div className="tb-loading">Loading Team Briefs…</div>}
       {error && <div className="tb-error">{error}</div>}
+      {!managerial && tab === "history" && (
+        <div className="tb-field">
+          <label htmlFor="team-brief-history-search">Search past briefs</label>
+          <input
+            id="team-brief-history-search"
+            type="search"
+            value={historyQuery}
+            onChange={event => setHistoryQuery(event.target.value)}
+            placeholder="Search past briefs"
+          />
+        </div>
+      )}
       <div className="tb-list">
-        {!loading && filtered.length === 0 && <div className="tb-empty">No {managerial ? tab : "active"} Team Briefs.</div>}
-        {filtered.map(brief => (
+        {!loading && filtered.length === 0 && (
+          <div className="tb-empty">
+            {managerial
+              ? `No ${tab} Team Briefs.`
+              : tab === "history"
+                ? (normalizedHistoryQuery ? "No results found" : "No brief history yet")
+                : "No current Team Briefs."}
+          </div>
+        )}
+        {managerial || tab === "current" ? filtered.map(brief => (
           <TeamBriefCard
             key={brief.id}
             brief={brief}
@@ -573,6 +665,21 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
             onChanged={refresh}
             compact={false}
           />
+        )) : historyGroups.map(group => (
+          <section className="tb-history-group" key={group.key}>
+            <h2 className="tb-history-group__heading">{group.label}</h2>
+            {group.briefs.map(brief => (
+              <TeamBriefCard
+                key={brief.id}
+                brief={brief}
+                authedUser={authedUser}
+                managerial={false}
+                onChanged={refresh}
+                compact={false}
+                readOnly={true}
+              />
+            ))}
+          </section>
         ))}
       </div>
     </div>

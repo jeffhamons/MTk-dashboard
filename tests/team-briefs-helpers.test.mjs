@@ -194,6 +194,40 @@ test("urgency is region-calendar aware and acknowledged action stays visible by 
   assert.equal(dm.teamBriefIsVisible({ ...base, display_rule: "until_acknowledged" }, true, now), false);
 });
 
+test("rep Current and History classification is a complete visibility partition", () => {
+  const now = "2026-07-23T14:00:00Z";
+  const base = {
+    status: "published",
+    publish_at: "2026-07-23T12:00:00Z",
+    archived_at: null,
+    expires_at: null,
+    brief_type: "morning_message",
+    display_rule: "manual_clear",
+  };
+  const cases = [
+    ["an expired brief", { ...base, expires_at: "2026-07-23T13:59:59Z" }, false, "history"],
+    ["an acknowledged until-acknowledged brief", { ...base, display_rule: "until_acknowledged" }, true, "history"],
+    ["an acknowledged overdue manual-clear action", {
+      ...base,
+      brief_type: "action_required",
+      due_at: "2026-07-22T22:00:00Z",
+    }, true, "current"],
+    ["an archived brief", { ...base, status: "archived", archived_at: "2026-07-23T13:00:00Z" }, false, "history"],
+    ["a visible unacknowledged brief", base, false, "current"],
+  ];
+
+  for (const [label, brief, acknowledged, expected] of cases) {
+    const section = dm.teamBriefRepSection(brief, acknowledged, now);
+    assert.equal(section, expected, label);
+    assert.ok(["current", "history"].includes(section), `${label} has exactly one section`);
+    assert.equal(
+      section === "current",
+      dm.teamBriefIsVisible(brief, acknowledged, now),
+      `${label} derives Current directly from visibility`
+    );
+  }
+});
+
 test("comments are trimmed, nonempty, and length bounded", () => {
   assert.deepEqual(
     { ...dm.normalizeTeamBriefComment("  Follow-up detail  ") },

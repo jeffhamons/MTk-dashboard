@@ -1063,6 +1063,14 @@ function teamBriefIsVisible(brief, acknowledged, now) {
   return true;
 }
 
+// Classify a Team Brief row that Supabase RLS has already authorized for the
+// signed-in rep. Keeping both sections on teamBriefIsVisible makes Current and
+// History an exact partition without recreating frozen-audience checks here.
+function teamBriefRepSection(brief, acknowledged, now) {
+  if (!brief) return null;
+  return teamBriefIsVisible(brief, acknowledged, now) ? "current" : "history";
+}
+
 function normalizeTeamBriefComment(body) {
   const value = String(body == null ? "" : body).trim();
   if (!value) return { ok: false, value: "", error: "Comment cannot be empty." };
@@ -1141,7 +1149,8 @@ Object.assign(window, {
   teamBriefAudiencePairs, canPublishTeamBrief, teamBriefAudienceMatches,
   expandTeamBriefAudience, teamBriefAudienceLabel,
   teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
-  teamBriefUrgency, teamBriefIsVisible, normalizeTeamBriefComment,
+  teamBriefUrgency, teamBriefIsVisible, teamBriefRepSection,
+  normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,
   convertAmount, formatCurrencyAmount,
