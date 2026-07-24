@@ -90,8 +90,10 @@ RLS is the real data boundary; the client only mirrors it. Roles:
 - `src/supabase-client.js` - Supabase client, auth helpers, DB read/write
   functions, and realtime subscriptions.
 - `src/components.jsx` - shared UI primitives.
-- `src/team-briefs.jsx` - RFC-163 manager composer/tracking page plus the
-  rep-facing Today panel; owns its own Team Briefs load/realtime cycle.
+- `src/team-briefs.jsx` - RFC-163 manager composer/tracking page and the
+  shared rep/manager `team-briefs` route. Reps use Current and History tabs;
+  the Home Today/Morning Brief panel remains Current-only. The route owns its
+  own Team Briefs load/realtime cycle.
 - `src/manager.jsx` - `APP_PAGES` nav registry plus `FlagQueue`,
   `ResolvedSection`, `ManagerNote`, `MarkedByStamp`.
 - `src/rep-view.jsx` - `RepView`, one rep's selected-week view.
@@ -167,8 +169,11 @@ RLS is the real data boundary; the client only mirrors it. Roles:
   clobber shared state.
 - `WinsFormView` and `StandupView` each run their own load/save/subscribe
   cycle.
-- Team Briefs also runs a separate load/save/subscribe cycle. It must never
-  be folded into `loadStateFromSupabase` or the shared `subscribeRealtime`.
+- Team Briefs also runs a separate load/save/subscribe cycle. The full
+  `team-briefs` page loads its frozen-audience/RLS-authorized Current and
+  History data, including archived rows; Home’s Today/Morning Brief stays
+  current-only. This cycle must never be folded into `loadStateFromSupabase`
+  or the shared `subscribeRealtime`.
 
 - `devViewAs` lets managers and preview mode impersonate another user for
   testing.
@@ -325,6 +330,19 @@ Supabase tables:
 - Acknowledgement is an explicit check mark, not completion. The
   `action_required` default uses manual clear so acknowledged overdue work
   remains visible until archive.
+- Reps use the same `team-briefs` route as managers. Their Current tab shows
+  currently visible briefs; Home’s Today/Morning Brief is also Current-only.
+  Their History tab is authorized by the same frozen-audience RLS policy and
+  includes expired, acknowledgement-cleared, and archived briefs. It is not a
+  client-side audience authorization check.
+- History cards are read-only: they retain visible comments and the rep’s
+  acknowledgement state, but do not expose acknowledgement, commenting, or
+  archive controls. They are grouped by publish date, newest first, and offer
+  client-side trimmed, case-insensitive title/body search. Search is applied
+  after the authorized client load; there is no server-side Team Brief search.
+- Current and History use the Team Briefs loader/realtime cycle independently
+  of shared dashboard state. The page load includes archived rows so History
+  can show the frozen-audience record; RLS remains the data-access boundary.
 - Comments are trimmed plain text with a 2,000-character maximum. Reps add
   follow-up comments; they cannot edit or delete comments. Authorized
   managers can soft-delete only.
@@ -334,6 +352,9 @@ Supabase tables:
   timezone.
 - The SQL migration is not self-deploying. Apply it to Supabase before the UI
   can publish or load live Team Briefs.
+- RFC-163 Phase 1.1 changes only the client presentation and loading behavior:
+  no schema or Supabase migration is required, and it adds no server-side
+  search endpoint.
 
 - `checks` and `asks` use integer `week_index`.
 - `manager_notes` uses string `week_id`.
