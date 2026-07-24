@@ -54,6 +54,16 @@ test("required acknowledgement is a prominent, explicit action band", () => {
   assert.match(source, /\.tb-ack\{min-height:44px/);
 });
 
+test("active rep comment composer opens by default and identifies comments as shared", () => {
+  const source = read("src/team-briefs.jsx");
+  const cardStart = source.indexOf("function TeamBriefCard");
+  const card = source.slice(cardStart, source.indexOf("function TeamBriefsTodayPanel", cardStart));
+
+  assert.match(card, /React\.useState\(\(\) =>\s*!managerial[\s\S]{0,180}!readOnly[\s\S]{0,180}brief\.allow_comments/);
+  assert.match(card, /Visible to everyone who received this brief/);
+  assert.match(card, /this is not a private message/);
+});
+
 test("multi-email aliases acknowledge and report once per rep", () => {
   const source = read("src/team-briefs.jsx");
   assert.match(source, /function teamBriefAudienceByRep/);
