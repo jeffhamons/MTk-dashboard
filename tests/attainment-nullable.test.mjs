@@ -170,7 +170,12 @@ test("issue #16: money formatters distinguish missing from zero", () => {
   assert.equal(att.attFmtMoney(null, "GBP"), "—");
   assert.notEqual(att.attFmtMoney(0, "GBP"), "—");
   assert.equal(att.attFmtK(null), "—");
-  assert.equal(att.attFmtK(0), "$0");
+  // Issue #30 (item 7): attFmtK and attFmtKRaw used to be two separate
+  // implementations that disagreed on the zero case ("$0" vs bare "0").
+  // attFmtKRaw is gone; attFmtK is now the one canonical "raw" (no baked-in
+  // currency symbol) short-number formatter — callers that need a symbol
+  // compose it themselves (attFmtMoneyK, target-board.jsx's team cards).
+  assert.equal(att.attFmtK(0), "0", "a real 0 still renders as a zero, with no symbol baked in");
   // A missing timestamp renders nothing at all — never a fabricated epoch date.
   assert.equal(att.attFmtDateTime(null), "");
   assert.equal(att.attFmtDateTime(""), "");

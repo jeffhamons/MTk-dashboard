@@ -18,36 +18,16 @@
 // helpers mirror cs-performance.jsx deliberately.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Memoized attainment_snapshot load (latest row per rep). See cs-performance.jsx.
-// Issue #24: resolves { rows, error } — a blocked read must not arrive as an
-// empty quarter. Mirrors cs-performance.jsx (both copies resolve to one global;
-// only the memo variable name differs).
-let _csrAttPromise = null;
-function loadCsActuals() {
-  if (_csrAttPromise) return _csrAttPromise;
-  const fn = window.loadAttainment;
-  _csrAttPromise = fn
-    ? Promise.resolve(fn()).then(rows => ({ rows: rows || [], error: null }))
-        .catch(e => {
-          const msg = (e && e.message) || String(e);
-          console.error("loadCsActuals failed:", msg);
-          return { rows: [], error: msg };
-        })
-    : Promise.resolve({ rows: [], error: null });
-  return _csrAttPromise;
-}
-
-// ── value coercion / pct (null-safe) ─────────────────────────────────────────
-function _csNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
-function _csPct(num, denom) {
-  const n = _csNum(num), d = _csNum(denom);
-  if (n == null || d == null || d === 0) return null;
-  return Math.round((n / d) * 100);
-}
-function _csPctText(p) {
-  if (window.attPctText) return window.attPctText(p);
-  return p == null ? "—" : `${p}%`;
-}
+// Issue #30: the memoized attainment_snapshot loader (loadCsActuals) and the
+// null-safe numeric/percent coercers (_csNum/_csPct) used to be defined here
+// AND in cs-performance.jsx — byte-identical, and each running its own
+// independent promise cache (redundant Supabase reads, risk of the two caches
+// diverging). Both now live once in cs-data.jsx (window.loadCsActuals/
+// _csNum/_csPct), which this file already loads after.
+// _csPctText used to be a local fallback-wrapped copy of attPctText,
+// duplicated in this file and cs-performance.jsx — callers now call
+// window.attPctText directly (attainment-data.jsx is guaranteed loaded by the
+// time any of these components actually render).
 function _csParseDate(iso) {
   if (!iso) return null;
   const s = String(iso);
@@ -120,11 +100,6 @@ function _csRegionObj(rid) { return (window.REGIONS || []).find(r => r.id === ri
 function _csRegionCurrencyLong(rid) {
   return window.regionCurrencyLong ? window.regionCurrencyLong(rid) : "USD";
 }
-function _csFmtMoney(amount, currency) {
-  return window.formatCurrencyAmount
-    ? window.formatCurrencyAmount(amount || 0, currency)
-    : String(amount || 0);
-}
 function _csConvert(amount, fromCur, toCur) {
   return window.convertAmount ? window.convertAmount(amount || 0, fromCur, toCur) : (amount || 0);
 }
@@ -154,7 +129,7 @@ function _csRegionActual(attRows, rid, component, period) {
   if (field) {
     for (const row of (attRows || [])) {
       if (!row || !repIds.has(row.rep_id)) continue;
-      const v = _csNum(row[field]);
+      const v = window._csNum(row[field]);
       if (v != null) { total += v; hasValue = true; }
       const s = _csParseDate(row.synced_at);
       if (s && (!synced || s > synced)) synced = s;
@@ -202,7 +177,7 @@ function _csRegionTarget(targets, rid, component, period) {
   if (!rows.length) {
     return { amount: null, currency: _csRegionCurrencyLong(rid), present: false, positive: false, row: null };
   }
-  const amount = rows.reduce((s, t) => s + (_csNum(t.amount) || 0), 0);
+  const amount = rows.reduce((s, t) => s + (window._csNum(t.amount) || 0), 0);
   // cs_targets rows carry their own currency (they are authored in GBP even for
   // a USD/AUD region) — issue #17. Never assume the region's native currency.
   const currency = (rows[0] && rows[0].currency) || _csRegionCurrencyLong(rid);
@@ -244,7 +219,7 @@ function _csRegionMetric(att, targets, rid, component, period) {
     target: targetNative, hasTarget: targetNative != null && targetNative > 0,
     targetRowPresent: t.present, targetSourceCurrency: t.currency,
     pct: (a.hasValue && targetNative != null && targetNative > 0)
-      ? _csPct(a.nativeTotal, targetNative) : null,
+      ? window._csPct(a.nativeTotal, targetNative) : null,
     currency: a.currency,
   };
 }
@@ -257,7 +232,7 @@ function _csRegionMetric(att, targets, rid, component, period) {
 // disagreement raises a visible warning.
 function _csSnapshotSignature(rowsOnDate) {
   return rowsOnDate
-    .map(r => `${String(r.metric)}:${_csNum(r.numerator)}/${_csNum(r.denominator)}`)
+    .map(r => `${String(r.metric)}:${window._csNum(r.numerator)}/${window._csNum(r.denominator)}`)
     .sort()
     .join("|");
 }
@@ -276,17 +251,17 @@ function _csWow(snapshots, scopeLabel) {
     let num = 0, den = 0, any = false, dropped = 0;
     for (const r of onDate) {
       if (r === combined) continue;  // the aggregate row is not a unit
-      const n = _csNum(r.numerator), d = _csNum(r.denominator);
+      const n = window._csNum(r.numerator), d = window._csNum(r.denominator);
       if (d != null && d > 0) { num += (n || 0); den += d; any = true; }
       else if (n != null && n !== 0) { dropped += 1; }
     }
     let derived = any && den > 0 ? Math.round((num / den) * 100) : null;
     // Only a lone combined row (no per-metric units) may stand in for itself.
     if (derived == null && combined) {
-      const cn = _csNum(combined.numerator), cd = _csNum(combined.denominator);
+      const cn = window._csNum(combined.numerator), cd = window._csNum(combined.denominator);
       if (cn != null && cd != null && cd > 0) derived = Math.round((cn / cd) * 100);
     }
-    const stored = combined ? _csNum(combined.pct) : null;
+    const stored = combined ? window._csNum(combined.pct) : null;
     const pct = derived != null ? derived : stored;
     const mismatch = derived != null && stored != null && Math.abs(derived - stored) > 1;
     return {
@@ -339,7 +314,7 @@ function CsExcludedNote({ metric, style }) {
   if (!metric || !metric.excluded || !metric.excluded.length) return null;
   return (
     <div style={{ fontSize: 11, color: "#B26B00", marginTop: 6, ...(style || {}) }}>
-      Excluded from the %: {metric.excluded.join(", ")} ({_csFmtMoney(metric.excludedActual, metric.currency)} with no target set).
+      Excluded from the %: {metric.excluded.join(", ")} ({window.formatCurrencyAmount(metric.excludedActual, metric.currency)} with no target set).
     </div>
   );
 }
@@ -399,7 +374,7 @@ function CsRegionWowRow({ snapshots, region }) {
         <span className="tb-eyebrow__dot" />{region} · week over week
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 600, letterSpacing: "-.02em" }}>
-        {_csPctText(wow.currentPct)}
+        {window.attPctText(wow.currentPct)}
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600, color: deltaColor }}>
         {arrow} {deltaTxt}
@@ -451,7 +426,7 @@ function CsPeriodTable({ att, targets, region, component }) {
             <tr key={r.key}>
               <td style={td}><b style={{ fontWeight: 600 }}>{r.label}</b></td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>
-                {r.m.hasTarget ? _csFmtMoney(r.m.target, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
+                {r.m.hasTarget ? window.formatCurrencyAmount(r.m.target, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
                 {/* Issue #15: an absent or zero cs_targets amount is "no target
                     set", never a cleared/$0 target. */}
                 <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>
@@ -459,7 +434,7 @@ function CsPeriodTable({ att, targets, region, component }) {
                 </div>
               </td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>
-                {r.m.hasActual ? _csFmtMoney(r.m.actual, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
+                {r.m.hasActual ? window.formatCurrencyAmount(r.m.actual, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
                 {/* Issue #16: a missing feed value is "not yet synced", which is
                     not the same claim as a genuine synced zero. */}
                 <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>
@@ -467,7 +442,7 @@ function CsPeriodTable({ att, targets, region, component }) {
                 </div>
               </td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600, color: _csPctColor(r.m.pct) }}>
-                {_csPctText(r.m.pct)}
+                {window.attPctText(r.m.pct)}
               </td>
               <td style={td}>
                 {r.m.hasTarget
@@ -500,7 +475,7 @@ function CsPeLtLsSplit({ targets, region, isManager, onCommit }) {
   ];
   const rows = comps.map(c => {
     const t = _csRegionTarget(targets, region, c.component, "qtd");
-    return { ...c, amount: t.present ? (_csNum(t.amount) || 0) : 0, present: t.present, currency };
+    return { ...c, amount: t.present ? (window._csNum(t.amount) || 0) : 0, present: t.present, currency };
   });
   const total = rows.reduce((s, r) => s + (r.present ? r.amount : 0), 0);
   return (
@@ -514,7 +489,7 @@ function CsPeLtLsSplit({ targets, region, isManager, onCommit }) {
             <span className="tb-eyebrow__dot" />Product split · {window.ATT_QUARTER ? window.ATT_QUARTER.label : "QTD"}
           </div>
           <div style={{ fontSize: 13, color: "var(--ink-50)", marginTop: 6 }}>
-            PE / LT / LS targets — manual (the SF product feed is not live yet). Combined: <b style={{ color: "var(--ink)" }}>{_csFmtMoney(total, currency)}</b>
+            PE / LT / LS targets — manual (the SF product feed is not live yet). Combined: <b style={{ color: "var(--ink)" }}>{window.formatCurrencyAmount(total, currency)}</b>
           </div>
         </div>
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-50)" }}>
@@ -550,7 +525,7 @@ function CsEditableTarget({ label, component, region, amount, currency, badge, i
   const [status, setStatus] = React.useState(null); // "saved" | "error" | null
   React.useEffect(() => { setVal(amount == null ? "" : String(amount)); }, [amount]);
   const commit = () => {
-    const n = val === "" ? null : _csNum(val);
+    const n = val === "" ? null : window._csNum(val);
     if (n == null && val !== "") { setStatus("error"); return; }
     if (n === amount) return;
     onCommit({ region, component, amount: n || 0, currency })
@@ -599,7 +574,7 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
   React.useEffect(() => {
     let cancelled = false;
     const loadCs = window.loadCsDashboard ? window.loadCsDashboard() : Promise.resolve(cs);
-    Promise.all([loadCs, loadCsActuals()]).then(([d, a]) => {
+    Promise.all([loadCs, window.loadCsActuals()]).then(([d, a]) => {
       if (cancelled) return;
       if (d) setCs(d);
       if (a) { setAtt(a.rows || []); setAttError(a.error || null); }
@@ -759,16 +734,16 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
             <span className="tb-eyebrow__dot" />Combined · {window.ATT_QUARTER ? window.ATT_QUARTER.label : "QTD"}
           </div>
           <div className="tb-tcard__pct">
-            <div className="tb-tcard__pct-num" style={{ color: _csPctColor(qCombined.pct) }}>{_csPctText(qCombined.pct)}</div>
+            <div className="tb-tcard__pct-num" style={{ color: _csPctColor(qCombined.pct) }}>{window.attPctText(qCombined.pct)}</div>
             <div className="tb-tcard__pct-label">renewal + growth</div>
           </div>
         </div>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", marginTop: 8 }}>
           <b>{qCombined.hasTarget
-            ? _csFmtMoney(qCombined.actual, cur)
-            : (qCombined.totalActual != null ? _csFmtMoney(qCombined.totalActual, cur) : "—")}</b>
+            ? window.formatCurrencyAmount(qCombined.actual, cur)
+            : (qCombined.totalActual != null ? window.formatCurrencyAmount(qCombined.totalActual, cur) : "—")}</b>
           <span style={{ fontSize: 13, color: "var(--ink-50)" }}>
-            {qCombined.hasTarget ? <> of {_csFmtMoney(qCombined.target, cur)}</> : <> · no target set</>}
+            {qCombined.hasTarget ? <> of {window.formatCurrencyAmount(qCombined.target, cur)}</> : <> · no target set</>}
           </span>
         </div>
         {qCombined.hasTarget && <CsProgressBar pct={qCombined.pct} />}

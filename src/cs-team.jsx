@@ -49,16 +49,13 @@ function csttIsCompSensitive(repId, periodType, component) {
   return repId != null && periodType === "quarterly" && component === "renewal";
 }
 
-function csttRegionCurrencyLong(regionId) {
-  return window.regionCurrencyLong ? window.regionCurrencyLong(regionId) : "USD";
-}
-
-function csttFmtMoney(amount, currency) {
-  if (amount == null || isNaN(amount)) return "—";
-  return window.formatCurrencyAmount
-    ? window.formatCurrencyAmount(amount, currency)
-    : String(Math.round(amount));
-}
+// Issue #30 (items 1, 8): csttRegionCurrencyLong and csttFmtMoney used to be
+// fallback-wrapped copies of data-model.js's regionCurrencyLong /
+// formatCurrencyAmount (data-model.js loads first, so the fallback branch was
+// always dead code). Call sites below call the canonical helpers directly;
+// the null/NaN → "—" guard csttFmtMoney used to apply is now inline at its
+// one call site (CsttTargetChip) so a missing target amount still renders
+// "—" rather than "$0".
 
 function csttFindAmount(targets, region, repId, periodType, fy, period, component) {
   const row = (targets || []).find(t =>
@@ -92,7 +89,7 @@ function CsttTargetChip({ label, amount, currency, isComp }) {
       <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 700, color: "var(--ink-50)" }}>
         {isComp && <CsttCompDot />}{label}
       </div>
-      <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{csttFmtMoney(amount, currency)}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2 }}>{amount == null || isNaN(amount) ? "—" : window.formatCurrencyAmount(amount, currency)}</div>
     </div>
   );
 }
@@ -113,7 +110,7 @@ function CsttActuals({ rep, attainment }) {
     );
   }
   const c = window.attCsCompute(repAtt);
-  const pctText = window.attPctText ? window.attPctText(c.pct) : (c.pct == null ? "—" : `${c.pct}%`);
+  const pctText = window.attPctText(c.pct);
   const pctColor = window.attPctColor ? window.attPctColor(c.pct) : "var(--ink)";
   const barColor = window.attTierColor ? window.attTierColor(c.pct) : "var(--brand)";
   const barWidth = window.attBarWidth ? window.attBarWidth(c.pct) : (c.pct == null ? 0 : Math.min(100, c.pct));
@@ -209,7 +206,7 @@ function CsttRepCard({ rep, region, targets, teamFocus, attainment, fy, authedUs
   const meta = window.attRepMeta ? window.attRepMeta(rep.id) : { name: rep.name, role: rep.role, initials: rep.initials, hue: rep.hue };
   const regionObj = (window.REGIONS || []).find(r => r.id === region);
   const badge = regionObj ? regionObj.badge : "$";
-  const currency = csttRegionCurrencyLong(region);
+  const currency = window.regionCurrencyLong(region);
   const focusRow = (teamFocus || []).find(f => f.person === rep.name) || null;
   const canEditFocus = csttCanEditTeamFocus(authedUser);
 

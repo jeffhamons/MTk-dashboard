@@ -67,18 +67,12 @@ function cstIsCompSensitive(repId, periodType, component) {
   return repId != null && periodType === "quarterly" && component === "renewal";
 }
 
-// Native currency for a region (USD/GBP/AUD) — drives upsert currency + display.
-function cstRegionCurrencyLong(regionId) {
-  return window.regionCurrencyLong ? window.regionCurrencyLong(regionId) : "USD";
-}
-
-// Format money with the region's native currency symbol/code.
-function cstFmtMoney(amount, currency) {
-  if (amount == null || isNaN(amount)) return "—";
-  return window.formatCurrencyAmount
-    ? window.formatCurrencyAmount(amount, currency)
-    : String(Math.round(amount));
-}
+// Issue #30 (items 1, 8): cstRegionCurrencyLong and cstFmtMoney used to be
+// fallback-wrapped copies of data-model.js's regionCurrencyLong /
+// formatCurrencyAmount (data-model.js loads first, so the fallback branch was
+// always dead code). Call sites below call the canonical helpers directly;
+// the null/NaN → "—" guard cstFmtMoney used to apply is now inline at each
+// call site so a cleared/missing cell still renders "—" rather than "$0".
 
 // Lookup a single target amount from the loaded targets array. Grain:
 // region + rep_id (NULL = region-level) + period_type + fy + period + component.
@@ -155,7 +149,7 @@ function CstCell({ region, repId, periodType, fy, period, component, amount, can
         `Confirm ${qLabel} renewal target edit?\n\n` +
         `Per-rep quarterly renewal drives commission attainment. ` +
         `This change is audited and notifies Jeff.\n\n` +
-        `New value: ${parsed == null ? "(cleared)" : cstFmtMoney(parsed, currency)}`
+        `New value: ${parsed == null ? "(cleared)" : (isNaN(parsed) ? "—" : window.formatCurrencyAmount(parsed, currency))}`
       );
       if (!ok) { setVal(amount == null ? "" : String(amount)); return; }
     }
@@ -224,7 +218,7 @@ function CstReadCell({ amount, currency, isComp }) {
       : { padding: "6px 8px" }}>
       <span style={{ display: "flex", alignItems: "center" }}>
         {isComp && <CompMark />}
-        <span style={{ fontSize: 13 }}>{cstFmtMoney(amount, currency)}</span>
+        <span style={{ fontSize: 13 }}>{amount == null || isNaN(amount) ? "—" : window.formatCurrencyAmount(amount, currency)}</span>
       </span>
     </div>
   );
@@ -267,7 +261,7 @@ function CstRegionSection({ region, reps, periodType, fy, columns, targets, auth
   const regionObj = (window.REGIONS || []).find(r => r.id === region);
   const label = regionObj ? regionObj.label : region;
   const badge = regionObj ? regionObj.badge : "$";
-  const currency = cstRegionCurrencyLong(region);
+  const currency = window.regionCurrencyLong(region);
   const canEditRegion = csCanEditRegion(authedUser, region);
 
   // Per-rep edit uses window.canManageRep (self / manager / covering cs admin).

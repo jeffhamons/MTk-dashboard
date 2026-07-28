@@ -22,29 +22,9 @@ const CSF_FOCUS_CATEGORIES = [
   { id: "notes", title: "Notes" },
 ];
 
-function csfRagLabel(rag) {
-  if (rag === "amber") return "Amber";
-  if (rag === "red") return "Red";
-  if (rag === "green") return "Green";
-  return "—";
-}
-
-function CsfRagBadge({ rag }) {
-  const key = (rag || "").toLowerCase();
-  const colors = {
-    red: { bg: "#FEE2E2", fg: "#991B1B" },
-    amber: { bg: "#FEF3C7", fg: "#92400E" },
-    green: { bg: "#DCFCE7", fg: "#166534" },
-  };
-  const c = colors[key] || { bg: "var(--ink-10, #f1f5f9)", fg: "var(--ink-50, #64748b)" };
-  return (
-    <span style={{
-      display: "inline-flex", alignItems: "center", gap: 6,
-      borderRadius: 99, padding: "3px 9px", fontSize: 12, fontWeight: 700,
-      background: c.bg, color: c.fg,
-    }}>{csfRagLabel(key || null)}</span>
-  );
-}
+// Issue #30 (item 4): CsfRagBadge used to be a byte-identical copy of
+// CspRagBadge (cs-pipeline.jsx). cs-pipeline.jsx loads before this file, so
+// its canonical window.CsRagBadge / window.csRagLabel are used here instead.
 
 function CsfEmpty({ label }) {
   return (
@@ -177,7 +157,7 @@ function CsfRiskEditor({ draft, onChange, onSave, onCancel, busy, error }) {
       </CsfField>
       <CsfField label="RAG">
         <select style={csfInputStyle} value={draft.rag || "amber"} onChange={e => set("rag", e.target.value)}>
-          {CSF_RAGS.map(r => <option key={r} value={r}>{csfRagLabel(r)}</option>)}
+          {CSF_RAGS.map(r => <option key={r} value={r}>{window.csRagLabel(r)}</option>)}
         </select>
       </CsfField>
       <CsfField label="Owner">
@@ -210,7 +190,7 @@ function CsfRiskRow({ row, onEdit, onDismiss, canWrite }) {
       gap: 10, alignItems: "center",
     }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>{row.region || "—"}</div>
-      <div><CsfRagBadge rag={row.rag} /></div>
+      <div><window.CsRagBadge rag={row.rag} /></div>
       <div style={{ fontSize: 13 }}>{row.risk || "—"}</div>
       <div style={{ fontSize: 13, color: "var(--ink-70, #334155)" }}>{row.action || "—"}</div>
       <div style={{ fontSize: 13 }}>{row.owner || "—"}</div>
@@ -394,7 +374,7 @@ function CsRisksPage({ authedUser, activeTeam, viewerScope, regionPill }) {
         <div className="tb-toggle">
           <button type="button" className={"tb-toggle__btn" + (ragFilter === "all" ? " on" : "")} onClick={() => setRagFilter("all")}>All RAG</button>
           {CSF_RAGS.map(r => (
-            <button key={r} type="button" className={"tb-toggle__btn" + (ragFilter === r ? " on" : "")} onClick={() => setRagFilter(r)}>{csfRagLabel(r)}</button>
+            <button key={r} type="button" className={"tb-toggle__btn" + (ragFilter === r ? " on" : "")} onClick={() => setRagFilter(r)}>{window.csRagLabel(r)}</button>
           ))}
         </div>
       </div>

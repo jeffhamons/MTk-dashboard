@@ -11,7 +11,8 @@
 //  Once a "EMEA Sales/Team/Stuart/Induction" master exists, switch this file
 //  to the same strip-and-derive flow and stop hand-editing.
 //
-//  FORMAT IS PARSER-STRICT (see parseInduction in stuart-onboarding.jsx):
+//  FORMAT IS PARSER-STRICT (see window.parseInduction in
+//  src/onboarding-parser.js, shared with don-onboarding.jsx per issue #30):
 //    • Section headers: "## Day N — <Weekday> M/DD · <Title>"  (em-dash + " · ")
 //    • Checkboxes:      "- [ ] id :: label"   /  "- [x] id :: label"
 //    • Free text:       "- [text] id :: placeholder"
