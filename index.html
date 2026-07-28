@@ -2933,6 +2933,10 @@ function App({ authedUser, preloadedState }) {
   const activeRep = REPS.find(r => r.id === view) || null;
 
   return (
+    // RFC-164 §4.1 — the provider wraps both the tab bar and the view switch so
+    // the chrome strip and the Home hero read the same briefs, the same clock
+    // and the same heroOnScreen in one React pass.
+    <TeamBriefsProvider>
     <div className="app">
       <nav className="shell-nav">
         <div className="shell-nav__brand" onClick={() => setView("home")} style={{ cursor: "pointer" }}>
@@ -3328,6 +3332,7 @@ function App({ authedUser, preloadedState }) {
         </TweakSection>
       </TweaksPanel>
     </div>
+    </TeamBriefsProvider>
   );
 }
 
@@ -3342,6 +3347,10 @@ const REQUIRED_GLOBALS = [
   ["App shell",      ["REPS", "REGIONS", "WEEKS", "DELIVERABLES", "APP_PAGES"]],
   ["Attainment",     ["loadAttainmentV2", "attNbCompute", "attCsCompute", "attSyncState"]],
   ["Supabase adapter", ["SUPABASE_CONFIGURED"]],
+  // RFC-164 — App wraps its whole tree in TeamBriefsProvider, so a missing
+  // team-briefs.jsx is a white screen rather than one dead route. Named here so
+  // the banner says which script failed.
+  ["Team Briefs", ["TeamBriefsProvider"]],
 ];
 (function validateGlobals() {
   const missingCore = [];

@@ -200,33 +200,127 @@ function teamBriefHistoryGroups(briefs) {
   return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key) * -1);
 }
 
-function useTeamBriefs(includeArchived) {
+// RFC-164 §4.1 — one load cycle, one channel, one clock.
+//
+// `useTeamBriefs` used to do a full `loadTeamBriefs` plus a realtime subscribe
+// per hook call, so three mounts meant three queries and three channels. The
+// work now happens once, in a provider mounted in `App` above both the tab bar
+// and the view switch.
+const TeamBriefsContext = React.createContext(null);
+
+// D14 — every rung consumer reads this one clock, so a brief crossing its due
+// date advances on every surface in the same commit instead of each mount
+// drifting on its own `Date.now()`.
+const TEAM_BRIEF_TICK_MS = 60000;
+
+function TeamBriefsProvider({ children }) {
   const [briefs, setBriefs] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState("");
+  // §4.1b two-tier load. RLS evaluates `current_user_is_team_brief_member` and
+  // `current_user_can_manage_team_brief` per row against a three-way nested
+  // select, so the archived superset is not something to pay for on app boot.
+  // Boot loads published only; the manager page and the rep History tab upgrade
+  // to the superset when they mount, and it never downgrades.
+  const [archivedLoaded, setArchivedLoaded] = React.useState(false);
+  // React flushes child effects before the parent's, so on the manager route
+  // `requestArchived` fires before this provider's boot load ever runs. Reading
+  // the tier off a ref rather than off state is what lets the boot load pick the
+  // superset immediately instead of firing a published-only query and then a
+  // superset query five milliseconds later — two nested per-row RLS evaluations
+  // for one page.
+  const archivedWantedRef = React.useRef(false);
+  const fetchedTierRef = React.useRef(null);
+  // Guards against a slow tier-1 response landing after tier-2 and clobbering
+  // the superset with the published-only subset.
+  const requestSeqRef = React.useRef(0);
+  const [now, setNow] = React.useState(() => Date.now());
+  // §4.2a — owned here, produced by a sentinel that lives in `HomeView` and is
+  // never conditionally rendered. `BriefSurface` reads this; it must not own the
+  // observed element, or hiding the hero kills the observer that would bring it
+  // back.
+  const [heroOnScreen, setHeroOnScreen] = React.useState(false);
+
+  // Stable identity on purpose: nothing downstream re-subscribes, re-fires an
+  // effect, or re-memoises because the tier changed.
   const refresh = React.useCallback(async () => {
+    // §4.1a — load the superset once any consumer needs it and let consumers
+    // filter. A provider that kept the old `false` would silently strip
+    // archived briefs from the manager page.
+    const includeArchived = archivedWantedRef.current;
+    const seq = ++requestSeqRef.current;
+    fetchedTierRef.current = includeArchived;
     try {
-      const rows = await window.loadTeamBriefs({ includeArchived: !!includeArchived });
+      const rows = await window.loadTeamBriefs({ includeArchived });
+      if (seq !== requestSeqRef.current) return;
       setBriefs(Array.isArray(rows) ? rows : []);
       setError("");
     } catch (err) {
+      if (seq !== requestSeqRef.current) return;
       setError(err.message || "Team Briefs could not load.");
     } finally {
-      setLoading(false);
+      if (seq === requestSeqRef.current) setLoading(false);
     }
-  }, [includeArchived]);
+  }, []);
 
+  // One load per tier, not one per render. `archivedLoaded` is in the dep list
+  // so a mid-session upgrade (rep opens History) re-queries; the ref comparison
+  // is what stops the same tier from querying twice.
   React.useEffect(() => {
-    let alive = true;
-    const guardedRefresh = async () => { if (alive) await refresh(); };
-    guardedRefresh();
-    const unsubscribe = window.subscribeTeamBriefs
-      ? window.subscribeTeamBriefs(guardedRefresh)
-      : () => {};
-    return () => { alive = false; unsubscribe(); };
+    if (fetchedTierRef.current === archivedWantedRef.current) return;
+    refresh();
+  }, [archivedLoaded, refresh]);
+
+  // One channel for the session. `refresh` never changes identity, so a tier
+  // upgrade cannot re-run this effect and hand the session a second channel —
+  // which is the thing this provider exists to prevent.
+  React.useEffect(() => {
+    if (!window.subscribeTeamBriefs) return undefined;
+    return window.subscribeTeamBriefs(() => refresh());
   }, [refresh]);
 
-  return { briefs, loading, error, refresh };
+  React.useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), TEAM_BRIEF_TICK_MS);
+    return () => clearInterval(tick);
+  }, []);
+
+  const requestArchived = React.useCallback(() => {
+    archivedWantedRef.current = true;
+    setArchivedLoaded(true);
+  }, []);
+
+  const value = React.useMemo(() => ({
+    briefs, loading, error, refresh, now,
+    heroOnScreen, setHeroOnScreen,
+    archivedLoaded, requestArchived,
+  }), [briefs, loading, error, refresh, now, heroOnScreen, archivedLoaded, requestArchived]);
+
+  return <TeamBriefsContext.Provider value={value}>{children}</TeamBriefsContext.Provider>;
+}
+
+// Retained as a thin context reader so existing call sites keep working. The
+// argument no longer selects a query — it declares that this consumer needs
+// archived rows, which upgrades the provider's single load to the superset.
+function useTeamBriefs(includeArchived) {
+  const context = React.useContext(TeamBriefsContext);
+  const requestArchived = context ? context.requestArchived : null;
+  React.useEffect(() => {
+    if (includeArchived && requestArchived) requestArchived();
+  }, [includeArchived, requestArchived]);
+  if (context) return context;
+  // No provider means a broken mount, not an empty inbox. Say so rather than
+  // rendering "You're caught up" over briefs nobody looked for.
+  return {
+    briefs: [],
+    loading: false,
+    error: "Team Briefs did not load — TeamBriefsProvider is not mounted.",
+    refresh: async () => {},
+    now: Date.now(),
+    heroOnScreen: false,
+    setHeroOnScreen: () => {},
+    archivedLoaded: false,
+    requestArchived: () => {},
+  };
 }
 
 function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, readOnly = false }) {
@@ -444,7 +538,7 @@ function TeamBriefsTodayPanel({ authedUser, onOpen }) {
 
 function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const managerial = canManageAny(authedUser);
-  const { briefs, loading, error, refresh } = useTeamBriefs(true);
+  const { briefs, loading, error, refresh, now } = useTeamBriefs(true);
   const [tab, setTab] = React.useState(managerial ? "active" : "current");
   const [historyQuery, setHistoryQuery] = React.useState("");
   const [publishError, setPublishError] = React.useState("");
@@ -535,7 +629,6 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
     }
   }
 
-  const now = Date.now();
   const currentOrHistory = !managerial ? briefs.filter(brief =>
     teamBriefRepSection(brief, teamBriefReadBy(brief, authedUser), now) === tab
   ) : [];
@@ -702,6 +795,7 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
 }
 
 Object.assign(window, {
+  TeamBriefsProvider,
   TeamBriefsManager,
   TeamBriefsTodayPanel,
 });
