@@ -188,6 +188,37 @@ async function deleteCsRisk(id) {
   return sb.from("cs_risks").delete().eq("id", id);
 }
 
+// ── WRITE — cs_risks soft-dismiss / reopen (issue #28) ────────────────────────
+// cs_risks previously had only a hard DELETE for dismissing a risk, unlike
+// `asks` which stamps resolved_at + attribution instead of deleting (see
+// setAskSupabase / reopenAskSupabase in supabase-client.js). This mirrors
+// that same soft-resolve contract for cs_risks: dismiss sets resolved_at +
+// who dismissed it, reopen clears those fields. Requires the resolved_at /
+// resolved_by_* columns added by db/migration-cs-risks-resolved-flags.sql
+// (manual apply against live Supabase — see that file's header note).
+async function resolveCsRisk(id, resolvedBy) {
+  const sb = window.getSupabaseClient();
+  const by = await _csUpdatedBy(resolvedBy);
+  const payload = {
+    resolved_at: _now(),
+    resolved_by_email: (resolvedBy && resolvedBy.email) || by || null,
+    resolved_by_name: (resolvedBy && resolvedBy.name) || null,
+    resolved_by_role: (resolvedBy && resolvedBy.role) || null,
+  };
+  return sb.from("cs_risks").update(payload).eq("id", id).select();
+}
+
+async function reopenCsRisk(id) {
+  const sb = window.getSupabaseClient();
+  const payload = {
+    resolved_at: null,
+    resolved_by_email: null,
+    resolved_by_name: null,
+    resolved_by_role: null,
+  };
+  return sb.from("cs_risks").update(payload).eq("id", id).select();
+}
+
 // ── WRITE — cs_current_focus insert/update/delete ────────────────────────────
 async function insertCsCurrentFocus(row, updatedBy) {
   const sb = window.getSupabaseClient();
@@ -249,7 +280,7 @@ Object.assign(window, {
   loadCsDashboard,
   upsertCsTarget,
   insertCsPipelineItem, updateCsPipelineItem, deleteCsPipelineItem,
-  insertCsRisk, updateCsRisk, deleteCsRisk,
+  insertCsRisk, updateCsRisk, deleteCsRisk, resolveCsRisk, reopenCsRisk,
   insertCsCurrentFocus, updateCsCurrentFocus, deleteCsCurrentFocus,
   insertCsTeamFocus, updateCsTeamFocus, deleteCsTeamFocus,
 });

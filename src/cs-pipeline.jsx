@@ -471,6 +471,15 @@ function usePipelineCrud(setPipeline) {
       setError("deleteCsPipelineItem unavailable");
       return;
     }
+    // cs_pipeline_items has no soft-dismiss column (unlike cs_risks/asks), so
+    // this is still a hard, permanent DELETE — confirm before it fires
+    // (issue #28), matching the window.confirm() pattern already used for
+    // destructive/high-weight edits elsewhere (cs-targets-view.jsx).
+    const ok = window.confirm(
+      `Delete this pipeline item?\n\n${row.client || "(no client)"} — ${row.product || "(no product)"}\n\n` +
+      `This permanently removes the row. There is no undo.`
+    );
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {

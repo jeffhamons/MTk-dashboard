@@ -2,7 +2,7 @@
 // window.CsRisksPage — RAG risk register (region, RAG, risk, action, owner)
 // window.CsFocusPage — Current Focus board by category
 // Data: window.loadCsDashboard() → risks[] / currentFocus[];
-// writes: insert/update/deleteCsRisk · insert/update/deleteCsCurrentFocus
+// writes: insert/update/resolveCsRisk (soft-dismiss, issue #28) · insert/update/deleteCsCurrentFocus
 // Region filter mirrors target-board (viewerScope + regionPill → regionsUnderScope).
 // RAG: platform stores 'amber'; badge label is "Amber" (deliberate vs her YELLOW).
 // No money on these pages — no currency helpers.
@@ -147,8 +147,12 @@ function useCsRisksData(viewerScope, regionPill) {
   const allowedRegions = csfAllowedRegions(viewerScope, regionPill);
 
   const rows = CsfR.useMemo(() => {
-    if (!allowedRegions) return risks || [];
-    return (risks || []).filter(r => r && allowedRegions.includes(r.region));
+    // Exclude dismissed risks (resolved_at set) from the active register —
+    // dismiss is a soft-resolve, not a delete, so the row still exists but
+    // no longer belongs in the open list (mirrors the asks open-queue filter).
+    const open = (risks || []).filter(r => r && r.resolved_at == null);
+    if (!allowedRegions) return open;
+    return open.filter(r => allowedRegions.includes(r.region));
   }, [risks, allowedRegions]);
 
   return {
@@ -196,7 +200,7 @@ function CsfRiskEditor({ draft, onChange, onSave, onCancel, busy, error }) {
   );
 }
 
-function CsfRiskRow({ row, onEdit, onDelete, canWrite }) {
+function CsfRiskRow({ row, onEdit, onDismiss, canWrite }) {
   return (
     <div style={{
       border: "1px solid var(--ink-20, #e2e8f0)", borderRadius: 14, padding: "12px 14px",
@@ -214,7 +218,7 @@ function CsfRiskRow({ row, onEdit, onDelete, canWrite }) {
         {canWrite && (
           <>
             <button type="button" className="tb-toggle__btn" onClick={onEdit}>Edit</button>
-            <button type="button" className="tb-toggle__btn" onClick={onDelete} style={{ color: "#991B1B" }}>Delete</button>
+            <button type="button" className="tb-toggle__btn" onClick={onDismiss} style={{ color: "#991B1B" }}>Dismiss</button>
           </>
         )}
       </div>
@@ -311,21 +315,38 @@ function CsRisksPage({ authedUser, activeTeam, viewerScope, regionPill }) {
     }
   };
 
-  const onDelete = async (row) => {
+  // Dismiss = soft-resolve (issue #28): cs_risks previously only supported a
+  // hard, unconfirmed DELETE. This stamps resolved_at + attribution instead
+  // (see resolveCsRisk in cs-data.jsx) and asks for confirmation first, same
+  // as the other destructive-action confirms already in this codebase (e.g.
+  // the window.confirm() in cs-targets-view.jsx). The row is not removed
+  // from state — it just drops out of the open-risks `rows` filter above —
+  // so it survives for a future resolved-risks view instead of vanishing.
+  const onDismiss = async (row) => {
     if (!row || row.id == null) return;
-    if (typeof window.deleteCsRisk !== "function") {
-      setError("deleteCsRisk unavailable");
+    if (typeof window.resolveCsRisk !== "function") {
+      setError("resolveCsRisk unavailable");
       return;
     }
+    const ok = window.confirm(
+      `Dismiss this risk?\n\n${row.risk || "(no description)"}\n\n` +
+      `It will drop off the active register. This is not a data delete — ` +
+      `it can be restored by a database admin if needed.`
+    );
+    if (!ok) return;
     setBusy(true);
     setError(null);
     try {
-      const res = await window.deleteCsRisk(row.id);
-      if (res && res.error) throw new Error(res.error.message || "Delete failed");
-      setRisks(prev => (prev || []).filter(r => r.id !== row.id));
+      const resolvedBy = authedUser
+        ? { email: authedUser.authEmail, name: (authedUser.authEmail || "").split("@")[0], role: authedUser.role || null }
+        : null;
+      const res = await window.resolveCsRisk(row.id, resolvedBy);
+      if (res && res.error) throw new Error(res.error.message || "Dismiss failed");
+      const updated = (res && res.data && res.data[0]) || { ...row, resolved_at: new Date().toISOString() };
+      setRisks(prev => (prev || []).map(r => (r.id === row.id ? { ...r, ...updated } : r)));
       if (editingKey === String(row.id)) onCancel();
     } catch (e) {
-      setError((e && e.message) || "Delete failed");
+      setError((e && e.message) || "Dismiss failed");
     } finally {
       setBusy(false);
     }
@@ -426,7 +447,7 @@ function CsRisksPage({ authedUser, activeTeam, viewerScope, regionPill }) {
                 row={row}
                 canWrite={canWrite}
                 onEdit={() => onStartEdit(row)}
-                onDelete={() => onDelete(row)}
+                onDismiss={() => onDismiss(row)}
               />
             );
           })}
