@@ -861,6 +861,9 @@ const TEAM_BRIEF_DISPLAY_RULES = [
 ];
 const TEAM_BRIEF_COMMENT_MAX_LENGTH = 2000;
 const TEAM_BRIEF_SOON_DAYS = 3;
+const TEAM_BRIEF_RUNG_WARN_DAYS = 2;   // rung 1 -> 2 threshold, before due
+const TEAM_BRIEF_STALE_DAYS     = 14;  // rung 3 -> 2 decay
+const TEAM_BRIEF_CATCHUP_LIMIT  = 10;  // catch-up sweep cap
 
 function teamBriefAudiencePairs(audienceOrMode, teamId, regionId) {
   const spec = typeof audienceOrMode === "object" && audienceOrMode
@@ -1071,6 +1074,91 @@ function teamBriefRepSection(brief, acknowledged, now) {
   return teamBriefIsVisible(brief, acknowledged, now) ? "current" : "history";
 }
 
+// receipt is { read_at, done_at, swept } or null
+// Returns 0 | 1 | 2 | 3. Day-math anchors on brief.timezone (see teamBriefUrgency).
+// never calls Date.now() — callers pass an explicit `now`.
+function teamBriefRung(brief, receipt, now) {
+  if (!brief) return 0;
+  const r = receipt == null ? null : receipt;
+  if (r && r.done_at) return 0;
+
+  const isRead = !!(r && r.read_at);
+  // Informational briefs never escalate past rung 1; read → 0.
+  if (brief.require_ack === false) return isRead ? 0 : 1;
+
+  // Null due_at must not be treated as the epoch (new Date(null) === 1970).
+  if (brief.due_at == null || brief.due_at === "") return 1;
+  const due = new Date(brief.due_at);
+  if (!Number.isFinite(due.getTime())) return 1;
+
+  const current = new Date(now);
+  const timeZone = brief.timezone || REGIONS[0].timezone;
+  let daysUntilDue;
+  try {
+    daysUntilDue = _teamBriefLocalDayNumber(due, timeZone)
+      - _teamBriefLocalDayNumber(current, timeZone);
+  } catch {
+    daysUntilDue = Math.ceil((due.getTime() - current.getTime()) / 86400000);
+  }
+
+  // Overdue: local calendar day past due.
+  if (daysUntilDue < 0) {
+    const daysPastDue = -daysUntilDue;
+    // Rung 3: never-read and still within STALE_DAYS (inclusive at the boundary).
+    if (!isRead && daysPastDue <= TEAM_BRIEF_STALE_DAYS) return 3;
+    // Overdue-and-read, or decayed past STALE_DAYS → rung 2.
+    return 2;
+  }
+
+  // Due today or within RUNG_WARN_DAYS → rung 2; farther out → rung 1.
+  if (daysUntilDue <= TEAM_BRIEF_RUNG_WARN_DAYS) return 2;
+  return 1;
+}
+
+// Decides hero vs strip. Order is load-bearing: view must beat heroOnScreen
+// so non-home routes never claim "hero" when no hero is mounted (regression).
+function briefSurfaceShape({ view, heroMounted, heroOnScreen, outstandingCount }) {
+  if (outstandingCount <= 0) return null;
+  if (view !== "home") return "strip";      // MUST be checked before heroOnScreen
+  if (!heroMounted) return "strip";
+  return heroOnScreen ? "hero" : "strip";
+}
+
+// Outstanding = rung > 0. Does not call teamBriefIsVisible — caller filters.
+// Sort: rung desc, due_at asc, publish_at desc.
+function teamBriefOutstanding(briefs, receipts, now) {
+  const rec = receipts || {};
+  const list = (briefs || []).filter(b => teamBriefRung(b, rec[b.id], now) > 0);
+  return list.slice().sort((a, b) => {
+    const ra = teamBriefRung(a, rec[a.id], now);
+    const rb = teamBriefRung(b, rec[b.id], now);
+    if (rb !== ra) return rb - ra;
+    const da = a.due_at != null ? new Date(a.due_at).getTime() : Number.POSITIVE_INFINITY;
+    const db = b.due_at != null ? new Date(b.due_at).getTime() : Number.POSITIVE_INFINITY;
+    const daN = Number.isFinite(da) ? da : Number.POSITIVE_INFINITY;
+    const dbN = Number.isFinite(db) ? db : Number.POSITIVE_INFINITY;
+    if (daN !== dbN) return daN - dbN;
+    const pa = new Date(a.publish_at).getTime();
+    const pb = new Date(b.publish_at).getTime();
+    return (Number.isFinite(pb) ? pb : 0) - (Number.isFinite(pa) ? pa : 0);
+  });
+}
+
+// Catch-up sweep: outstanding newest-first by publish_at, capped.
+// Does not call teamBriefIsVisible — deliberately includes expired briefs.
+function teamBriefCatchup(briefs, receipts, now) {
+  const outstanding = (briefs || []).filter(
+    b => teamBriefRung(b, (receipts || {})[b.id], now) > 0
+  );
+  const sorted = outstanding.slice().sort((a, b) => {
+    const pa = new Date(a.publish_at).getTime();
+    const pb = new Date(b.publish_at).getTime();
+    return (Number.isFinite(pb) ? pb : 0) - (Number.isFinite(pa) ? pa : 0);
+  });
+  const items = sorted.slice(0, TEAM_BRIEF_CATCHUP_LIMIT);
+  return { items, olderCount: Math.max(0, sorted.length - items.length) };
+}
+
 function normalizeTeamBriefComment(body) {
   const value = String(body == null ? "" : body).trim();
   if (!value) return { ok: false, value: "", error: "Comment cannot be empty." };
@@ -1146,10 +1234,12 @@ Object.assign(window, {
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,
   TEAM_BRIEF_TYPES, TEAM_BRIEF_AUDIENCE_MODES, TEAM_BRIEF_DISPLAY_RULES,
   TEAM_BRIEF_COMMENT_MAX_LENGTH, TEAM_BRIEF_SOON_DAYS,
+  TEAM_BRIEF_RUNG_WARN_DAYS, TEAM_BRIEF_STALE_DAYS, TEAM_BRIEF_CATCHUP_LIMIT,
   teamBriefAudiencePairs, canPublishTeamBrief, teamBriefAudienceMatches,
   expandTeamBriefAudience, teamBriefAudienceLabel,
   teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
   teamBriefUrgency, teamBriefIsVisible, teamBriefRepSection,
+  teamBriefRung, briefSurfaceShape, teamBriefOutstanding, teamBriefCatchup,
   normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,

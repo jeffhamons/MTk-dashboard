@@ -242,3 +242,319 @@ test("team-briefs is a valid deep-link route id", () => {
   assert.equal(dm.parseUrlState("?view=team-briefs").view, "team-briefs");
   assert.equal(dm.parseUrlState("?view=manager:team-briefs").view, null);
 });
+
+// ── RFC-164 Phase 2: rung / surface / outstanding / catch-up ────────────────
+
+const nowFixed = "2026-07-23T14:00:00Z";
+const askBase = {
+  id: "b1",
+  status: "published",
+  publish_at: "2026-07-20T12:00:00Z",
+  archived_at: null,
+  expires_at: null,
+  timezone: "America/Chicago",
+  brief_type: "action_required",
+  display_rule: "manual_clear",
+  require_ack: true,
+};
+
+test("teamBriefRung reaches each of 0, 1, 2, and 3", () => {
+  // Rung 0: done
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-30T22:00:00Z" },
+      { read_at: "2026-07-21T10:00:00Z", done_at: "2026-07-22T10:00:00Z" },
+      nowFixed
+    ),
+    0
+  );
+  // Rung 1: outstanding ask, far from due
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-30T22:00:00Z" },
+      null,
+      nowFixed
+    ),
+    1
+  );
+  // Rung 2: due within RUNG_WARN_DAYS (due in 2 local days from July 23 → July 25)
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-25T22:00:00Z" },
+      null,
+      nowFixed
+    ),
+    2
+  );
+  // Rung 3: overdue, never read, within STALE_DAYS
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-20T22:00:00Z" },
+      null,
+      nowFixed
+    ),
+    3
+  );
+});
+
+test("teamBriefRung overdue-and-read is rung 2 not 3", () => {
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-20T22:00:00Z" },
+      { read_at: "2026-07-21T10:00:00Z", done_at: null },
+      nowFixed
+    ),
+    2
+  );
+  assert.notEqual(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-20T22:00:00Z" },
+      { read_at: "2026-07-21T10:00:00Z", done_at: null },
+      nowFixed
+    ),
+    3
+  );
+});
+
+test("teamBriefRung decays from 3 to 2 past TEAM_BRIEF_STALE_DAYS", () => {
+  // due 2026-07-09, now 2026-07-23 → 14 local days past due in Chicago (inclusive → still 3)
+  const dueAtBoundary = "2026-07-09T22:00:00Z";
+  const nowAtStale = "2026-07-23T14:00:00Z";
+  assert.equal(dm.TEAM_BRIEF_STALE_DAYS, 14);
+  assert.equal(
+    dm.teamBriefRung({ ...askBase, due_at: dueAtBoundary }, null, nowAtStale),
+    3,
+    "exactly STALE_DAYS past due is still rung 3"
+  );
+  // one day later → 15 days past → decay to 2
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: dueAtBoundary },
+      null,
+      "2026-07-24T14:00:00Z"
+    ),
+    2,
+    "one day past STALE_DAYS decays to rung 2"
+  );
+});
+
+test("teamBriefRung with null due_at stays at rung 1", () => {
+  assert.equal(
+    dm.teamBriefRung({ ...askBase, due_at: null }, null, nowFixed),
+    1
+  );
+  // Must not treat null as epoch-overdue and escalate
+  assert.notEqual(
+    dm.teamBriefRung({ ...askBase, due_at: null }, null, nowFixed),
+    2
+  );
+  assert.notEqual(
+    dm.teamBriefRung({ ...askBase, due_at: null }, null, nowFixed),
+    3
+  );
+  // Read but not done, no due — still rung 1
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: null },
+      { read_at: "2026-07-21T10:00:00Z", done_at: null },
+      nowFixed
+    ),
+    1
+  );
+});
+
+test("teamBriefRung informational never escalates past rung 1", () => {
+  // Unread informational with past due date — still 1, not 2 or 3
+  assert.equal(
+    dm.teamBriefRung(
+      {
+        ...askBase,
+        require_ack: false,
+        brief_type: "morning_message",
+        due_at: "2026-07-20T22:00:00Z",
+      },
+      null,
+      nowFixed
+    ),
+    1
+  );
+  // Read informational → 0
+  assert.equal(
+    dm.teamBriefRung(
+      {
+        ...askBase,
+        require_ack: false,
+        brief_type: "fyi",
+        due_at: "2026-07-20T22:00:00Z",
+      },
+      { read_at: "2026-07-21T10:00:00Z", done_at: null },
+      nowFixed
+    ),
+    0
+  );
+});
+
+test("teamBriefRung day-math anchors on brief.timezone", () => {
+  // Instant where Chicago is still July 23 evening and Sydney is already July 24.
+  // due local day July 26 in both zones → Chicago daysUntil=3 (rung 1),
+  // Sydney daysUntil=2 (rung 2 / within RUNG_WARN_DAYS).
+  const nowTz = "2026-07-24T02:00:00Z";
+  const due = "2026-07-26T12:00:00Z";
+  const chicago = dm.teamBriefRung(
+    { ...askBase, due_at: due, timezone: "America/Chicago" },
+    null,
+    nowTz
+  );
+  const sydney = dm.teamBriefRung(
+    { ...askBase, due_at: due, timezone: "Australia/Sydney" },
+    null,
+    nowTz
+  );
+  assert.notEqual(
+    chicago,
+    sydney,
+    "identical briefs with different timezones must yield different rungs when local calendar days diverge"
+  );
+  assert.equal(chicago, 1);
+  assert.equal(sydney, 2);
+});
+
+test("briefSurfaceShape branches and non-home regression", () => {
+  assert.equal(
+    dm.briefSurfaceShape({
+      view: "home",
+      heroMounted: true,
+      heroOnScreen: true,
+      outstandingCount: 0,
+    }),
+    null
+  );
+  assert.equal(
+    dm.briefSurfaceShape({
+      view: "home",
+      heroMounted: false,
+      heroOnScreen: true,
+      outstandingCount: 2,
+    }),
+    "strip"
+  );
+  assert.equal(
+    dm.briefSurfaceShape({
+      view: "home",
+      heroMounted: true,
+      heroOnScreen: true,
+      outstandingCount: 2,
+    }),
+    "hero"
+  );
+  assert.equal(
+    dm.briefSurfaceShape({
+      view: "home",
+      heroMounted: true,
+      heroOnScreen: false,
+      outstandingCount: 2,
+    }),
+    "strip"
+  );
+  // Regression: non-home must return strip even when heroOnScreen is true
+  assert.equal(
+    dm.briefSurfaceShape({
+      view: "team",
+      heroMounted: true,
+      heroOnScreen: true,
+      outstandingCount: 3,
+    }),
+    "strip"
+  );
+});
+
+test("teamBriefCatchup caps at CATCHUP_LIMIT newest-first with olderCount", () => {
+  assert.equal(dm.TEAM_BRIEF_CATCHUP_LIMIT, 10);
+  const briefs = [];
+  for (let i = 0; i < 15; i++) {
+    briefs.push({
+      ...askBase,
+      id: `c${i}`,
+      // older publish first in array; catch-up must re-sort newest first
+      publish_at: `2026-07-${String(i + 1).padStart(2, "0")}T12:00:00Z`,
+      due_at: "2026-07-30T22:00:00Z",
+      require_ack: true,
+    });
+  }
+  const { items, olderCount } = dm.teamBriefCatchup(briefs, {}, nowFixed);
+  assert.equal(items.length, dm.TEAM_BRIEF_CATCHUP_LIMIT);
+  assert.equal(olderCount, 5);
+  // Newest first by publish_at
+  for (let i = 0; i < items.length - 1; i++) {
+    assert.ok(
+      new Date(items[i].publish_at).getTime()
+        >= new Date(items[i + 1].publish_at).getTime(),
+      "catch-up items ordered publish_at desc"
+    );
+  }
+  assert.equal(items[0].id, "c14");
+  assert.equal(items[9].id, "c5");
+});
+
+test("teamBriefOutstanding filters done, read informational, and keeps read asks", () => {
+  const doneAsk = {
+    ...askBase,
+    id: "done",
+    due_at: "2026-07-30T22:00:00Z",
+    publish_at: "2026-07-22T12:00:00Z",
+  };
+  const readInfo = {
+    ...askBase,
+    id: "info",
+    require_ack: false,
+    brief_type: "fyi",
+    due_at: null,
+    publish_at: "2026-07-21T12:00:00Z",
+  };
+  const readAsk = {
+    ...askBase,
+    id: "read-ask",
+    due_at: "2026-07-30T22:00:00Z",
+    publish_at: "2026-07-20T12:00:00Z",
+  };
+  const unreadAsk = {
+    ...askBase,
+    id: "unread",
+    due_at: "2026-07-20T22:00:00Z", // overdue → rung 3
+    publish_at: "2026-07-19T12:00:00Z",
+  };
+  const receipts = {
+    done: { read_at: "2026-07-21T10:00:00Z", done_at: "2026-07-22T10:00:00Z" },
+    info: { read_at: "2026-07-21T10:00:00Z", done_at: null },
+    "read-ask": { read_at: "2026-07-21T10:00:00Z", done_at: null },
+    // unread has no receipt
+  };
+  const got = dm.teamBriefOutstanding(
+    [doneAsk, readInfo, readAsk, unreadAsk],
+    receipts,
+    nowFixed
+  );
+  const ids = got.map(b => b.id);
+  assert.ok(!ids.includes("done"), "excludes done briefs");
+  assert.ok(!ids.includes("info"), "excludes read informational briefs");
+  assert.ok(ids.includes("read-ask"), "includes read-but-not-done asks");
+  assert.ok(ids.includes("unread"), "includes unread outstanding asks");
+  // Sort: rung desc first (unread=3 before read-ask=1)
+  assert.equal(got[0].id, "unread");
+  assert.ok(ids.indexOf("read-ask") > ids.indexOf("unread"));
+});
+
+// Catch-up is deliberately NOT visibility-filtered: an expired brief the rep
+// never answered is exactly what the sweep exists to surface. If either
+// collection function starts routing through teamBriefIsVisible, this goes red.
+test("teamBriefCatchup includes briefs that have already expired", () => {
+  const expired = {
+    ...askBase,
+    id: "expired",
+    due_at: "2026-07-25T22:00:00Z",
+    expires_at: "2026-07-22T00:00:00Z",
+  };
+  const { items } = dm.teamBriefCatchup([expired], {}, nowFixed);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, "expired");
+});
