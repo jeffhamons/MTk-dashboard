@@ -33,27 +33,25 @@ drop policy if exists "users update own wins" on public.wins;
 drop policy if exists "anyone can delete wins" on public.wins;
 drop policy if exists "users delete own wins" on public.wins;
 
-create policy "users insert own wins" on public.wins for insert
-  with check (
-    auth.uid() in (select auth_id from public.users where role = 'manager')
-    or (select rep_id from public.users where auth_id = auth.uid()) = rep_id
-  );
-
-create policy "users update own wins" on public.wins for update
-  using (
-    auth.uid() in (select auth_id from public.users where role = 'manager')
-    or (select rep_id from public.users where auth_id = auth.uid()) = rep_id
-  )
-  with check (
-    auth.uid() in (select auth_id from public.users where role = 'manager')
-    or (select rep_id from public.users where auth_id = auth.uid()) = rep_id
-  );
-
--- DELETE: mirror the UPDATE ownership rule (DELETE has no WITH CHECK clause).
--- The "anyone can read wins" SELECT policy lets DELETE locate rows, so this
--- enforces — rather than silently no-ops — the ownership constraint.
-create policy "users delete own wins" on public.wins for delete
-  using (
-    auth.uid() in (select auth_id from public.users where role = 'manager')
-    or (select rep_id from public.users where auth_id = auth.uid()) = rep_id
-  );
+-- ── SUPERSEDED 2026-07-28 (issue #11) ─────────────────────────────────────
+-- The three policies this file used to create — "users insert own wins",
+-- "users update own wins", "users delete own wins" — are no longer created.
+-- The drop statements above are kept so this file remains a working cleanup
+-- script for a database that still has them.
+--
+-- Two defects made these unsafe to leave resurrectable by an out-of-order
+-- deploy:
+--   1. No `TO` clause → the policies applied to PUBLIC, which includes the
+--      `anon` role, not just `authenticated`.
+--   2. They predate the reps registry, so they grant owner-write purely on
+--      users.rep_id and never consult `reps.active`. Re-running this file
+--      after db/migration-team-rbac-rls.sql would OR them alongside the
+--      scoped policies and hand a DEACTIVATED rep their write access back
+--      (issue #9) — permissive policies OR together, so the weaker one wins.
+--
+-- Replacement: db/migration-team-rbac-rls.sql creates
+-- "owner manager or admin insert/update/delete wins", scoped to
+-- `authenticated`, with the owner branch joined against `reps.active`, plus
+-- a covering-team-admin branch this file never had. Apply that file (after
+-- db/migration-team-rbac-schema.sql) instead. Per README "Schema and
+-- Supabase authority", applying it to Supabase is a manual step.

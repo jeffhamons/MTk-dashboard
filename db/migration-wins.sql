@@ -19,13 +19,29 @@ create table if not exists wins (
 
 create index if not exists wins_rep_week_idx on wins (rep_id, week_index);
 
--- ── Row Level Security (same trust model as checks/asks) ──────────────────
+-- ── Row Level Security ────────────────────────────────────────────────────
+-- SUPERSEDED (issue #11). This file originally created four "anyone can …"
+-- policies with `using (true)` and no `TO` clause — i.e. PUBLIC-role,
+-- unconditional read AND write on every rep's wins. They are intentionally
+-- NOT created any more.
+--
+-- Why they are gone rather than merely dropped elsewhere: permissive RLS
+-- policies OR together, so ONE surviving `using (true)` policy silently
+-- defeats every scoped policy on the table. Leaving the create statements
+-- here meant a partial or out-of-order deploy — re-running this file after
+-- db/migration-team-rbac-rls.sql — would resurrect the leak with no error
+-- and no visible symptom. db/migration-team-rbac-rls.sql also carries an
+-- explicit `drop policy if exists` for each of these names (belt and
+-- braces); this block is the braces.
+--
+-- Running this file alone now leaves public.wins with RLS enabled and NO
+-- policies, which fails CLOSED (nobody but service_role can read or write).
+-- That is the correct intermediate state. The real policies —
+-- "team reads wins" plus the owner/manager/covering-admin write trio — are
+-- created by db/migration-team-rbac-rls.sql, which must be applied after
+-- db/migration-team-rbac-schema.sql. See README "Schema and Supabase
+-- authority": applying these files to Supabase is a manual step.
 alter table wins enable row level security;
-
-create policy "anyone can read wins"   on wins for select using (true);
-create policy "anyone can insert wins" on wins for insert with check (true);
-create policy "anyone can update wins" on wins for update using (true) with check (true);
-create policy "anyone can delete wins" on wins for delete using (true);
 
 -- ── Realtime ─────────────────────────────────────────────────────────────
 alter publication supabase_realtime add table wins;

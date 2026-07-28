@@ -28,12 +28,38 @@ create table if not exists expansion_book (
 create index if not exists eb_rep_date_idx on expansion_book (rep_id, close_date);
 
 -- ============================================================
--- RLS — team-shared read grain, matching renewal_book /
--- closed_won_deals in migration-attainment-v2.sql. Writes use the
+-- RLS — OWNER-SCOPED read grain, matching renewal_book /
+-- closed_won_deals in migration-team-rbac-rls.sql. Writes use the
 -- service key (bypasses RLS); no write policy needed.
+--
+-- SECURITY (issue #5): this table shipped with
+--   `for select to authenticated using (true)`
+-- which let ANY signed-in user read every rep's named-account expansion
+-- detail — cross-team and cross-region. expansion_book carries the same
+-- named-account dollar grain as renewal_book, so it gets renewal_book's
+-- predicate verbatim: manager OR owner OR covering team_admin. There is
+-- deliberately NO same-team branch — reps never see a peer's named-account
+-- dollar detail, even on their own team (RFC-151 post-grill amendment).
+--
+-- The owner branch additionally requires reps.active (issue #9): a
+-- deactivated rep loses access to their own book, they do not keep it.
 -- ============================================================
 alter table expansion_book enable row level security;
 
-drop policy if exists "authenticated read expansion_book" on expansion_book;
-create policy "authenticated read expansion_book"
-  on expansion_book for select to authenticated using (true);
+drop policy if exists "authenticated read expansion_book"        on expansion_book;
+drop policy if exists "owner manager or admin read expansion_book" on expansion_book;
+
+create policy "owner manager or admin read expansion_book"
+  on public.expansion_book for select to authenticated
+  using (
+    exists (select 1 from public.users u
+            where u.auth_id = (select auth.uid()) and u.role = 'manager')
+    or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
+               where u.auth_id = (select auth.uid()) and u.rep_id = expansion_book.rep_id)
+    or exists (select 1 from public.team_admins ta
+               join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
+               join public.reps r3 on r3.rep_id = expansion_book.rep_id
+               where ta.auth_id = (select auth.uid())
+                 and ta.team_id = r3.team_id and ta.region = r3.region)
+  );
