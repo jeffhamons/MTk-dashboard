@@ -269,8 +269,9 @@ create policy "manager or cs team reads cs_targets" on public.cs_targets
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
-               join public.reps r on r.rep_id = u.rep_id
-               where u.auth_id = (select auth.uid()) and r.team_id = 'cs')
+               join public.reps r on r.rep_id = u.rep_id and r.active
+               where u.auth_id = (select auth.uid()) and r.team_id = 'cs'
+                 and r.region = cs_targets.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                where ta.auth_id = (select auth.uid())
@@ -353,8 +354,9 @@ create policy "manager or cs team reads cs_pipeline_items" on public.cs_pipeline
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
-               join public.reps r on r.rep_id = u.rep_id
-               where u.auth_id = (select auth.uid()) and r.team_id = 'cs')
+               join public.reps r on r.rep_id = u.rep_id and r.active
+               where u.auth_id = (select auth.uid()) and r.team_id = 'cs'
+                 and r.region = cs_pipeline_items.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                where ta.auth_id = (select auth.uid())
@@ -419,8 +421,9 @@ create policy "manager or cs team reads cs_risks" on public.cs_risks
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
-               join public.reps r on r.rep_id = u.rep_id
-               where u.auth_id = (select auth.uid()) and r.team_id = 'cs')
+               join public.reps r on r.rep_id = u.rep_id and r.active
+               where u.auth_id = (select auth.uid()) and r.team_id = 'cs'
+                 and r.region = cs_risks.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                where ta.auth_id = (select auth.uid())
@@ -487,8 +490,9 @@ create policy "manager or cs team reads cs_current_focus" on public.cs_current_f
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
-               join public.reps r on r.rep_id = u.rep_id
-               where u.auth_id = (select auth.uid()) and r.team_id = 'cs')
+               join public.reps r on r.rep_id = u.rep_id and r.active
+               where u.auth_id = (select auth.uid()) and r.team_id = 'cs'
+                 and (cs_current_focus.region is null or r.region = cs_current_focus.region))
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                where ta.auth_id = (select auth.uid())
@@ -554,7 +558,7 @@ create policy "manager or cs team reads cs_team_focus" on public.cs_team_focus
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
-               join public.reps r on r.rep_id = u.rep_id
+               join public.reps r on r.rep_id = u.rep_id and r.active
                where u.auth_id = (select auth.uid()) and r.team_id = 'cs')
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'

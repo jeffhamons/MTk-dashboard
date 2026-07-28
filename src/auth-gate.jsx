@@ -35,6 +35,43 @@ async function withRetry(fn, label, retries = 1, backoffMs = 500) {
 }
 const AUTH_TIMEOUT_MS = 8000;
 
+// Issue #9 — reps.active is the deactivation switch, and before this it
+// switched nothing off. Flipping a rep to active=false left them able to sign
+// in and keep working: getMyUser reads public.users, which has no `active`
+// column, so the sign-in path never consulted the registry at all. The
+// server-side half of the fix lives in db/migration-team-rbac-rls.sql (every
+// ordinary-rep policy branch now joins reps and requires `active`); this is
+// the client half, so a deactivated rep sees an honest screen instead of an
+// app that loads and then returns empty data from every query.
+//
+// FAILS OPEN on purpose. A missing reps row, a network blip or a timeout
+// returns false (= not deactivated) rather than locking someone out over a
+// transient error. That is safe because it is not the enforcement boundary:
+// RLS is, and RLS fails CLOSED. The worst case here is a deactivated rep
+// briefly seeing the shell of an app with no data in it.
+async function isRepDeactivated(repId) {
+  if (!repId) return false;  // managers and team admins carry rep_id null
+  if (!window.SUPABASE_CONFIGURED || typeof window.getSupabaseClient !== "function") return false;
+  try {
+    const sb = window.getSupabaseClient();
+    const { data, error } = await withTimeout(
+      sb.from("reps").select("active").eq("rep_id", repId).maybeSingle(),
+      AUTH_TIMEOUT_MS,
+      "repActive"
+    );
+    if (error) {
+      console.warn("rep active check failed (allowing sign-in; RLS still applies):", error.message);
+      return false;
+    }
+    // Only an explicit false deactivates. A missing row (data null) means the
+    // registry hasn't been backfilled for this rep, not that they're revoked.
+    return !!data && data.active === false;
+  } catch (e) {
+    console.warn("rep active check failed (allowing sign-in; RLS still applies):", e && e.message);
+    return false;
+  }
+}
+
 // Users whose corporate tenant runs link scanners (Microsoft Safe Links via
 // Teams/Outlook) that consume single-use magic-link tokens before the human
 // can click them. For these emails we keep the same signInWithOtp call but
@@ -54,6 +91,7 @@ function AuthGate({ children }) {
   const [phase, setPhase] = React.useState("loading"); // loading | signed-out | signed-in | error
   const [user, setUser]   = React.useState(null);
   const [preloadedState, setPreloadedState] = React.useState(null);
+  const [deactivated, setDeactivated] = React.useState(false);  // reps.active === false (issue #9)
   const [email, setEmail] = React.useState("");
   const [busy, setBusy]   = React.useState(false);
   const [msg, setMsg]     = React.useState(null);
@@ -133,8 +171,14 @@ function AuthGate({ children }) {
             : Promise.resolve(null);
           const [u, preloaded] = await Promise.all([userPromise, statePromise]);
           if (cancelled) return;
+          // Issue #9: must run after getMyUser — rep_id comes from that row.
+          // One indexed lookup, and it fails open, so it cannot turn a flaky
+          // network into a lockout.
+          const revoked = await isRepDeactivated(u && u.rep_id);
+          if (cancelled) return;
           setUser(u);
           setPreloadedState(preloaded);
+          setDeactivated(revoked);
           signedInRef.current = true;
           setPhase("signed-in");
         } catch (e) {
@@ -147,6 +191,7 @@ function AuthGate({ children }) {
         signedInRef.current = false;
         setUser(null);
         setPreloadedState(null);
+        setDeactivated(false);
         setPhase("signed-out");
       }
     });
@@ -324,6 +369,23 @@ function AuthGate({ children }) {
             Only emails on the allowlist can sign in. If yours isn't working,
             ask Jeff to add it.
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Issue #9: the rep exists but has been deactivated in the reps registry.
+  // Distinct from `unmatched` below — this is a known person whose access was
+  // deliberately ended, not a lookup failure, and the copy says so rather than
+  // sending them to ask Jeff about the allowlist. Checked first: a deactivated
+  // rep still has a rep_id, so `unmatched` would not catch them.
+  if (deactivated) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <h1 className="auth-card__title">Access ended.</h1>
+          <p className="auth-card__sub">This account is no longer active on the dashboard. If that's a surprise, ask Jeff.</p>
+          <button className="auth-form__btn" onClick={() => window.signOut()}>Sign out</button>
         </div>
       </div>
     );

@@ -129,28 +129,156 @@ from public.users u, (values ('US'), ('EMEA')) v(region)
 where u.email = 'lkidd@mindtools.com'
 on conflict (auth_id, team_id, region) do nothing;
 
--- ── 5. Registry RLS: authenticated-read-all, writes fail closed ────────────
+-- ── 5. Registry RLS ────────────────────────────────────────────────────────
 -- Phase 2's predicates join through reps/team_admins inside EXISTS
--- subqueries. If either table had RLS enabled with no read policy, every
--- subquery would fail closed and lock out every rep — including Lara —
--- exactly the way an un-policied users table would break the precedent
--- migrations' EXISTS(... from users ...) checks. Mirrors public.users'
--- "authenticated can read all". No write policies: provisioning runs via
--- SQL editor / service_role, which bypasses RLS.
+-- subqueries. RLS applies inside a policy's own subqueries, so a registry
+-- table with RLS enabled and no read policy makes every subquery fail closed
+-- and locks out every rep — including Lara. That constraint is what shapes
+-- the policies below. No write policies on any registry table: provisioning
+-- runs via SQL editor / service_role, which bypasses RLS.
+--
+-- ── 2026-07-28 audit hardening (issue #8) ─────────────────────────────────
+-- `users`, `team_admins` and `reps` all shipped as `using (true)` reads, so
+-- any signed-in rep could enumerate the whole org. Two of the three are
+-- narrowed here; `reps` deliberately is not — see the note on that policy.
+--
+-- RECURSION: a policy on public.users cannot itself select from public.users
+-- (Postgres raises "infinite recursion detected in policy for relation"),
+-- and a users policy that reads team_admins whose own policy reads users is
+-- the same cycle one hop out. The two SECURITY DEFINER helpers below are the
+-- standard break: they run as the function owner and therefore bypass RLS,
+-- so no policy expression below references an RLS-protected table directly.
+-- Keep them SECURITY DEFINER, keep search_path pinned, and keep EXECUTE
+-- revoked from PUBLIC.
+
 alter table public.teams       enable row level security;
 alter table public.reps        enable row level security;
 alter table public.team_admins enable row level security;
+alter table public.users       enable row level security;
 
+-- ── 5a. RLS helper functions (SECURITY DEFINER — see RECURSION above) ─────
+-- rbac_caller_role(): the calling user's users.role, or NULL when the JWT
+-- has no users row (deleted user with a stale token → every branch false).
+create or replace function public.rbac_caller_role()
+  returns text
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+as $$
+  select u.role from public.users u where u.auth_id = auth.uid() limit 1
+$$;
+
+-- rbac_caller_covers_rep(): true when the caller holds a team_admins row for
+-- the given rep's (team, region) AND carries users.role = 'team_admin'.
+-- This is ratification R1's role tie, identical to the inline EXISTS branch
+-- every Phase 2 policy uses — a stray team_admins row grants nothing unless
+-- the role label agrees.
+create or replace function public.rbac_caller_covers_rep(p_rep_id text)
+  returns boolean
+  language sql
+  stable
+  security definer
+  set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.team_admins ta
+    join public.users u on u.auth_id = ta.auth_id and u.role = 'team_admin'
+    join public.reps  r on r.rep_id  = p_rep_id
+    where ta.auth_id = auth.uid()
+      and ta.team_id = r.team_id
+      and ta.region  = r.region
+  )
+$$;
+
+revoke all on function public.rbac_caller_role()             from public;
+revoke all on function public.rbac_caller_covers_rep(text)   from public;
+grant execute on function public.rbac_caller_role()           to authenticated;
+grant execute on function public.rbac_caller_covers_rep(text) to authenticated;
+
+-- ── 5b. teams — reference data, no personal information ───────────────────
 drop policy if exists "authenticated read teams" on public.teams;
 create policy "authenticated read teams"
   on public.teams for select to authenticated using (true);
 
+-- ── 5c. reps — DELIBERATELY still readable by every authenticated user ────
+-- Not an oversight (issue #8 named this table alongside users/team_admins).
+-- Every team-scoped policy in db/migration-team-rbac-rls.sql resolves the
+-- ROW's rep through `join public.reps r3 on r3.rep_id = <table>.rep_id`, and
+-- RLS applies inside those subqueries: narrowing reps to the caller's own
+-- team would make the covering-team-admin and same-team branches evaluate
+-- against rows the caller cannot see, and every one of them would fail
+-- closed. reps holds rep_id / name / team / region / active — roster facts
+-- already shipped to every client in src/data-model.js REPS[] — so the read
+-- is not a disclosure the client bundle doesn't already make. Narrowing it
+-- requires routing every policy through a SECURITY DEFINER accessor first;
+-- that is a separate change, not a one-line predicate edit.
 drop policy if exists "authenticated read reps" on public.reps;
 create policy "authenticated read reps"
   on public.reps for select to authenticated using (true);
 
-drop policy if exists "authenticated read team_admins" on public.team_admins;
-create policy "authenticated read team_admins"
-  on public.team_admins for select to authenticated using (true);
+-- ── 5d. team_admins — own rows, or manager ────────────────────────────────
+-- Was `using (true)`: any rep could enumerate who administers which team and
+-- region. Own-rows keeps every Phase 2 policy working (they all filter
+-- `ta.auth_id = auth.uid()`) and keeps getMyUser's adminScopes query
+-- (src/supabase-client.js, `.eq("auth_id", user.id)`) working unchanged.
+--
+-- The DO block drops EVERY pre-existing SELECT/ALL policy rather than a
+-- hardcoded name list: the live database predates this file and permissive
+-- policies OR together, so one unknown surviving `using (true)` name would
+-- silently defeat the narrowing. Write policies (if any exist live) are left
+-- alone — this migration is not in the business of granting writes.
+do $$
+declare pol record;
+begin
+  for pol in
+    select policyname from pg_policies
+    where schemaname = 'public' and tablename = 'team_admins' and cmd in ('SELECT', 'ALL')
+  loop
+    execute format('drop policy if exists %I on public.team_admins', pol.policyname);
+  end loop;
+end $$;
 
-grant select on public.teams, public.reps, public.team_admins to authenticated;
+create policy "self or manager reads team_admins"
+  on public.team_admins for select to authenticated
+  using (
+    team_admins.auth_id = (select auth.uid())
+    or public.rbac_caller_role() = 'manager'
+  );
+
+-- ── 5e. users — self, manager, or covering team_admin ─────────────────────
+-- Was `using (true)` to PUBLIC (anon included): any signed-in user could
+-- read every colleague's email, role and rep_id. Now:
+--   self      — the row whose auth_id is the caller's (this is the branch
+--               every existing policy subquery relies on, and the one
+--               getMyUser needs)
+--   manager   — global bypass, unchanged from the rest of the RBAC model
+--   covering  — a team_admin may read the users rows of reps inside her
+--               (team, region) scope. Lara needs this: the read-only
+--               onboarding view calls loadInductionStateFor(repId), which
+--               resolves another rep's auth_id out of public.users
+--               (src/supabase-client.js ~863). Without this branch that
+--               view breaks for her while still working for Jeff.
+-- Rows with rep_id NULL (managers, team admins) are covered by the self and
+-- manager branches only — a team_admin cannot read another admin's row.
+do $$
+declare pol record;
+begin
+  for pol in
+    select policyname from pg_policies
+    where schemaname = 'public' and tablename = 'users' and cmd in ('SELECT', 'ALL')
+  loop
+    execute format('drop policy if exists %I on public.users', pol.policyname);
+  end loop;
+end $$;
+
+create policy "self manager or covering admin reads users"
+  on public.users for select to authenticated
+  using (
+    users.auth_id = (select auth.uid())
+    or public.rbac_caller_role() = 'manager'
+    or (users.rep_id is not null and public.rbac_caller_covers_rep(users.rep_id))
+  );
+
+grant select on public.teams, public.reps, public.team_admins, public.users to authenticated;

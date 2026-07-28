@@ -7,11 +7,21 @@
 --
 -- TDD contract (RFC-151 build, 2026-07-02):
 --   RED  — run BEFORE migration-team-rbac-schema.sql / -rls.sql are applied:
---          first failure is "cammy checks: got 97, want 72" (a BD rep can
---          read CS rows today — the leak this RFC closes). That failure IS
---          the red run; the batch aborts there by design.
+--          first failure is a cammy read count blowout (a BD rep can read CS
+--          rows today — the leak this RFC closes). That failure IS the red
+--          run; the batch aborts there by design.
 --   GREEN — run after both migrations: every block raises PASS notices and
 --          the final SELECT returns 'RFC-151 MATRIX: ALL ASSERTIONS PASSED'.
+--
+-- Amended 2026-07-28 (security audit, issues #6/#8/#9). The expected counts
+-- are computed from the live registry rather than hardcoded, so the numbers
+-- move with the fixes; what changed is the CONTRACT they encode:
+--   #6 — ordinary-rep expectations are now team × REGION, not team alone
+--        (scenarios 2 and 3, plus explicit cross-region leak probes).
+--   #8 — users/team_admins are no longer readable by every authenticated
+--        user (scenario 5), while a manager still reads all (scenario 5b).
+--   #9 — reps.active = false actually revokes access (scenario 7).
+-- Run against a pre-audit database, each of those blocks is a fresh RED.
 --
 -- Personas (live auth identities, resolved by email at runtime):
 --   Jeff   jeff.hamons@mindtools-kineo.com   role=manager (global bypass)
@@ -107,8 +117,11 @@ begin
   raise notice 'PASS [scenario 1] Jeff (manager) sees everything: checks=% standup=% detail=%', w_checks, w_standup, w_cwd + w_ren;
 end $$;
 
--- ── Scenario 2: Cammy (NA BD rep) — full BD visibility, ZERO CS rows ──────
+-- ── Scenario 2: Cammy (NA BD rep) — US BD visibility, ZERO CS rows ────────
 -- THIS is the block that goes RED pre-migration (BD reps see CS rows today).
+-- 2026-07-28 (issue #6): expectations narrowed from team to team+REGION. The
+-- same-team branch used to compare team_id alone, so Cammy (newbiz, US) read
+-- every EMEA and ZA newbiz rep's rows too. She is now scoped to newbiz×US.
 do $$
 declare
   v_auth text;
@@ -117,20 +130,20 @@ declare
   g bigint;
 begin
   select auth_id::text into strict v_auth from public.users where email = 'cammy.bean@mindtools-kineo.com';
-  select count(*) into w_checks  from public.checks c  join _m on _m.rep_id = c.rep_id  where _m.team_id = 'newbiz';
-  select count(*) into w_asks    from public.asks a    join _m on _m.rep_id = a.rep_id  where _m.team_id = 'newbiz';
-  select count(*) into w_wins    from public.wins w    join _m on _m.rep_id = w.rep_id  where _m.team_id = 'newbiz';
-  -- standup: own team PLUS Jeff's shared rep_id='manager' pseudo-rows
+  select count(*) into w_checks  from public.checks c  join _m on _m.rep_id = c.rep_id  where _m.team_id = 'newbiz' and _m.region = 'US';
+  select count(*) into w_asks    from public.asks a    join _m on _m.rep_id = a.rep_id  where _m.team_id = 'newbiz' and _m.region = 'US';
+  select count(*) into w_wins    from public.wins w    join _m on _m.rep_id = w.rep_id  where _m.team_id = 'newbiz' and _m.region = 'US';
+  -- standup: own team+region PLUS Jeff's shared rep_id='manager' pseudo-rows
   select count(*) into w_standup from public.standup_entries s
-    where s.rep_id = 'manager' or exists (select 1 from _m where _m.rep_id = s.rep_id and _m.team_id = 'newbiz');
-  select count(*) into w_attain  from public.attainment_snapshot t join _m on _m.rep_id = t.rep_id where _m.team_id = 'newbiz';
+    where s.rep_id = 'manager' or exists (select 1 from _m where _m.rep_id = s.rep_id and _m.team_id = 'newbiz' and _m.region = 'US');
+  select count(*) into w_attain  from public.attainment_snapshot t join _m on _m.rep_id = t.rep_id where _m.team_id = 'newbiz' and _m.region = 'US';
   w_cst := 0;  -- cs_quarterly_targets rows are all CS-team → invisible to BD
 
   perform set_config('role','authenticated', true);
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 
   select count(*) into g from public.checks;
-  if g <> w_checks then raise exception 'FAIL [cammy checks]: got %, want % (BD rep must see BD team only — CS rows leaked)', g, w_checks; end if;
+  if g <> w_checks then raise exception 'FAIL [cammy checks]: got %, want % (BD rep must see BD×US only — CS or cross-region rows leaked)', g, w_checks; end if;
   select count(*) into g from public.asks;
   if g <> w_asks then raise exception 'FAIL [cammy asks]: got %, want %', g, w_asks; end if;
   select count(*) into g from public.wins;
@@ -148,6 +161,13 @@ begin
   select count(*) into g from public.standup_entries where rep_id = 'meri';
   if g <> 0 then raise exception 'FAIL [cammy→meri standup probe]: got % rows', g; end if;
 
+  -- issue #6 cross-REGION probe: rory is newbiz/EMEA — same team as Cammy,
+  -- different region. Before the region predicate this returned his rows.
+  select count(*) into g from public.checks where rep_id = 'rory';
+  if g <> 0 then raise exception 'FAIL [cammy→rory cross-region probe]: got % checks rows for a same-team EMEA rep — region predicate missing (issue #6)', g; end if;
+  select count(*) into g from public.wins where rep_id = 'rory';
+  if g <> 0 then raise exception 'FAIL [cammy→rory cross-region wins probe]: got % rows', g; end if;
+
   -- detail tables: owner-only — cammy sees HER seeded row only, not farah's
   -- (same team!), not CS ones. Catches the stale qual=true policy being live.
   select count(*) into g from public.closed_won_deals;
@@ -160,10 +180,12 @@ begin
   if g <> 0 then raise exception 'FAIL [cammy manager_notes]: got %, want 0 (manager notes leaked to a rep)', g; end if;
 
   execute 'reset role';
-  raise notice 'PASS [scenario 2] Cammy (BD rep): BD-only reads, zero CS rows, owner-only detail';
+  raise notice 'PASS [scenario 2] Cammy (BD rep): BD×US-only reads, zero CS rows, zero cross-region, owner-only detail';
 end $$;
 
--- ── Scenario 3: Dwayne (CS rep) — CS visibility, ZERO BD rows, no peer $ ──
+-- ── Scenario 3: Dwayne (CS rep) — CS×US visibility, ZERO BD rows, no peer $ ──
+-- 2026-07-28 (issue #6): narrowed from team to team+REGION. Dwayne is cs/US;
+-- he previously read the five EMEA CS reps' rows through the same-team branch.
 do $$
 declare
   v_auth text;
@@ -171,18 +193,18 @@ declare
   g bigint;
 begin
   select auth_id::text into strict v_auth from public.users where email = 'dwayne.haskell@mindtools-kineo.com';
-  select count(*) into w_checks  from public.checks c  join _m on _m.rep_id = c.rep_id where _m.team_id = 'cs';
-  select count(*) into w_wins    from public.wins w    join _m on _m.rep_id = w.rep_id where _m.team_id = 'cs';
+  select count(*) into w_checks  from public.checks c  join _m on _m.rep_id = c.rep_id where _m.team_id = 'cs' and _m.region = 'US';
+  select count(*) into w_wins    from public.wins w    join _m on _m.rep_id = w.rep_id where _m.team_id = 'cs' and _m.region = 'US';
   select count(*) into w_standup from public.standup_entries s
-    where s.rep_id = 'manager' or exists (select 1 from _m where _m.rep_id = s.rep_id and _m.team_id = 'cs');
-  select count(*) into w_attain  from public.attainment_snapshot t join _m on _m.rep_id = t.rep_id where _m.team_id = 'cs';
-  select count(*) into w_cst     from public.cs_quarterly_targets t join _m on _m.rep_id = t.rep_id where _m.team_id = 'cs';
+    where s.rep_id = 'manager' or exists (select 1 from _m where _m.rep_id = s.rep_id and _m.team_id = 'cs' and _m.region = 'US');
+  select count(*) into w_attain  from public.attainment_snapshot t join _m on _m.rep_id = t.rep_id where _m.team_id = 'cs' and _m.region = 'US';
+  select count(*) into w_cst     from public.cs_quarterly_targets t join _m on _m.rep_id = t.rep_id where _m.team_id = 'cs' and _m.region = 'US';
 
   perform set_config('role','authenticated', true);
   perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
 
   select count(*) into g from public.checks;
-  if g <> w_checks then raise exception 'FAIL [dwayne checks]: got %, want % (CS rep must see CS team only)', g, w_checks; end if;
+  if g <> w_checks then raise exception 'FAIL [dwayne checks]: got %, want % (CS rep must see CS×US only)', g, w_checks; end if;
   select count(*) into g from public.asks;
   if g <> 0 then raise exception 'FAIL [dwayne asks]: got %, want 0 (all live asks are BD — leaked to CS rep)', g; end if;
   select count(*) into g from public.wins;
@@ -206,8 +228,14 @@ begin
   select count(*) into g from public.manager_notes where rep_id = 'dwayne';
   if g <> 0 then raise exception 'FAIL [dwayne own manager_notes]: got %, want 0 (notes about a rep must not be readable by that rep)', g; end if;
 
+  -- issue #6 cross-REGION probe: laura is cs/EMEA — same team, other region.
+  select count(*) into g from public.checks where rep_id = 'laura';
+  if g <> 0 then raise exception 'FAIL [dwayne→laura cross-region probe]: got % checks rows for a same-team EMEA rep — region predicate missing (issue #6)', g; end if;
+  select count(*) into g from public.cs_quarterly_targets where rep_id = 'laura';
+  if g <> 0 then raise exception 'FAIL [dwayne→laura cross-region targets probe]: got % rows', g; end if;
+
   execute 'reset role';
-  raise notice 'PASS [scenario 3] Dwayne (CS rep): CS-only reads, zero BD rows, owner-only $ detail';
+  raise notice 'PASS [scenario 3] Dwayne (CS rep): CS×US-only reads, zero BD rows, zero cross-region, owner-only $ detail';
 end $$;
 
 -- ── Scenario 4: Lara — team_admin(cs,US)+(cs,EMEA): all CS, ZERO BD ───────
@@ -291,10 +319,18 @@ begin
   raise notice 'PASS [scenario 4] Lara (team_admin cs×US,EMEA): all CS, zero NA BD, R1 role-tie enforced';
 end $$;
 
--- ── Scenario 5: registry tables readable by ANY member (fail-closed guard) ─
--- Phase 2 predicates join through reps/team_admins inside EXISTS subqueries;
--- if registry RLS has no read policy every subquery fails closed and locks
--- out every rep including Lara.
+-- ── Scenario 5: registry read scope (issue #8) ────────────────────────────
+-- reps + teams STAY authenticated-read-all: Phase 2 predicates join through
+-- reps inside EXISTS subqueries, and RLS applies inside those subqueries, so
+-- narrowing reps makes every team-scoped branch fail closed and locks out
+-- every rep including Lara. See the note on that policy in
+-- db/migration-team-rbac-schema.sql.
+--
+-- users + team_admins are NARROWED (issue #8 — both were `using (true)`, so
+-- any signed-in rep could read every colleague's email and role, and
+-- enumerate who administers which team). The predicates keep working because
+-- every one of them only ever touches the CALLER's own row in those two
+-- tables — which is exactly what this block proves.
 do $$
 declare
   v_auth text; w_reps bigint; g bigint;
@@ -312,10 +348,41 @@ begin
   if g <> w_reps then raise exception 'FAIL [registry reps]: got %, want % (authenticated-read-all missing → predicates fail closed)', g, w_reps; end if;
   select count(*) into g from public.teams;
   if g < 2 then raise exception 'FAIL [registry teams]: got %, want >= 2', g; end if;
+
+  -- #8: a plain rep sees ONLY her own users row.
+  select count(*) into g from public.users;
+  if g <> 1 then raise exception 'FAIL [users scope]: got %, want 1 (a rep must see only her own users row — issue #8)', g; end if;
+  select count(*) into g from public.users where auth_id::text = v_auth;
+  if g <> 1 then raise exception 'FAIL [users self]: got %, want 1 (the self branch is what every RLS predicate depends on)', g; end if;
+
+  -- #8: a plain rep holds no team_admins rows, so she sees none. Lara's
+  -- scopes stay invisible to her; the covering-admin predicates still work
+  -- because they filter ta.auth_id = auth.uid() (Lara's own rows, for Lara).
   select count(*) into g from public.team_admins;
-  if g < 2 then raise exception 'FAIL [registry team_admins]: got %, want >= 2 (Lara''s seeded scopes must be visible to predicates)', g; end if;
+  if g <> 0 then raise exception 'FAIL [team_admins scope]: got %, want 0 (a rep must not enumerate team admins — issue #8)', g; end if;
+
   execute 'reset role';
-  raise notice 'PASS [scenario 5] registry tables authenticated-readable (% reps)', w_reps;
+  raise notice 'PASS [scenario 5] reps/teams readable (% reps); users + team_admins scoped to self', w_reps;
+end $$;
+
+-- ── Scenario 5b: a manager still reads the whole registry (issue #8) ──────
+-- The narrowing must not cost Jeff the org-wide view he manages from.
+do $$
+declare
+  v_auth text; w_users bigint; w_ta bigint; g bigint;
+begin
+  select auth_id::text into strict v_auth from public.users where email = 'jeff.hamons@mindtools-kineo.com';
+  select count(*) into w_users from public.users;
+  select count(*) into w_ta    from public.team_admins;
+
+  perform set_config('role','authenticated', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
+  select count(*) into g from public.users;
+  if g <> w_users then raise exception 'FAIL [jeff users]: got %, want % (manager bypass on users broken)', g, w_users; end if;
+  select count(*) into g from public.team_admins;
+  if g <> w_ta then raise exception 'FAIL [jeff team_admins]: got %, want %', g, w_ta; end if;
+  execute 'reset role';
+  raise notice 'PASS [scenario 5b] manager reads all % users / % team_admins rows', w_users, w_ta;
 end $$;
 
 -- ── Scenario 6: WRITE matrix ───────────────────────────────────────────────
@@ -412,6 +479,46 @@ begin
   end if;
 
   raise notice 'PASS [scenario 6] write matrix: owner/manager/team_admin writes allowed, peer + cross-team writes denied';
+end $$;
+
+-- ── Scenario 7: reps.active = false actually revokes access (issue #9) ────
+-- Before this, `active` was a label with no teeth: a deactivated rep kept
+-- full read and write access because no policy consulted the column. Cammy
+-- is deactivated inside this rolled-back transaction; prod is untouched.
+--
+-- Note what stays visible on purpose: the standup rep_id='manager'
+-- pseudo-rows (their own branch, no reps join) and her own users row. The
+-- test asserts loss of TEAM-SHARED reads and OWNER writes, which is the
+-- access `active` is supposed to govern.
+do $$
+declare
+  v_auth text; denied boolean; g bigint;
+begin
+  select auth_id::text into strict v_auth from public.users where email = 'cammy.bean@mindtools-kineo.com';
+  update public.reps set active = false where rep_id = 'cammy';
+
+  perform set_config('role','authenticated', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_auth, 'role', 'authenticated')::text, true);
+
+  select count(*) into g from public.checks;
+  if g <> 0 then raise exception 'FAIL [deactivated checks]: got %, want 0 (reps.active = false must revoke team reads — issue #9)', g; end if;
+  select count(*) into g from public.wins;
+  if g <> 0 then raise exception 'FAIL [deactivated wins]: got %, want 0', g; end if;
+  select count(*) into g from public.closed_won_deals;
+  if g <> 0 then raise exception 'FAIL [deactivated closed_won_deals]: got %, want 0 (owner branch must require active)', g; end if;
+
+  -- Own-row write: previously allowed, must now be denied.
+  denied := false;
+  begin
+    insert into public.checks (rep_id, week_index, deliverable_id, marked_by_email, marked_by_name, marked_by_role)
+      values ('cammy', 998, 'issue9-deactivated', 'cammy.bean@mindtools-kineo.com', 'Cammy', 'rep');
+  exception when insufficient_privilege then denied := true;
+  end;
+  execute 'reset role';
+  if not denied then raise exception 'FAIL [deactivated own write]: a deactivated rep still wrote her own check (issue #9)'; end if;
+
+  update public.reps set active = true where rep_id = 'cammy';
+  raise notice 'PASS [scenario 7] reps.active = false revokes team reads, owner detail and owner writes';
 end $$;
 
 rollback;

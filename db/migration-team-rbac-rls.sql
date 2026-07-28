@@ -61,7 +61,78 @@
 --     standup/attainment tables it previously excluded.
 --   • wins/standup write policies move from `to public` to
 --     `to authenticated` — anon never had a valid path through them.
+--
+-- ── 2026-07-28 RLS audit hardening (issues #6, #9, #11) ───────────────────
+--   • #6 REGION: every ordinary-rep same-team read branch now compares
+--     `r.region = r2.region` as well as `r.team_id = r2.team_id`. Before this,
+--     a US CS rep read every EMEA and APAC CS rep's checks/asks/wins/standup/
+--     attainment/targets. Manager and covering-team-admin branches are
+--     deliberately NOT region-narrowed: manager is a global bypass, and a
+--     team_admin's scope is already an exact (team, region) row — Lara holds
+--     two of them and must keep spanning US + EMEA.
+--   • #9 ACTIVE: `reps.active = false` now actually revokes access. Every
+--     ordinary-rep branch joins the CALLER's rep row and requires
+--     `active` — same-team read (`r2.active`) and owner read/write
+--     (`ro.active`). The ROW's rep is deliberately NOT active-tested, so a
+--     departed rep's history stays visible to their still-active team,
+--     preserving the Phase-1 behaviour note above. Manager and team_admin
+--     branches are untouched (they key off users.role / team_admins, not
+--     reps.active). Client-side mirror: src/auth-gate.jsx blocks a
+--     deactivated rep at the sign-in gate; RLS here is the real backstop.
+--   • #11 PARTIAL-DEPLOY GUARD: the sweep below drops every legacy
+--     permissive policy name by hand before any policy is created, so
+--     running the db/ migrations out of order (or re-running an old one
+--     after this file) cannot leave a `using (true)` / PUBLIC policy ORed
+--     alongside the scoped policies. Permissive policies OR together, so a
+--     single surviving `using (true)` defeats this entire file.
 -- ============================================================
+
+-- ═══════════ #11 legacy permissive-policy sweep (run FIRST) ═══════════════
+-- Idempotent and order-correcting: DROP POLICY IF EXISTS never errors on a
+-- name that was never created, so this block is safe on a fresh database and
+-- safe to re-run. Every name here was created by an older db/*.sql migration
+-- with `using (true)` and/or no `TO` clause (which defaults to PUBLIC — anon
+-- included). Superseding policies are created further down this file.
+--
+-- Source of each name:
+--   db/migration-wins.sql                   — the four "anyone can …" policies
+--   db/migration-wins-rls-harden.sql        — "users can only edit own wins"
+--                                             (a first-attempt name kept for
+--                                             idempotency by that file too)
+--   db/migration-membership-gate-checks-asks-wins.sql — "members …"
+--   db/migration-attainment*.sql            — "authenticated …" reads
+-- The "members …" / "users … own wins" / "authenticated …" names are ALSO
+-- dropped in their own per-table sections below; repeating them here is
+-- deliberate so this one block is a complete, auditable list.
+drop policy if exists "anyone can read wins"        on public.wins;
+drop policy if exists "anyone can insert wins"      on public.wins;
+drop policy if exists "anyone can update wins"      on public.wins;
+drop policy if exists "anyone can delete wins"      on public.wins;
+drop policy if exists "users can only edit own wins" on public.wins;
+drop policy if exists "users insert own wins"       on public.wins;
+drop policy if exists "users update own wins"       on public.wins;
+drop policy if exists "users delete own wins"       on public.wins;
+drop policy if exists "members read wins"           on public.wins;
+
+drop policy if exists "members read checks"   on public.checks;
+drop policy if exists "members insert checks" on public.checks;
+drop policy if exists "members update checks" on public.checks;
+drop policy if exists "members delete checks" on public.checks;
+
+drop policy if exists "members read asks"   on public.asks;
+drop policy if exists "members insert asks" on public.asks;
+drop policy if exists "members update asks" on public.asks;
+drop policy if exists "members delete asks" on public.asks;
+
+drop policy if exists "read all standup entries"           on public.standup_entries;
+drop policy if exists "rep writes own; manager writes any" on public.standup_entries;
+
+drop policy if exists "authenticated users can read attainment" on public.attainment_snapshot;
+drop policy if exists "authenticated read cs_quarterly_targets" on public.cs_quarterly_targets;
+drop policy if exists "authenticated read closed_won_deals"     on public.closed_won_deals;
+drop policy if exists "authenticated read renewal_book"         on public.renewal_book;
+drop policy if exists "owner or manager read closed_won_deals"  on public.closed_won_deals;
+drop policy if exists "owner or manager read renewal_book"      on public.renewal_book;
 
 -- ═══════════════════════ checks ═══════════════════════
 drop policy if exists "members read checks"   on public.checks;
@@ -79,8 +150,9 @@ create policy "team reads checks" on public.checks for select to authenticated
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = checks.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = checks.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = checks.rep_id
@@ -93,6 +165,7 @@ create policy "owner manager or admin insert checks" on public.checks for insert
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = checks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -106,6 +179,7 @@ create policy "owner manager or admin update checks" on public.checks for update
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = checks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -117,6 +191,7 @@ create policy "owner manager or admin update checks" on public.checks for update
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = checks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -130,6 +205,7 @@ create policy "owner manager or admin delete checks" on public.checks for delete
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = checks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -154,8 +230,9 @@ create policy "team reads asks" on public.asks for select to authenticated
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = asks.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = asks.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = asks.rep_id
@@ -168,6 +245,7 @@ create policy "owner manager or admin insert asks" on public.asks for insert to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = asks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -181,6 +259,7 @@ create policy "owner manager or admin update asks" on public.asks for update to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = asks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -192,6 +271,7 @@ create policy "owner manager or admin update asks" on public.asks for update to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = asks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -205,6 +285,7 @@ create policy "owner manager or admin delete asks" on public.asks for delete to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = asks.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -229,8 +310,9 @@ create policy "team reads wins" on public.wins for select to authenticated
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = wins.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = wins.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = wins.rep_id
@@ -243,6 +325,7 @@ create policy "owner manager or admin insert wins" on public.wins for insert to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = wins.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -256,6 +339,7 @@ create policy "owner manager or admin update wins" on public.wins for update to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = wins.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -267,6 +351,7 @@ create policy "owner manager or admin update wins" on public.wins for update to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = wins.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -280,6 +365,7 @@ create policy "owner manager or admin delete wins" on public.wins for delete to 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = wins.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -305,8 +391,9 @@ create policy "team reads standup entries" on public.standup_entries for select 
                where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = standup_entries.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = standup_entries.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = standup_entries.rep_id
@@ -319,6 +406,7 @@ create policy "owner manager or admin insert standup entries" on public.standup_
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = standup_entries.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -332,6 +420,7 @@ create policy "owner manager or admin update standup entries" on public.standup_
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = standup_entries.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -343,6 +432,7 @@ create policy "owner manager or admin update standup entries" on public.standup_
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = standup_entries.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -356,6 +446,7 @@ create policy "owner manager or admin delete standup entries" on public.standup_
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = standup_entries.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -377,8 +468,9 @@ create policy "team reads attainment" on public.attainment_snapshot for select t
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = attainment_snapshot.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = attainment_snapshot.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = attainment_snapshot.rep_id
@@ -396,8 +488,9 @@ create policy "team reads cs_quarterly_targets" on public.cs_quarterly_targets f
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
-               where r.rep_id = cs_quarterly_targets.rep_id and r.team_id = r2.team_id)
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
+               where r.rep_id = cs_quarterly_targets.rep_id
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = cs_quarterly_targets.rep_id
@@ -419,6 +512,7 @@ create policy "owner manager or admin read closed_won_deals" on public.closed_wo
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = closed_won_deals.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
@@ -437,6 +531,7 @@ create policy "owner manager or admin read renewal_book" on public.renewal_book 
     exists (select 1 from public.users u
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.users u
+               join public.reps ro on ro.rep_id = u.rep_id and ro.active
                where u.auth_id = (select auth.uid()) and u.rep_id = renewal_book.rep_id)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'

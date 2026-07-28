@@ -21,6 +21,14 @@
 --          (2) relrowsecurity=true on all 12, (3) role CHECKs include
 --          'team_admin', (4) Lara seated as team_admin with both CS
 --          scopes. Final SELECT is the green sentinel.
+--
+-- NOTE (2026-07-28, security audit): public.users is deliberately NOT in the
+-- inventory's table list, so its new self-or-manager SELECT policy (issue #8)
+-- is out of scope here. Adding the table would make this verifier assert an
+-- exact set over users' WRITE policies too, which are not defined in this
+-- repo — a guaranteed false failure. Coverage for #8 lives in
+-- db/test-team-rbac-rls.sql scenarios 5 and 5b, which assert behaviour
+-- (what each persona can actually read) rather than policy names.
 -- ============================================================
 
 -- ── 1. POLICY INVENTORY — exact-set check on the 12 RLS tables ────────────
@@ -53,7 +61,10 @@ declare
     'team reads wins',
     'authenticated read teams',
     'authenticated read reps',
-    'authenticated read team_admins'
+    -- Renamed 2026-07-28 (issue #8): team_admins was `using (true)` for every
+    -- authenticated user, which published the whole admin roster. Still 27
+    -- policies — this is a replacement, not an addition.
+    'self or manager reads team_admins'
   ];
   tables text[] := array[
     'checks','asks','wins','standup_entries','attainment_snapshot',

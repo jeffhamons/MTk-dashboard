@@ -63,9 +63,9 @@ create policy "team reads attainment_quarter_final"
             where u.auth_id = (select auth.uid()) and u.role = 'manager')
     or exists (select 1 from public.reps r
                join public.users u2 on u2.auth_id = (select auth.uid())
-               join public.reps r2 on r2.rep_id = u2.rep_id
+               join public.reps r2 on r2.rep_id = u2.rep_id and r2.active
                where r.rep_id = attainment_quarter_final.rep_id
-                 and r.team_id = r2.team_id)
+                 and r.team_id = r2.team_id and r.region = r2.region)
     or exists (select 1 from public.team_admins ta
                join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
                join public.reps r3 on r3.rep_id = attainment_quarter_final.rep_id
