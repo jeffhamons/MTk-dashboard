@@ -74,6 +74,37 @@ function _csSettled(settled, label) {
   return { rows: (res && res.data) || [], error: null };
 }
 
+// ── value coercion / pct (null-safe) — issue #30 item 8 ──────────────────────
+// Was defined identically in both cs-performance.jsx and cs-region.jsx; folded
+// into the one shared data-access layer both files already depend on.
+function _csNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
+function _csPct(num, denom) {
+  const n = _csNum(num), d = _csNum(denom);
+  if (n == null || d == null || d === 0) return null;
+  return Math.round((n / d) * 100);
+}
+
+// ── Memoized attainment_snapshot load (issue #30 item 5) ─────────────────────
+// cs-performance.jsx and cs-region.jsx used to each run their own independent
+// memoized loadCsActuals() (separate _csAttPromise/_csrAttPromise module
+// vars), so navigating between the two pages triggered loadAttainment() twice
+// and the two caches could resolve at different times. One shared promise
+// here, in the canonical CS data-access layer both pages already load first.
+let _csAttPromise = null;
+function loadCsActuals() {
+  if (_csAttPromise) return _csAttPromise;
+  const fn = window.loadAttainment;
+  _csAttPromise = fn
+    ? Promise.resolve(fn()).then(rows => ({ rows: rows || [], error: null }))
+        .catch(e => {
+          const msg = (e && e.message) || String(e);
+          console.error("loadCsActuals failed:", msg);
+          return { rows: [], error: msg };
+        })
+    : Promise.resolve({ rows: [], error: null });
+  return _csAttPromise;
+}
+
 let _csDashPromise = null;
 function loadCsDashboard() {
   if (_csDashPromise) return _csDashPromise;
@@ -339,6 +370,8 @@ async function deleteCsTeamFocus(id) {
 // ── EXPORT GLOBALS ────────────────────────────────────────────────────────────
 Object.assign(window, {
   loadCsDashboard,
+  loadCsActuals,
+  _csNum, _csPct,
   CsSectionError,
   upsertCsTarget,
   insertCsPipelineItem, updateCsPipelineItem, deleteCsPipelineItem,

@@ -73,8 +73,18 @@ function attConvert(n, from, to) {
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 // null → "—" (no value synced). A real 0 still renders as a zero amount.
-function attFmtK(n)    { if (n == null) return "—"; if (!n) return "$0"; if (n >= 1000000) return "$" + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return "$" + (Math.round(n / 100) / 10).toLocaleString() + "K"; return "$" + Math.round(n); }
-function attFmtKRaw(n) { if (n == null) return "—"; if (!n) return "0"; if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return (Math.round(n / 100) / 10).toLocaleString() + "K"; return String(Math.round(n)); }
+// Issue #30 (item 7): attFmtK and attFmtKRaw used to be two separate
+// implementations that disagreed on the zero case ("$0" vs bare "0") — a real,
+// intentional behavior change is folded in here rather than picking one
+// side's copy verbatim. attFmtK is now the single canonical "raw" (no
+// currency symbol baked in) short-number formatter; callers that need a
+// symbol compose it themselves (attFmtMoneyK, TBTeamCard/TBRegionTeamCard
+// already do this via an external badge). The two target-board.jsx call
+// sites that used to rely on attFmtK's baked-in "$" now prepend "$" at the
+// call site explicitly — same rendered text for every value they ever pass
+// (always > 0), and the zero-case disagreement this item was filed to fix is
+// resolved by having exactly one implementation.
+function attFmtK(n)    { if (n == null) return "—"; if (!n) return "0"; if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return (Math.round(n / 100) / 10).toLocaleString() + "K"; return String(Math.round(n)); }
 function attFmtFull(n) { return n == null ? "—" : "$" + Math.round(n).toLocaleString(); }
 // Currency-correct money formatter (issue #17). Uses data-model's
 // formatCurrencyAmount so a GBP figure renders "£250,000", not "$250,000".
@@ -86,7 +96,7 @@ function attFmtMoney(n, currency) {
 }
 function attFmtMoneyK(n, currency) {
   if (n == null) return "—";
-  return attCurrencyBadge(currency) + attFmtKRaw(n);
+  return attCurrencyBadge(currency) + attFmtK(n);
 }
 function attFmtDate(iso) {
   if (!iso) return "";
@@ -481,7 +491,7 @@ function loadAttainmentV2() {
 
 Object.assign(window, {
   ATT_QUARTER, ATT_NB_SAMPLE, ATT_CS_SAMPLE,
-  attFmtK, attFmtKRaw, attFmtFull, attFmtDate, attTierColor, attPctColor, attPctText, attBarWidth,
+  attFmtK, attFmtFull, attFmtDate, attTierColor, attPctColor, attPctText, attBarWidth,
   attRepMeta, attNbCompute, attCsCompute, attBuildLive, loadAttainmentV2,
   attBuildQuarterFinal, attQuarterFinalOptions, loadQuarterFinals, ATT_QF_SAMPLE,
   attCurrency, attCurrencyForRegion,

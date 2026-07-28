@@ -27,7 +27,7 @@ function tbTargetLine(won, tar, sym, K) {
 }
 
 function TBTeamCard({ name, kind, pct, won, tar, period, badge, qLabel }) {
-  const K = window.attFmtKRaw;
+  const K = window.attFmtK;
   const sym = badge != null ? badge : "";
   const hasTarget = tar != null && tar > 0;
   return (
@@ -60,7 +60,7 @@ function TBRegionTeamCard({ region, kind, pct, won, tar, period, qLabel, display
           {region ? region.label : "Other"} · Team
           <span className="tb-region-badge">{badge}{cur}</span>
         </div>
-        <div className="tb-tcard__money">{tbTargetLine(won, tar, badge, window.attFmtKRaw)} · {qLabel || window.ATT_QUARTER.label}</div>
+        <div className="tb-tcard__money">{tbTargetLine(won, tar, badge, window.attFmtK)} · {qLabel || window.ATT_QUARTER.label}</div>
         {hasTarget && <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>}
       </div>
       <div className="tb-tcard__pct">
@@ -198,7 +198,7 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
         <span className="tb-row__bar tb-row__bar--cs">
           <span className="tb-row__seg tb-row__seg--ren" style={{ width: `${renW}%`, background: window.attTierColor(p) }} />
           {csExp > 0 && (
-            <span className="tb-row__seg tb-row__seg--exp" style={{ left: `${renW}%`, width: `${expW}%` }} title={`Expansion ${window.attFmtK(csExp)}`} />
+            <span className="tb-row__seg tb-row__seg--exp" style={{ left: `${renW}%`, width: `${expW}%` }} title={`Expansion $${window.attFmtK(csExp)}`} />
           )}
           {capW < 99.5 && <span className="tb-row__cap" style={{ left: `${capW}%` }} title="Renewal target" />}
         </span>
@@ -225,7 +225,7 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
         {kind === "cs" ? (
           <span className="tb-row__pct tb-row__pct--cs">
             <span className="tb-row__pct-num" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
-            {csExp > 0 && <span className="tb-row__pct-exp">+{window.attFmtK(csExp)} exp</span>}
+            {csExp > 0 && <span className="tb-row__pct-exp">+${window.attFmtK(csExp)} exp</span>}
           </span>
         ) : (
           <span className="tb-row__pct" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>

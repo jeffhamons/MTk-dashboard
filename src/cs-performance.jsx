@@ -18,38 +18,16 @@
 // way in rep-view.jsx / target-board.jsx).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Memoized attainment_snapshot load (latest row per rep). loadAttainment isn't
-// memoized itself; cache one fetch per session so home + region don't re-fetch.
-// Issue #24: this used to `.catch(() => [])`, so an attainment_snapshot read
-// that was blocked or errored arrived here as zero rows and rendered as "not
-// yet synced" on every card — a failure disguised as an empty quarter. Resolve
-// { rows, error } instead and let the page say which it is.
-let _csAttPromise = null;
-function loadCsActuals() {
-  if (_csAttPromise) return _csAttPromise;
-  const fn = window.loadAttainment;
-  _csAttPromise = fn
-    ? Promise.resolve(fn()).then(rows => ({ rows: rows || [], error: null }))
-        .catch(e => {
-          const msg = (e && e.message) || String(e);
-          console.error("loadCsActuals failed:", msg);
-          return { rows: [], error: msg };
-        })
-    : Promise.resolve({ rows: [], error: null });
-  return _csAttPromise;
-}
-
-// ── value coercion / pct (null-safe: null means "no target/value" → "—") ─────
-function _csNum(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
-function _csPct(num, denom) {
-  const n = _csNum(num), d = _csNum(denom);
-  if (n == null || d == null || d === 0) return null;
-  return Math.round((n / d) * 100);
-}
-function _csPctText(p) {
-  if (window.attPctText) return window.attPctText(p);
-  return p == null ? "—" : `${p}%`;
-}
+// Issue #30: the memoized attainment_snapshot loader (loadCsActuals) and the
+// null-safe numeric/percent coercers (_csNum/_csPct) used to be defined here
+// AND in cs-region.jsx — byte-identical, and each running its own independent
+// promise cache (redundant Supabase reads, risk of the two caches diverging).
+// Both now live once in cs-data.jsx (window.loadCsActuals/_csNum/_csPct),
+// which this file already loads after.
+// _csPctText used to be a local fallback-wrapped copy of attPctText,
+// duplicated in this file and cs-region.jsx — callers now call
+// window.attPctText directly (attainment-data.jsx is guaranteed loaded by the
+// time any of these components actually render).
 function _csParseDate(iso) {
   if (!iso) return null;
   const s = String(iso);
@@ -125,11 +103,6 @@ function _csRegionObj(rid) { return (window.REGIONS || []).find(r => r.id === ri
 function _csRegionCurrencyLong(rid) {
   return window.regionCurrencyLong ? window.regionCurrencyLong(rid) : "USD";
 }
-function _csFmtMoney(amount, currency) {
-  return window.formatCurrencyAmount
-    ? window.formatCurrencyAmount(amount || 0, currency)
-    : String(amount || 0);
-}
 function _csConvert(amount, fromCur, toCur) {
   return window.convertAmount ? window.convertAmount(amount || 0, fromCur, toCur) : (amount || 0);
 }
@@ -163,7 +136,7 @@ function _csRegionActual(attRows, rid, component, period) {
   if (field) {
     for (const row of (attRows || [])) {
       if (!row || !repIds.has(row.rep_id)) continue;
-      const v = _csNum(row[field]);
+      const v = window._csNum(row[field]);
       if (v != null) { total += v; hasValue = true; }
       const s = _csParseDate(row.synced_at);
       if (s && (!synced || s > synced)) synced = s;
@@ -227,7 +200,7 @@ function _csRegionTarget(targets, rid, component, period) {
   if (!rows.length) {
     return { amount: null, currency: _csRegionCurrencyLong(rid), present: false, positive: false };
   }
-  const amount = rows.reduce((s, t) => s + (_csNum(t.amount) || 0), 0);
+  const amount = rows.reduce((s, t) => s + (window._csNum(t.amount) || 0), 0);
   // cs_targets rows carry their own currency (they are authored in GBP even for
   // a USD/AUD region) — issue #17. Never assume the region's native currency.
   const currency = (rows[0] && rows[0].currency) || _csRegionCurrencyLong(rid);
@@ -274,7 +247,7 @@ function _csRegionMetric(att, targets, rid, component, period) {
     target: targetNative, hasTarget: targetNative != null && targetNative > 0,
     targetRowPresent: t.present, targetSourceCurrency: t.currency,
     pct: (a.hasValue && targetNative != null && targetNative > 0)
-      ? _csPct(a.nativeTotal, targetNative) : null,
+      ? window._csPct(a.nativeTotal, targetNative) : null,
     currency: a.currency,
   };
 }
@@ -355,7 +328,7 @@ function _csRollupCombinedMetric(att, targets, regions, period, toCur) {
 // visible warning instead of silently winning.
 function _csSnapshotSignature(rowsOnDate) {
   return rowsOnDate
-    .map(r => `${String(r.metric)}:${_csNum(r.numerator)}/${_csNum(r.denominator)}`)
+    .map(r => `${String(r.metric)}:${window._csNum(r.numerator)}/${window._csNum(r.denominator)}`)
     .sort()
     .join("|");
 }
@@ -374,17 +347,17 @@ function _csWow(snapshots, scopeLabel) {
     let num = 0, den = 0, any = false, dropped = 0;
     for (const r of onDate) {
       if (r === combined) continue;  // the aggregate row is not a unit
-      const n = _csNum(r.numerator), d = _csNum(r.denominator);
+      const n = window._csNum(r.numerator), d = window._csNum(r.denominator);
       if (d != null && d > 0) { num += (n || 0); den += d; any = true; }
       else if (n != null && n !== 0) { dropped += 1; }
     }
     let derived = any && den > 0 ? Math.round((num / den) * 100) : null;
     // Only a lone combined row (no per-metric units) may stand in for itself.
     if (derived == null && combined) {
-      const cn = _csNum(combined.numerator), cd = _csNum(combined.denominator);
+      const cn = window._csNum(combined.numerator), cd = window._csNum(combined.denominator);
       if (cn != null && cd != null && cd > 0) derived = Math.round((cn / cd) * 100);
     }
-    const stored = combined ? _csNum(combined.pct) : null;
+    const stored = combined ? window._csNum(combined.pct) : null;
     const pct = derived != null ? derived : stored;
     const mismatch = derived != null && stored != null && Math.abs(derived - stored) > 1;
     return {
@@ -466,8 +439,8 @@ function CsMetricRow({ label, metric }) {
   // Issue #15: no target on file is "no target set", never "$0 to hit". The
   // progress bar is suppressed entirely — a bar against no target reads as 0%.
   const money = metric.hasTarget
-    ? <><b>{_csFmtMoney(metric.actual, cur)}</b> of {_csFmtMoney(metric.target, cur)} · {_csPctText(metric.pct)}</>
-    : <><b>{metric.totalActual != null ? _csFmtMoney(metric.totalActual, cur) : "—"}</b> · no target set</>;
+    ? <><b>{window.formatCurrencyAmount(metric.actual, cur)}</b> of {window.formatCurrencyAmount(metric.target, cur)} · {window.attPctText(metric.pct)}</>
+    : <><b>{metric.totalActual != null ? window.formatCurrencyAmount(metric.totalActual, cur) : "—"}</b> · no target set</>;
   return (
     <div className="tb-stack" style={{ marginTop: 14 }}>
       <div className="tb-stack__cap">
@@ -487,7 +460,7 @@ function CsExcludedNote({ metric, style }) {
   if (!metric || !metric.excluded || !metric.excluded.length) return null;
   return (
     <div style={{ fontSize: 11, color: "#B26B00", marginTop: 6, ...(style || {}) }}>
-      Excluded from the %: {metric.excluded.join(", ")} ({_csFmtMoney(metric.excludedActual, metric.currency)} with no target set).
+      Excluded from the %: {metric.excluded.join(", ")} ({window.formatCurrencyAmount(metric.excludedActual, metric.currency)} with no target set).
     </div>
   );
 }
@@ -528,7 +501,7 @@ function CsWowStrip({ wow, scopeLabel }) {
         <span className="tb-eyebrow__dot" />{scopeLabel} · week over week
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 30, fontWeight: 600, letterSpacing: "-.02em" }}>
-        {_csPctText(wow.currentPct)}
+        {window.attPctText(wow.currentPct)}
       </span>
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600, color: deltaColor }}>
         {arrow} {deltaTxt}
@@ -557,13 +530,13 @@ function CsRegionCard({ region, cs, att }) {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
         <div className="tb-tcard__money">
           {m.hasTarget ? (
-            <><b>{_csFmtMoney(m.actual, m.currency)}</b> of {_csFmtMoney(m.target, m.currency)}</>
+            <><b>{window.formatCurrencyAmount(m.actual, m.currency)}</b> of {window.formatCurrencyAmount(m.target, m.currency)}</>
           ) : (
-            <><b>{m.totalActual != null ? _csFmtMoney(m.totalActual, m.currency) : "—"}</b> · no target set</>
+            <><b>{m.totalActual != null ? window.formatCurrencyAmount(m.totalActual, m.currency) : "—"}</b> · no target set</>
           )}
         </div>
         <div className="tb-tcard__pct">
-          <div className="tb-tcard__pct-num" style={{ color: _csPctColor(m.pct) }}>{_csPctText(m.pct)}</div>
+          <div className="tb-tcard__pct-num" style={{ color: _csPctColor(m.pct) }}>{window.attPctText(m.pct)}</div>
           <div className="tb-tcard__pct-label">{window.ATT_QUARTER ? window.ATT_QUARTER.label : "QTD"}</div>
         </div>
       </div>
@@ -610,16 +583,16 @@ function CsRollupCard({ cs, att, regions }) {
           </div>
         </div>
         <div className="tb-tcard__pct">
-          <div className="tb-tcard__pct-num" style={{ color: _csPctColor(m.pct) }}>{_csPctText(m.pct)}</div>
+          <div className="tb-tcard__pct-num" style={{ color: _csPctColor(m.pct) }}>{window.attPctText(m.pct)}</div>
           <div className="tb-tcard__pct-label">combined</div>
         </div>
       </div>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 28, fontWeight: 600, letterSpacing: "-.02em", marginTop: 10 }}>
         <b>{m.hasTarget
-          ? _csFmtMoney(m.actual, "GBP")
-          : (m.totalActual != null ? _csFmtMoney(m.totalActual, "GBP") : "—")}</b>
+          ? window.formatCurrencyAmount(m.actual, "GBP")
+          : (m.totalActual != null ? window.formatCurrencyAmount(m.totalActual, "GBP") : "—")}</b>
         <span style={{ fontSize: 14, color: "var(--ink-50)" }}>
-          {m.hasTarget ? <> of {_csFmtMoney(m.target, "GBP")}</> : <> · no target set</>}
+          {m.hasTarget ? <> of {window.formatCurrencyAmount(m.target, "GBP")}</> : <> · no target set</>}
         </span>
       </div>
       {m.hasTarget && <CsProgressBar pct={m.pct} />}
@@ -644,7 +617,7 @@ function CsPerformancePage({ authedUser, activeTeam, viewerScope, regionPill }) 
   React.useEffect(() => {
     let cancelled = false;
     const loadCs = window.loadCsDashboard ? window.loadCsDashboard() : Promise.resolve(cs);
-    Promise.all([loadCs, loadCsActuals()]).then(([d, a]) => {
+    Promise.all([loadCs, window.loadCsActuals()]).then(([d, a]) => {
       if (cancelled) return;
       if (d) setCs(d);
       if (a) { setAtt(a.rows || []); setAttError(a.error || null); }

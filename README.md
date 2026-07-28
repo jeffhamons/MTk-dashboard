@@ -114,6 +114,8 @@ RLS is the real data boundary; the client only mirrors it. Roles:
 - `src/tweaks-panel.jsx` - `useTweaks` and `TweaksPanel`, a Claude Design
   sandbox panel, not app navigation.
 - `src/auth-gate.jsx` - `AuthGate`, the magic-link login wall.
+- `src/onboarding-parser.js` - `parseInduction(md, packRoot)`, the shared
+  markdown-checklist parser for both onboarding views.
 - `src/don-onboarding.jsx` - `DonOnboarding`, induction checklist view for Don
   Hazelwood.
 - `src/stuart-onboarding.jsx` - `StuartOnboarding`, induction checklist view

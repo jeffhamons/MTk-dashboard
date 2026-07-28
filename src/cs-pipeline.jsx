@@ -28,40 +28,35 @@ function cspCsReps() {
   return (window.REPS || []).filter(r => r.team === "cs");
 }
 
-function cspFmt(amount, currency) {
-  const fmt = window.formatCurrencyAmount;
-  if (typeof fmt === "function") return fmt(amount, currency || "USD");
-  const n = Math.round(Number(amount) || 0);
-  return String(n);
-}
-
-function cspConvert(amount, from, to) {
-  const fn = window.convertAmount;
-  if (typeof fn === "function") return fn(amount, from || "USD", to || "USD");
-  return Math.round(Number(amount) || 0);
-}
-
-function cspRegionCurrency(regionId) {
-  if (typeof window.regionCurrencyLong === "function") return window.regionCurrencyLong(regionId);
-  const reg = (window.REGIONS || []).find(r => r.id === regionId);
-  return (reg && reg.currency) || "USD";
-}
-
+// Issue #30 (item 8): cspConvert and cspRegionCurrency used to be
+// fallback-wrapped copies of data-model.js's convertAmount/regionCurrencyLong
+// (data-model.js loads first, so the fallback branch was always dead code).
+// Callers below use window.convertAmount / window.regionCurrencyLong
+// directly.
 function cspSum(rows, displayCurrency) {
   return (rows || []).reduce((s, row) => {
-    const from = row.currency || cspRegionCurrency(row.region);
-    return s + cspConvert(row.amount, from, displayCurrency);
+    const from = row.currency || window.regionCurrencyLong(row.region);
+    return s + window.convertAmount(row.amount, from, displayCurrency);
   }, 0);
 }
 
-function cspRagLabel(rag) {
+// Issue #30 (item 4): CspRagBadge and CsfRagBadge (cs-risks-focus.jsx) were
+// byte-identical hardcoded hex palettes duplicated across two files. This is
+// now the one canonical copy (cs-pipeline.jsx loads first); cs-risks-focus.jsx
+// calls window.csRagLabel / window.CsRagBadge instead of keeping its own
+// copy. The hex values are kept as-is rather than swapped for the nearest
+// design-system CSS variables (--done-tint/--flag-tint/etc.) because those
+// tokens resolve to different hues than this Tailwind-style palette — doing
+// so would be a visible color change, which is out of scope for a
+// consolidation pass that isn't item 6 or item 7.
+function csRagLabel(rag) {
   if (rag === "amber") return "Amber";
   if (rag === "red") return "Red";
   if (rag === "green") return "Green";
   return "—";
 }
 
-function CspRagBadge({ rag }) {
+function CsRagBadge({ rag }) {
   const key = (rag || "").toLowerCase();
   const colors = {
     red: { bg: "#FEE2E2", fg: "#991B1B" },
@@ -74,9 +69,11 @@ function CspRagBadge({ rag }) {
       display: "inline-flex", alignItems: "center", gap: 6,
       borderRadius: 99, padding: "3px 9px", fontSize: 12, fontWeight: 700,
       background: c.bg, color: c.fg,
-    }}>{cspRagLabel(key || null)}</span>
+    }}>{csRagLabel(key || null)}</span>
   );
 }
+window.csRagLabel = csRagLabel;
+window.CsRagBadge = CsRagBadge;
 
 function CspEmpty({ label }) {
   return (
@@ -109,7 +106,7 @@ function emptyPipelineDraft(stage, kind, region) {
     client: "",
     product: CSP_PRODUCTS[0],
     amount: "",
-    currency: cspRegionCurrency(rid),
+    currency: window.regionCurrencyLong(rid),
     rep_id: "",
     rag: "green",
     notes: "",
@@ -127,7 +124,7 @@ function rowToDraft(row) {
     client: row.client || "",
     product: row.product || "",
     amount: row.amount == null ? "" : String(row.amount),
-    currency: row.currency || cspRegionCurrency(row.region),
+    currency: row.currency || window.regionCurrencyLong(row.region),
     rep_id: row.rep_id || "",
     rag: row.rag || "green",
     notes: row.notes || "",
@@ -147,7 +144,7 @@ function draftToPayload(draft, stage, kind) {
     client: (draft.client || "").trim(),
     product: draft.product || null,
     amount: amount != null && !isNaN(amount) ? amount : null,
-    currency: draft.currency || cspRegionCurrency(draft.region),
+    currency: draft.currency || window.regionCurrencyLong(draft.region),
     rep_id: draft.rep_id || null,
     rag: draft.rag || null,
     notes: draft.notes || null,
@@ -174,8 +171,8 @@ function CspRowEditor({ draft, onChange, stage, kind, onSave, onCancel, busy, er
   const set = (k, v) => onChange({ ...draft, [k]: v });
   const onRegion = (rid) => {
     const next = { ...draft, region: rid };
-    if (!draft.currency || draft.currency === cspRegionCurrency(draft.region)) {
-      next.currency = cspRegionCurrency(rid);
+    if (!draft.currency || draft.currency === window.regionCurrencyLong(draft.region)) {
+      next.currency = window.regionCurrencyLong(rid);
     }
     onChange(next);
   };
@@ -217,7 +214,7 @@ function CspRowEditor({ draft, onChange, stage, kind, onSave, onCancel, busy, er
       </CspField>
       <CspField label="RAG">
         <select style={cspInputStyle} value={draft.rag || "green"} onChange={e => set("rag", e.target.value)}>
-          {CSP_RAGS.map(r => <option key={r} value={r}>{cspRagLabel(r)}</option>)}
+          {CSP_RAGS.map(r => <option key={r} value={r}>{window.csRagLabel(r)}</option>)}
         </select>
       </CspField>
       <CspField label="Region">
@@ -256,7 +253,7 @@ function CspRowEditor({ draft, onChange, stage, kind, onSave, onCancel, busy, er
 }
 
 function CspRowView({ row, onEdit, onDelete, canWrite }) {
-  const cur = row.currency || cspRegionCurrency(row.region);
+  const cur = row.currency || window.regionCurrencyLong(row.region);
   const meta = [];
   if (row.kind === "renewal" && row.stage === "in-motion" && row.original_month) {
     meta.push(`Original month: ${row.original_month}`);
@@ -280,9 +277,9 @@ function CspRowView({ row, onEdit, onDelete, canWrite }) {
         <div style={{ fontSize: 12, color: "var(--ink-50)" }}>{row.region}</div>
       </div>
       <div style={{ fontSize: 13 }}>{row.product || "—"}</div>
-      <div style={{ fontFamily: "var(--font-mono, monospace)", fontWeight: 700 }}>{cspFmt(row.amount, cur)}</div>
+      <div style={{ fontFamily: "var(--font-mono, monospace)", fontWeight: 700 }}>{window.formatCurrencyAmount(row.amount, cur)}</div>
       <div style={{ fontSize: 13 }}>{cspRepName(row.rep_id)}</div>
-      <div><CspRagBadge rag={row.rag} /></div>
+      <div><window.CsRagBadge rag={row.rag} /></div>
       <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
         {canWrite && (
           <>
@@ -310,7 +307,7 @@ function CspSection({ title, hint, rows, stage, kind, displayCurrency, canWrite,
         <h2 className="tb-section__title">{title}</h2>
         <span className="tb-section__hint">
           {hint ? `${hint} · ` : ""}
-          {sumLabel} {cspFmt(total, displayCurrency)}
+          {sumLabel} {window.formatCurrencyAmount(total, displayCurrency)}
           {canWrite && (
             <button type="button" className="tb-toggle__btn" style={{ marginLeft: 10 }} onClick={onStartAdd} disabled={!!editingKey && !isAdding}>
               + Add row
@@ -635,7 +632,7 @@ function CsWonLostPage({ authedUser, activeTeam, viewerScope, regionPill }) {
               {mode === "won" ? "Manual Won sum" : "Lost sum"} · in scope
             </div>
             <div className="tb-tcard__money">
-              <b>{cspFmt(modeTotal, displayCurrency)}</b>
+              <b>{window.formatCurrencyAmount(modeTotal, displayCurrency)}</b>
               {mode === "won"
                 ? " · judgment totals only (home page shows fed actuals)"
                 : " · amount at risk written off"}
