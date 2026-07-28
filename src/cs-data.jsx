@@ -35,22 +35,58 @@ async function _csUpdatedBy(override) {
 const _now = () => new Date().toISOString();
 
 // ── READ — one async assembly of all six tables ──────────────────────────────
+// Issue #25: the six reads are INDEPENDENT. A single Promise.all(...).catch(...)
+// meant one blocked table (an RLS denial on cs_risks, say) blanked every other
+// section on the page and rendered as "no data" — indistinguishable from an
+// empty table. Each read is now settled on its own and carries its own error, so
+// the five healthy sections still render and the sixth says what went wrong.
+//
+// Note that PostgREST does NOT reject on an RLS denial: it RESOLVES with
+// { data: null, error }. Both failure modes are collapsed into one per-table
+// error string below — a rejected promise and a resolved-with-error response
+// are equally a failed section.
+const CS_DASH_KEYS = ["targets", "pipeline", "risks", "currentFocus", "teamFocus", "snapshots"];
+
+function _csEmptyDash(errors) {
+  const out = { errors: errors || {}, hasErrors: false, failedSections: [] };
+  for (const k of CS_DASH_KEYS) {
+    out[k] = [];
+    if (out.errors[k]) { out.hasErrors = true; out.failedSections.push(k); }
+    else out.errors[k] = out.errors[k] || null;
+  }
+  return out;
+}
+
+// Normalize one settled read into { rows, error }. `error` is a string or null.
+function _csSettled(settled, label) {
+  if (!settled || settled.status === "rejected") {
+    const e = settled && settled.reason;
+    const msg = (e && (e.message || String(e))) || "read failed";
+    console.warn(`loadCsDashboard: ${label} failed:`, msg);
+    return { rows: [], error: msg };
+  }
+  const res = settled.value;
+  if (res && res.error) {
+    const msg = res.error.message || String(res.error);
+    console.warn(`loadCsDashboard: ${label} failed:`, msg);
+    return { rows: [], error: msg };
+  }
+  return { rows: (res && res.data) || [], error: null };
+}
+
 let _csDashPromise = null;
 function loadCsDashboard() {
   if (_csDashPromise) return _csDashPromise;
   // Unconfigured / preview: return empty shapes — never fabricate rows. A
-  // signed-in user always falls through to live reads; an error or an empty
-  // table yields [] and the dashboard renders empty, matching the
-  // live-only principle loadAttainmentV2 applies in production.
+  // signed-in user always falls through to live reads; an empty table yields []
+  // and the dashboard renders empty, matching the live-only principle
+  // loadAttainmentV2 applies in production.
   if (!window.SUPABASE_CONFIGURED || typeof window.getSupabaseClient !== "function") {
-    _csDashPromise = Promise.resolve({
-      targets: [], pipeline: [], risks: [],
-      currentFocus: [], teamFocus: [], snapshots: [],
-    });
+    _csDashPromise = Promise.resolve(_csEmptyDash());
     return _csDashPromise;
   }
   const sb = window.getSupabaseClient();
-  _csDashPromise = Promise.all([
+  _csDashPromise = Promise.allSettled([
     sb.from("cs_targets").select("*").order("region", { ascending: true })
       .order("fy", { ascending: true }).order("period", { ascending: true }),
     sb.from("cs_pipeline_items").select("*")
@@ -65,19 +101,44 @@ function loadCsDashboard() {
     // per region×metric, so the distinct-date slice is the bounded window).
     sb.from("cs_dashboard_snapshot").select("*")
       .order("snapshot_date", { ascending: false }),
-  ]).then(([t, p, r, cf, tf, s]) => ({
-    targets: (t && t.data) || [],
-    pipeline: (p && p.data) || [],
-    risks: (r && r.data) || [],
-    currentFocus: (cf && cf.data) || [],
-    teamFocus: (tf && tf.data) || [],
-    snapshots: _recentSnapshotMondays((s && s.data) || [], 12),
-  })).catch((e) => {
-    // A load failure renders an empty board; we never substitute sample data.
-    console.warn("loadCsDashboard failed:", e && e.message);
-    return { targets: [], pipeline: [], risks: [], currentFocus: [], teamFocus: [], snapshots: [] };
+  ]).then((settled) => {
+    const labels = ["cs_targets", "cs_pipeline_items", "cs_risks", "cs_current_focus", "cs_team_focus", "cs_dashboard_snapshot"];
+    const parts = settled.map((s, i) => _csSettled(s, labels[i]));
+    const out = { errors: {}, hasErrors: false, failedSections: [] };
+    CS_DASH_KEYS.forEach((key, i) => {
+      out[key] = parts[i].rows;
+      out.errors[key] = parts[i].error;
+      if (parts[i].error) { out.hasErrors = true; out.failedSections.push(key); }
+    });
+    out.snapshots = _recentSnapshotMondays(out.snapshots, 12);
+    return out;
+  }).catch((e) => {
+    // allSettled itself only rejects if the array build threw — a wiring bug,
+    // not a table failure. Surface it on every section rather than swallowing.
+    const msg = (e && e.message) || String(e);
+    console.warn("loadCsDashboard failed:", msg);
+    const errors = {};
+    for (const k of CS_DASH_KEYS) errors[k] = msg;
+    return _csEmptyDash(errors);
   });
   return _csDashPromise;
+}
+
+// Shared per-section error banner for CS surfaces (issue #25). `error` is the
+// per-table string from loadCsDashboard().errors — null renders nothing.
+function CsSectionError({ error, label, style }) {
+  if (!error) return null;
+  return (
+    <div role="alert" style={{
+      border: "1px solid #E03C3C", background: "rgba(224,60,60,.08)",
+      color: "#8E1E1E", borderRadius: "var(--radius-card)",
+      padding: "12px 16px", fontSize: 13, fontWeight: 600, margin: "10px 0",
+      ...(style || {}),
+    }}>
+      ⚠ {label || "This section"} could not be loaded — {error}. Nothing below is
+      a real empty result; retry or report this.
+    </div>
+  );
 }
 
 // Keep only rows whose snapshot_date is among the `keep` most recent distinct
@@ -278,6 +339,7 @@ async function deleteCsTeamFocus(id) {
 // ── EXPORT GLOBALS ────────────────────────────────────────────────────────────
 Object.assign(window, {
   loadCsDashboard,
+  CsSectionError,
   upsertCsTarget,
   insertCsPipelineItem, updateCsPipelineItem, deleteCsPipelineItem,
   insertCsRisk, updateCsRisk, deleteCsRisk, resolveCsRisk, reopenCsRisk,

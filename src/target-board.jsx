@@ -18,45 +18,53 @@ function TBChevron() {
   );
 }
 
-// Average a period across reps, skipping reps with no target (null) for it.
-function tbAvg(arr, fn) {
-  const vals = arr.map(fn).filter(v => v != null);
-  return vals.length ? Math.round(vals.reduce((s, v) => s + v, 0) / vals.length) : null;
+// Issue #15: a null or non-positive team target is "no target set", NOT a
+// target of zero that has been cleared. Rendering "£0 of £0" reads as 100%
+// attainment against nothing; say what is actually true instead.
+function tbTargetLine(won, tar, sym, K) {
+  if (tar == null || tar <= 0) return <><b>{sym}{K(won)}</b> · no target set</>;
+  return <><b>{sym}{K(won)}</b> of {sym}{K(tar)}</>;
 }
 
 function TBTeamCard({ name, kind, pct, won, tar, period, badge, qLabel }) {
   const K = window.attFmtKRaw;
   const sym = badge != null ? badge : "";
+  const hasTarget = tar != null && tar > 0;
   return (
     <div className="tb-tcard">
       <div className="tb-tcard__l">
         <div className="tb-tcard__name"><span className={`tb-tcard__dot tb-tcard__dot--${kind}`} />{name} · Team</div>
-        <div className="tb-tcard__money"><b>{sym}{K(won)}</b> of {sym}{K(tar)} · {qLabel || window.ATT_QUARTER.label}</div>
-        <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
+        <div className="tb-tcard__money">{tbTargetLine(won, tar, sym, K)} · {qLabel || window.ATT_QUARTER.label}</div>
+        {hasTarget && <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>}
       </div>
       <div className="tb-tcard__pct">
-        <div className="tb-tcard__pct-num" style={{ color: window.attPctColor(pct) }}>{window.attPctText(pct)}</div>
+        <div className="tb-tcard__pct-num" style={{ color: window.attPctColor(hasTarget ? pct : null) }}>{hasTarget ? window.attPctText(pct) : "—"}</div>
         <div className="tb-tcard__pct-label">{period}</div>
       </div>
     </div>
   );
 }
 
-function TBRegionTeamCard({ region, kind, pct, won, tar, period, qLabel }) {
-  const badge = region ? region.badge : "$";
+function TBRegionTeamCard({ region, kind, pct, won, tar, period, qLabel, displayCurrency }) {
+  // Issue #17: the badge used to come from the region (US → "$"), but the
+  // amounts on this card are already converted into the viewer's display
+  // currency. Label the number with the currency it is actually in.
+  const cur = displayCurrency || "GBP";
+  const badge = window.attCurrencyBadge ? window.attCurrencyBadge(cur) : "$";
+  const hasTarget = tar != null && tar > 0;
   return (
     <div className="tb-tcard tb-tcard--region">
       <div className="tb-tcard__l">
         <div className="tb-tcard__name">
           <span className={`tb-tcard__dot tb-tcard__dot--${kind}`} />
           {region ? region.label : "Other"} · Team
-          <span className="tb-region-badge">{badge}{region ? region.currency : "USD"}</span>
+          <span className="tb-region-badge">{badge}{cur}</span>
         </div>
-        <div className="tb-tcard__money">{badge}{window.attFmtKRaw(won)} of {badge}{window.attFmtKRaw(tar)} · {qLabel || window.ATT_QUARTER.label}</div>
-        <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>
+        <div className="tb-tcard__money">{tbTargetLine(won, tar, badge, window.attFmtKRaw)} · {qLabel || window.ATT_QUARTER.label}</div>
+        {hasTarget && <div className="tb-tcard__track"><i style={{ width: `${window.attBarWidth(pct)}%`, background: window.attTierColor(pct) }} /></div>}
       </div>
       <div className="tb-tcard__pct">
-        <div className="tb-tcard__pct-num" style={{ color: window.attPctColor(pct) }}>{window.attPctText(pct)}</div>
+        <div className="tb-tcard__pct-num" style={{ color: window.attPctColor(hasTarget ? pct : null) }}>{hasTarget ? window.attPctText(pct) : "—"}</div>
         <div className="tb-tcard__pct-label">{period}</div>
       </div>
     </div>
@@ -64,8 +72,11 @@ function TBRegionTeamCard({ region, kind, pct, won, tar, period, qLabel }) {
 }
 
 function TBNbDetail({ rep, period, isManager, myRepId }) {
-  const K = window.attFmtK, F = window.attFmtFull;
   const c = window.attNbCompute(rep);
+  // Issue #17: format in the currency the amounts are actually denominated in
+  // (GBP from the nightly sync), never in the rep's region currency.
+  const K = (n) => window.attFmtMoneyK(n, c.currency);
+  const F = (n) => window.attFmtMoney(n, c.currency);
   const denom = Math.max(c.target, c.won) || 1;
   // RLS hides peer deal rows from non-manager viewers (PR #1809). A rep peeking at a
   // teammate's row sees deals.length === 0 because rows are filtered, not because the
@@ -82,13 +93,14 @@ function TBNbDetail({ rep, period, isManager, myRepId }) {
         ))}
       </div>
       <div className="tb-stack">
-        <div className="tb-stack__cap"><span>{window.ATT_QUARTER.label} closed-won</span><span><b>{F(c.won)}</b> of {F(c.target)} quota</span></div>
+        <div className="tb-stack__cap"><span>{window.ATT_QUARTER.label} closed-won</span><span>{c.hasTarget ? <><b>{F(c.won)}</b> of {F(c.target)} quota</> : <><b>{F(c.won)}</b> · no quarterly quota set</>}</span></div>
         <div className="tb-rail">
           {rep.deals.map((d, i) => {
             const last = i === rep.deals.length - 1, w = d.amt / denom * 100;
             return <div key={i} className="tb-seg" style={{ width: `${w}%`, background: last ? TB_LATEST : TB_SEG[i % 2] }}>{w > 9 ? <span>{K(d.amt)}</span> : null}</div>;
           })}
-          {c.gap > 0 && <div className="tb-gapz"><span>{F(c.gap)} to go</span></div>}
+          {/* Issue #15: only a real (positive) quota produces a "to go" gap. */}
+          {c.hasTarget && c.gap > 0 && <div className="tb-gapz"><span>{F(c.gap)} to go</span></div>}
           <div className="tb-goalcap" />
         </div>
         {rep.deals.length === 0 && <div className="tb-dealrow"><span className="tb-dealrow__acct" style={{ color: "var(--ink-50)" }}>{peerHidden ? "Mind your own pipeline — that's where the commission lives." : "No closed-won deals synced this quarter yet."}</span></div>}
@@ -105,22 +117,39 @@ function TBNbDetail({ rep, period, isManager, myRepId }) {
 }
 
 function TBCsDetail({ rep }) {
-  const K = window.attFmtK, F = window.attFmtFull;
   const c = window.attCsCompute(rep);
-  const hit = c.target > 0 && c.renewedSum >= c.target;
+  // Issue #17: CS targets come from cs_quarterly_targets in GBP; format them
+  // as GBP rather than as the rep's region currency.
+  const K = (n) => window.attFmtMoneyK(n, c.currency);
+  const F = (n) => window.attFmtMoney(n, c.currency);
+  const hit = c.hasTarget && c.renewedSum >= c.target;
   const pct = c.pct;
   return (
     <div className="tb-csdetail">
       <div>
         <div className="tb-ren__head">
           <span className="tb-ren__label">{window.ATT_QUARTER.label} renewal target</span>
-          <span className="tb-ren__pct" style={{ color: hit ? "var(--done-deep)" : "var(--ink)" }}>{window.attPctText(pct)}</span>
+          <span className="tb-ren__pct" style={{ color: hit ? "var(--done-deep)" : "var(--ink)" }}>{c.hasTarget ? window.attPctText(pct) : "—"}</span>
         </div>
-        <div className="tb-ren__money"><b>{F(c.renewedSum)}</b> renewed of <b>{F(c.target)}</b></div>
-        <div className="tb-cstrack"><i style={{ width: `${window.attBarWidth(pct)}%`, background: hit ? "linear-gradient(90deg,var(--done),var(--done-deep))" : "linear-gradient(90deg,var(--brand-light),var(--brand))" }} /></div>
-        <div className={"tb-unlock " + (hit ? "tb-unlock--on" : "tb-unlock--off")}>
-          {hit ? <>Target hit — <b>{F(c.renewedSum - c.target)}</b> above</> : <><b>{F(c.gap)}</b> to hit target</>}
-        </div>
+        {/* Issues #13/#15: no per-rep quarterly target is its own state. It is
+            NOT a target of zero ("cleared"), and no region-level or ramp figure
+            is substituted in to fill the hole. */}
+        {c.hasTarget ? (
+          <>
+            <div className="tb-ren__money"><b>{F(c.renewedSum)}</b> renewed of <b>{F(c.target)}</b></div>
+            <div className="tb-cstrack"><i style={{ width: `${window.attBarWidth(pct)}%`, background: hit ? "linear-gradient(90deg,var(--done),var(--done-deep))" : "linear-gradient(90deg,var(--brand-light),var(--brand))" }} /></div>
+            <div className={"tb-unlock " + (hit ? "tb-unlock--on" : "tb-unlock--off")}>
+              {hit ? <>Target hit — <b>{F(c.renewedSum - c.target)}</b> above</> : <><b>{F(c.gap)}</b> to hit target</>}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="tb-ren__money"><b>{F(c.renewedSum)}</b> renewed</div>
+            <div className="tb-unlock tb-unlock--off">
+              No per-rep quarterly target set for {window.ATT_QUARTER.label} — % to target can't be computed. Ask ops to load the comp-letter figure into <code>cs_quarterly_targets</code>.
+            </div>
+          </>
+        )}
       </div>
       <div>
         <div className="tb-ramp">
@@ -214,7 +243,52 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
   );
 }
 
-function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId, expandable }) {
+// Issue #19: a rep on the roster with no attainment_snapshot row used to be
+// dropped from the board entirely — indistinguishable from "not on the team".
+// Render them explicitly, outside the ranking (they have no % to rank on) and
+// outside every rollup (they contribute no numerator and no denominator).
+function TBMissingRow({ rep }) {
+  const meta = window.attRepMeta(rep.id);
+  return (
+    <div className="tb-row tb-row--missing" data-missing="1">
+      <div className="tb-row__main" style={{ cursor: "default", opacity: 0.75 }} data-rep-id={rep.id}>
+        <span className="tb-row__rank">—</span>
+        <span className="tb-row__av" style={{ background: `oklch(0.6 0.17 ${meta.hue})` }}>{meta.initials}</span>
+        <span className="tb-row__id"><span className="tb-row__name">{meta.name}</span><span className="tb-row__role">{meta.role}</span></span>
+        <span className="tb-row__bar" />
+        <span className="tb-row__pct" style={{ color: "var(--ink-50)", fontSize: 13, fontWeight: 500 }}>no attainment synced</span>
+      </div>
+    </div>
+  );
+}
+
+function TBMissingBlock({ missing }) {
+  if (!missing || missing.length === 0) return null;
+  return (
+    <div className="tb-board tb-board--missing">
+      <div className="tb-empty" style={{ textAlign: "left", paddingBottom: 4 }}>
+        Not in the latest Salesforce sync — no attainment row was written for {missing.length === 1 ? "this rep" : "these reps"}, so they are unranked and excluded from the team totals.
+      </div>
+      {missing.map(rep => <TBMissingRow key={rep.id} rep={rep} />)}
+    </div>
+  );
+}
+
+// Issue #24: a load failure used to return [] and render as the same friendly
+// "nothing synced yet" copy as a genuinely empty board. Say which one it is.
+function TBLoadError({ error }) {
+  return (
+    <div className="tb-board">
+      <div className="tb-empty" role="alert" style={{ background: "#FDECEC", border: "1px solid #E03C3C", color: "#7A1717", borderRadius: 10, padding: "12px 14px", textAlign: "left" }}>
+        <b>Attainment data could not be loaded.</b> These numbers are missing because the request failed — they are not zero and they are not "not synced yet".
+        {error ? <div style={{ marginTop: 6, opacity: 0.85, fontSize: 13 }}>{String(error)}</div> : null}
+        <div style={{ marginTop: 6, fontSize: 13 }}>Reload the page; if it keeps failing, raise it with ops rather than reporting these figures.</div>
+      </div>
+    </div>
+  );
+}
+
+function TBBoard({ list, missing, kind, period, openSet, toggle, isManager, myRepId, expandable }) {
   const key = kind === "nb" ? "pct" : "ren";
   // Sort by % desc; reps with no target this period (null) sort last.
   const sorted = [...list].sort((a, b) => {
@@ -224,43 +298,50 @@ function TBBoard({ list, kind, period, openSet, toggle, isManager, myRepId, expa
     if (bv == null) return -1;
     return bv - av;
   });
-  if (sorted.length === 0) {
+  if (sorted.length === 0 && (!missing || missing.length === 0)) {
     return <div className="tb-board"><div className="tb-empty">No attainment data synced yet — check back after tonight's Salesforce sync.</div></div>;
   }
   return (
-    <div className="tb-board">
-      {sorted.map((rep, i) => (
-        <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} expandable={expandable} />
-      ))}
-    </div>
+    <>
+      <div className="tb-board">
+        {sorted.map((rep, i) => (
+          <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} expandable={expandable} />
+        ))}
+      </div>
+      <TBMissingBlock missing={missing} />
+    </>
   );
 }
 
 // Split a rep list into region buckets and render each region with header +
 // per-region team card.
-function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRepId, expandable, qLabel }) {
+function TBBoardByRegion({ list, missing, kind, period, openSet, toggle, isManager, myRepId, expandable, qLabel, displayCurrency }) {
   const reps = window.REPS || [];
   const regionOrder = window.REGION_ORDER || ["US", "EMEA", "APAC"];
   const regions = window.REGIONS || [];
 
   // Bucket reps by region (look up the rep's region from REPS by id); skip reps with no region.
-  const buckets = {};
-  for (const rep of list) {
-    const full = rep && rep.id ? reps.find(x => x.id === rep.id) : null;
-    if (!full || !full.region) continue;
-    if (!buckets[full.region]) buckets[full.region] = [];
-    buckets[full.region].push(rep);
-  }
+  const bucket = (rows) => {
+    const out = {};
+    for (const rep of (rows || [])) {
+      const full = rep && rep.id ? reps.find(x => x.id === rep.id) : null;
+      if (!full || !full.region) continue;
+      (out[full.region] ||= []).push(rep);
+    }
+    return out;
+  };
+  const buckets = bucket(list);
+  const missingBuckets = bucket(missing);
 
-  if (Object.keys(buckets).length === 0) {
-    return <TBBoard list={list} kind={kind} period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} expandable={expandable} />;
+  if (Object.keys(buckets).length === 0 && Object.keys(missingBuckets).length === 0) {
+    return <TBBoard list={list} missing={missing} kind={kind} period={period} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} expandable={expandable} />;
   }
 
   const key = kind === "nb" ? "pct" : "ren";
-  const K = window.attFmtK;
+  const rids = regionOrder.filter(rid => (buckets[rid] && buckets[rid].length) || (missingBuckets[rid] && missingBuckets[rid].length));
 
-  return regionOrder.filter(rid => buckets[rid] && buckets[rid].length > 0).map(rid => {
-    const sorted = [...buckets[rid]].sort((a, b) => {
+  return rids.map(rid => {
+    const sorted = [...(buckets[rid] || [])].sort((a, b) => {
       const av = a[key][period], bv = b[key][period];
       if (av == null && bv == null) return 0;
       if (av == null) return 1;
@@ -268,93 +349,106 @@ function TBBoardByRegion({ list, kind, period, openSet, toggle, isManager, myRep
       return bv - av;
     });
     const regionObj = regions.find(r => r.id === rid);
-    const regPct = sorted.reduce((s, r) => {
-      const v = r[key][period];
-      return v != null ? s + v : s;
-    }, 0) / sorted.filter(r => r[key][period] != null).length || 0;
-    const regWon = kind === "nb"
-      ? sorted.reduce((s, r) => s + ((r.won && r.won[period]) || 0), 0)
-      : sorted.reduce((s, r) => s + (window.attCsCompute(r).renewedSum || 0), 0);
-    const regTar = kind === "nb"
-      ? sorted.reduce((s, r) => s + ((r.target && r.target[period]) || 0), 0)
-      : sorted.reduce((s, r) => s + (r.qTarget || 0), 0);
+    const roll = tbRollup(sorted, kind, period, displayCurrency, (missingBuckets[rid] || []).length);
     return (
       <div key={rid} className="tb-region-section" data-region-id={rid}>
         <div className="tb-region-head">
           <span className="tb-region-head__active" />
           <span className="tb-region-head__label">{regionObj ? regionObj.label : rid}</span>
-          <span className="tb-region-head__badge">{regionObj ? regionObj.badge : "$"}{regionObj ? regionObj.currency : "USD"}</span>
+          <span className="tb-region-head__badge">{window.attCurrencyBadge ? window.attCurrencyBadge(displayCurrency) : "$"}{displayCurrency}</span>
         </div>
         {sorted.length > 0 && (
-          <TBRegionTeamCard
-            region={regionObj}
-            kind={kind}
-            pct={Math.round(regPct)}
-            won={regWon}
-            tar={regTar}
-            period={qLabel ? "final" : period}
-            qLabel={qLabel}
-          />
+          <>
+            <TBRegionTeamCard
+              region={regionObj}
+              kind={kind}
+              pct={roll.pct}
+              won={roll.won}
+              tar={roll.target}
+              period={qLabel ? "final" : period}
+              qLabel={qLabel}
+              displayCurrency={displayCurrency}
+            />
+            <div className="tb-grain-note" style={{ fontSize: 12, color: "var(--ink-50)", margin: "-4px 0 10px 2px" }}>
+              Rolled up from the {roll.counted} rep {roll.counted === 1 ? "row" : "rows"} shown{roll.noTarget > 0 ? ` (${roll.noTarget} with no target excluded)` : ""}{roll.missing > 0 ? ` · ${roll.missing} unsynced` : ""}. The CS pages report the region-level figure instead, so the two can differ.
+            </div>
+          </>
         )}
         <div className="tb-board">
           {sorted.map((rep, i) => (
             <TBRow key={rep.id} rep={rep} rank={i + 1} period={period} kind={kind} isOpen={openSet.has(rep.id)} onToggle={() => toggle(rep.id)} isManager={isManager} myRepId={myRepId} expandable={expandable} />
           ))}
         </div>
+        <TBMissingBlock missing={missingBuckets[rid]} />
       </div>
     );
   });
 }
 
-// ── Native-region currency helpers for display-currency conversion ──────────
-// Each rep's attainment data arrives in their own native currency (US→USD,
-// EMEA→GBP, ZA→ZAR). When the viewer switches the display currency via the
-// toggle, we convert each rep's amounts individually before summing — not by
-// taking a single total and reconverting it (which would compound rounding).
-function repNativeCurrency(repId) {
-  const r = (window.REPS || []).find(x => x.id === repId);
-  if (!r || !r.region) return "USD";
-  const reg = (window.REGIONS || []).find(x => x.id === r.region);
-  return reg ? reg.currency : "USD";
+// ── Display-currency conversion + rollup grain (issues #17, #18, #27) ────────
+// #17: attainment amounts do NOT arrive in the rep's native region currency.
+// The nightly Salesforce sync writes every figure — snapshot, closed-won deal,
+// renewal book row, cs_quarterly_targets — in GBP (window.ATT_SOURCE_CURRENCY).
+// The old helpers assumed US→USD / APAC→AUD and converted FROM the region
+// currency, so a US rep's £250,000 target was read as $250,000 and then
+// FX-multiplied again. Convert from each row's own declared currency instead.
+//
+// #18: this file rolls a region up by summing the per-rep rows that are
+// VISIBLE on this board (rep grain). src/cs-performance.jsx and
+// src/cs-region.jsx report the region-level row from cs_targets /
+// cs_dashboard_snapshot (region grain). Those two are not the same number and
+// never will be when a region has reps outside the viewer's scope, reps hidden
+// by repVisibleInWeek, or reps with no snapshot row. Reconciling them is a
+// backend change (out of scope here), so the grain is stated explicitly in the
+// UI next to every rollup rather than left to be discovered.
+//
+// #27: nulls are not zeros. A rep whose value never synced contributes nothing
+// to a total — it does not drag the total down as a zero, and if NO rep has a
+// value the total itself is null ("—"), not a confident 0.
+function tbRepCurrency(rep) {
+  return window.attRepCurrency ? window.attRepCurrency(rep) : "GBP";
 }
 
-function convertTeamTotal(list, period, kind, displayCurrency) {
-  const conv = window.convertAmount;
-  if (!conv) return 0;
-  let total = 0;
-  for (const rep of list) {
-    const native = repNativeCurrency(rep.id);
-    if (kind === "nb") {
-      total += conv((rep.won && rep.won[period]) || 0, native, displayCurrency);
+function tbConvert(n, rep, displayCurrency) {
+  if (n == null) return null;
+  return window.attConvert ? window.attConvert(n, tbRepCurrency(rep), displayCurrency) : n;
+}
+
+function tbRepWon(rep, kind, period) {
+  if (kind === "nb") return rep.won ? window.attNum(rep.won[period]) : null;
+  const c = window.attCsCompute(rep);
+  return c.renewedSum == null ? null : c.renewedSum;
+}
+
+function tbRepTarget(rep, kind, period) {
+  if (kind === "nb") return rep.target ? window.attNum(rep.target[period]) : null;
+  // CS targets are quarterly only — the same figure backs every period.
+  return window.attNum(rep.qTarget);
+}
+
+// Roll a list of rep rows up into one team/region figure, in displayCurrency.
+// pct pairs numerator with denominator: only reps with a POSITIVE target
+// contribute to either side of the ratio, so a rep with no target can never
+// inflate or deflate the percentage (the same pairing discipline as issue #14).
+function tbRollup(list, kind, period, displayCurrency, missingCount) {
+  let won = null, target = null, pairWon = null, pairTarget = null;
+  let counted = 0, noTarget = 0;
+  for (const rep of (list || [])) {
+    if (!rep || rep.missing) continue;                     // unsynced rows never roll up
+    const w = tbConvert(tbRepWon(rep, kind, period), rep, displayCurrency);
+    const t = tbConvert(tbRepTarget(rep, kind, period), rep, displayCurrency);
+    if (w != null) won = (won || 0) + w;
+    if (t != null && t > 0) target = (target || 0) + t;
+    if (t != null && t > 0) {
+      counted += 1;
+      pairTarget = (pairTarget || 0) + t;
+      pairWon = (pairWon || 0) + (w || 0);
     } else {
-      total += conv(window.attCsCompute(rep).renewedSum, native, displayCurrency);
+      noTarget += 1;
     }
   }
-  return total;
-}
-
-function convertTeamTarget(list, period, kind, displayCurrency) {
-  const conv = window.convertAmount;
-  if (!conv) return 0;
-  let total = 0;
-  for (const rep of list) {
-    const native = repNativeCurrency(rep.id);
-    if (kind === "nb") {
-      total += conv((rep.target && rep.target[period]) || 0, native, displayCurrency);
-    } else {
-      total += conv(rep.qTarget || 0, native, displayCurrency);
-    }
-  }
-  return total;
-}
-
-function currencyBadge(code) {
-  switch (code) {
-    case "GBP": return "£";
-    case "USD": return "$";
-    case "AUD": return "A$";
-    default:   return code;
-  }
+  const pct = pairTarget != null && pairTarget > 0 ? Math.round((pairWon || 0) / pairTarget * 100) : null;
+  return { won, target, pct, counted, noTarget, missing: missingCount || 0 };
 }
 
 // RFC-151 (was RFC-144) CS Division RBAC merged with per-audience currency:
@@ -385,7 +479,10 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   const [period, setPeriod] = React.useState("qtd");
   const [displayCurrency, setDisplayCurrency] = React.useState("GBP");
   const [openSet, setOpenSet] = React.useState(() => new Set());
-  const [data, setData] = React.useState(() => ({ nb: window.ATT_NB_SAMPLE || [], cs: window.ATT_CS_SAMPLE || [] }));
+  const [data, setData] = React.useState(() => ({
+    nb: window.ATT_NB_SAMPLE || [], cs: window.ATT_CS_SAMPLE || [],
+    missingNb: [], missingCs: [], sync: { newest: null, oldest: null }, loadError: null,
+  }));
   // Historical quarters: archived finals from attainment_quarter_final.
   // selQ === null → current quarter (live board). The switcher offers only
   // quarters that actually have archived rows — never a fabricated lookback.
@@ -412,6 +509,16 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   }, [hist, qfRows, selQ]);
   const board = hist ? (histData || { nb: [], cs: [] }) : data;
   const qLabel = hist ? selQ.label : null;
+  // Issue #24: a failed load is not an empty board. Historical quarters have
+  // their own loader, so only the live board reports the attainment error.
+  const loadError = hist ? null : (data && data.loadError) || null;
+  // Issue #21: attainment_snapshot.synced_at, surfaced at last. `oldest` drives
+  // the staleness call — one rep stuck three days back is a broken sync even if
+  // everyone else refreshed an hour ago.
+  const syncNewest = window.attSyncState ? window.attSyncState(hist ? null : (data.sync && data.sync.newest)) : null;
+  const syncOldest = window.attSyncState ? window.attSyncState(hist ? null : (data.sync && data.sync.oldest)) : null;
+  const showSync = !hist && !loadError && !!(data.sync && data.sync.newest);
+  const syncStale = showSync && syncOldest && syncOldest.stale;
 
   const toggle = (id) => setOpenSet(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
@@ -427,22 +534,47 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   const NB = (board.nb || []).filter(visible).filter(inRegion);
   const CS = (board.cs || []).filter(visible).filter(inRegion);
 
-  const nbPct = tbAvg(NB, r => r.pct[activePeriod]);
-  const nbWon = convertTeamTotal(NB, activePeriod, "nb", displayCurrency);
-  const nbTar = convertTeamTarget(NB, activePeriod, "nb", displayCurrency);
-  const csPct = tbAvg(CS, r => r.ren[activePeriod]);
-  const csWon = convertTeamTotal(CS, activePeriod, "cs", displayCurrency);
-  const csTar = convertTeamTarget(CS, activePeriod, "cs", displayCurrency);
+  // Issue #19: roster reps the sync never wrote a row for. Same visibility and
+  // region gates as the real rows, plus the RLS-shaped rule that a non-manager
+  // only ever sees their own stub — a rep must not learn the roster from a
+  // "not synced" list. Historical boards never show stubs (a rep with no
+  // archived final legitimately has no row for that quarter).
+  const stubs = (rows) => (hist ? [] : (rows || []))
+    .filter(visible).filter(inRegion)
+    .filter(r => isManager || (myRepId && r.id === myRepId));
+  const missingNB = stubs(board.missingNb);
+  const missingCS = stubs(board.missingCs);
+
+  const nbRoll = tbRollup(NB, "nb", activePeriod, displayCurrency, missingNB.length);
+  const csRoll = tbRollup(CS, "cs", activePeriod, displayCurrency, missingCS.length);
 
   const displayCurrencies = window.DISPLAY_CURRENCIES || ["GBP", "USD", "AUD"];
+  const curBadge = window.attCurrencyBadge ? window.attCurrencyBadge(displayCurrency) : "$";
 
   return (
     <div className="tb-view" data-screen-label="03 Target Board">
+      {/* Issue #21: the eyebrow used to promise "synced nightly from
+          Salesforce" with no way to tell whether the sync had actually run.
+          Show the real attainment_snapshot.synced_at instead of a promise. */}
       <div className="tb-eyebrow"><span className="tb-eyebrow__dot" />
         {hist
           ? <>Global attainment · {selQ.label} · quarter final (archived)</>
-          : <>Global attainment · {window.ATT_QUARTER.label} · synced nightly from Salesforce</>}
+          : <>Global attainment · {window.ATT_QUARTER.label} · {showSync
+              ? <>Last synced {syncNewest.label} ({syncNewest.ago})</>
+              : loadError ? <>sync status unknown — load failed</> : <>no sync timestamp recorded</>}</>}
       </div>
+      {syncStale && (
+        <div className="tb-stale" role="alert" style={{ margin: "0 0 14px", padding: "12px 14px", borderRadius: 10, background: "#FDECEC", border: "1px solid #E03C3C", color: "#7A1717", fontSize: 14, lineHeight: 1.5 }}>
+          <b>These numbers are stale.</b> The oldest attainment row on this board was synced {syncOldest.ago}
+          {syncOldest.label ? ` (${syncOldest.label})` : ""} — the nightly Salesforce sync has not completed in over {window.ATT_STALE_HOURS || 24} hours.
+          Do not report or act on these figures until the sync is fixed.
+        </div>
+      )}
+      {!hist && !loadError && !showSync && (data.nb || []).length + (data.cs || []).length > 0 && (
+        <div className="tb-stale" role="alert" style={{ margin: "0 0 14px", padding: "10px 12px", borderRadius: 10, background: "#FFF6E5", border: "1px solid #E0A23C", color: "#7A5217", fontSize: 13.5, lineHeight: 1.5 }}>
+          <b>Sync age unknown.</b> No <code>synced_at</code> timestamp came back with these rows, so there is no way to tell how old they are.
+        </div>
+      )}
       <div className="tb-hrow">
         <div>
           <h1 className="tb-title"><em>Target</em> board</h1>
@@ -478,10 +610,12 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
         </div>
       </div>
 
+      {!loadError && (
       <div className="tb-teamrow">
-        {showNB && <TBTeamCard name="New Business" kind="nb" pct={nbPct} won={nbWon} tar={nbTar} period={hist ? "final" : period} badge={currencyBadge(displayCurrency)} qLabel={qLabel} />}
-        {showCS && <TBTeamCard name="Customer Success" kind="cs" pct={csPct} won={csWon} tar={csTar} period={hist ? "final" : period} badge={currencyBadge(displayCurrency)} qLabel={qLabel} />}
+        {showNB && <TBTeamCard name="New Business" kind="nb" pct={nbRoll.pct} won={nbRoll.won} tar={nbRoll.target} period={hist ? "final" : period} badge={curBadge} qLabel={qLabel} />}
+        {showCS && <TBTeamCard name="Customer Success" kind="cs" pct={csRoll.pct} won={csRoll.won} tar={csRoll.target} period={hist ? "final" : period} badge={curBadge} qLabel={qLabel} />}
       </div>
+      )}
 
       {showNB && (
       <section className="tb-section">
@@ -490,7 +624,9 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
           <h2 className="tb-section__title">New Business</h2>
           <span className="tb-section__hint">% to quota · expand for deal stack</span>
         </div>
-        <TBBoardByRegion list={NB} kind="nb" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />
+        {loadError
+          ? <TBLoadError error={loadError} />
+          : <TBBoardByRegion list={NB} missing={missingNB} kind="nb" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />}
       </section>
       )}
 
@@ -504,7 +640,9 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
             <span className="tb-leg"><i className="tb-leg__sw tb-leg__sw--exp" />upsell / cross-sell</span>
           </span>
         </div>
-        <TBBoardByRegion list={CS} kind="cs" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />
+        {loadError
+          ? <TBLoadError error={loadError} />
+          : <TBBoardByRegion list={CS} missing={missingCS} kind="cs" period={activePeriod} openSet={openSet} toggle={toggle} isManager={isManager} myRepId={myRepId} displayCurrency={displayCurrency} expandable={!hist} qLabel={qLabel} />}
       </section>
       )}
 

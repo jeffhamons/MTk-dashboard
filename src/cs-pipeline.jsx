@@ -373,10 +373,15 @@ function useCsPipelineData(viewerScope, regionPill) {
       setLoaded(true);
       return Promise.resolve();
     }
+    // Issue #25: loadCsDashboard used to swallow every failure and resolve with
+    // empty arrays, so this .catch never fired and `loadError` was dead code —
+    // a blocked cs_pipeline_items read rendered as "no pipeline items". The
+    // loader now settles each table separately and reports its own error here.
     return window.loadCsDashboard().then(d => {
-      setPipeline((d && d.pipeline) || []);
+      const err = (d && d.errors && d.errors.pipeline) || null;
+      setPipeline(err ? [] : ((d && d.pipeline) || []));
       setLoaded(true);
-      setLoadError(null);
+      setLoadError(err);
     }).catch(e => {
       setPipeline([]);
       setLoaded(true);
@@ -541,7 +546,9 @@ function CsPipelinePage({ authedUser, activeTeam, viewerScope, regionPill }) {
       </div>
 
       {!loaded && <CspEmpty label="Loading pipeline…" />}
-      {loadError && <div style={{ color: "#991B1B", marginBottom: 12 }}>{loadError}</div>}
+      {loadError && (window.CsSectionError
+        ? <window.CsSectionError error={loadError} label="The pipeline list" />
+        : <div role="alert" style={{ color: "#991B1B", marginBottom: 12 }}>{loadError}</div>)}
       {crud.error && !crud.editingKey && <div style={{ color: "#991B1B", marginBottom: 12 }}>{crud.error}</div>}
 
       {loaded && sections.map(sec => {
@@ -638,7 +645,9 @@ function CsWonLostPage({ authedUser, activeTeam, viewerScope, regionPill }) {
       </div>
 
       {!loaded && <CspEmpty label="Loading outcomes…" />}
-      {loadError && <div style={{ color: "#991B1B", marginBottom: 12 }}>{loadError}</div>}
+      {loadError && (window.CsSectionError
+        ? <window.CsSectionError error={loadError} label="The pipeline list" />
+        : <div role="alert" style={{ color: "#991B1B", marginBottom: 12 }}>{loadError}</div>)}
       {crud.error && !crud.editingKey && <div style={{ color: "#991B1B", marginBottom: 12 }}>{crud.error}</div>}
 
       {loaded && sections.map(sec => {

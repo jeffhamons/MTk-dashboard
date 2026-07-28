@@ -27,15 +27,110 @@ function attCurrentQuarter(today) {
 }
 const ATT_QUARTER = attCurrentQuarter();
 
+// ── Nullable numeric coercion (issues #16 / #27) ──────────────────────────────
+// The `Number(x) || 0` idiom this file used to lean on collapsed three very
+// different states into one confident zero:
+//   • a genuine synced 0        — the rep really closed nothing
+//   • a null / absent column    — the nightly sync never populated this field
+//   • a non-numeric value       — a malformed row
+// attNum keeps them apart: null / undefined / "" / NaN → null, everything else
+// → a real Number (including 0). The display helpers below render null as "—"
+// and a real 0 as "$0", so "not yet synced" never masquerades as "$0 sold".
+function attNum(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ── Source currency of every attainment amount (issue #17) ────────────────────
+// The nightly Salesforce sync (agents/sf_attainment_sync.py) writes
+// attainment_snapshot, closed_won_deals, renewal_book and cs_quarterly_targets
+// in GBP — the finance reporting currency — regardless of which region the rep
+// belongs to. Neither attainment_snapshot nor cs_quarterly_targets carries a
+// currency column (see db/migration-attainment-v2.sql), so the currency cannot
+// be read per row; it is pinned here.
+//
+// Do NOT infer it from the rep's region. That was the bug: a US rep's £250,000
+// renewal target was labelled "$250,000" and then FX-converted as if it were
+// already USD, double-counting the rate. Amounts are tagged with this currency
+// at assembly time and converted from it into the viewer's display currency.
+const ATT_SOURCE_CURRENCY = "GBP";
+
+// Currency an assembled rep row's amounts are denominated in. Rows built by
+// attBuildLive carry it explicitly; sample/legacy rows fall back to the source
+// currency rather than to the rep's region.
+function attRepCurrency(rep) {
+  return (rep && rep.currency) || ATT_SOURCE_CURRENCY;
+}
+
+// Convert an amount OUT of the attainment source currency into `to`.
+// Returns null for null (never a fabricated 0).
+function attConvert(n, from, to) {
+  if (n == null) return null;
+  if (!to || typeof window.convertAmount !== "function") return n;
+  return window.convertAmount(n, from || ATT_SOURCE_CURRENCY, to);
+}
+
 // ── Formatters ────────────────────────────────────────────────────────────────
-function attFmtK(n)    { if (!n) return "$0"; if (n >= 1000000) return "$" + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return "$" + (Math.round(n / 100) / 10).toLocaleString() + "K"; return "$" + Math.round(n); }
-function attFmtKRaw(n) { if (!n) return "0"; if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return (Math.round(n / 100) / 10).toLocaleString() + "K"; return String(Math.round(n)); }
-function attFmtFull(n) { return "$" + Math.round(n || 0).toLocaleString(); }
+// null → "—" (no value synced). A real 0 still renders as a zero amount.
+function attFmtK(n)    { if (n == null) return "—"; if (!n) return "$0"; if (n >= 1000000) return "$" + (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return "$" + (Math.round(n / 100) / 10).toLocaleString() + "K"; return "$" + Math.round(n); }
+function attFmtKRaw(n) { if (n == null) return "—"; if (!n) return "0"; if (n >= 1000000) return (n / 1000000).toFixed(n >= 10000000 ? 0 : 1).replace(/\.0$/, "") + "M"; if (n >= 1000) return (Math.round(n / 100) / 10).toLocaleString() + "K"; return String(Math.round(n)); }
+function attFmtFull(n) { return n == null ? "—" : "$" + Math.round(n).toLocaleString(); }
+// Currency-correct money formatter (issue #17). Uses data-model's
+// formatCurrencyAmount so a GBP figure renders "£250,000", not "$250,000".
+function attFmtMoney(n, currency) {
+  if (n == null) return "—";
+  const cur = currency || ATT_SOURCE_CURRENCY;
+  if (typeof window.formatCurrencyAmount === "function") return window.formatCurrencyAmount(Math.round(n), cur);
+  return "$" + Math.round(n).toLocaleString();
+}
+function attFmtMoneyK(n, currency) {
+  if (n == null) return "—";
+  return attCurrencyBadge(currency) + attFmtKRaw(n);
+}
 function attFmtDate(iso) {
   if (!iso) return "";
   const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
   return isNaN(d) ? String(iso) : `${m[d.getMonth()]} ${d.getDate()}`;
+}
+function attFmtDateTime(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (!value || isNaN(d)) return "";
+  const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${m[d.getMonth()]} ${d.getDate()}, ${hh}:${mm}`;
+}
+function attCurrencyBadge(code) {
+  switch (code) {
+    case "GBP": return "£";
+    case "USD": return "$";
+    case "AUD": return "A$";
+    case "ZAR": return "R";
+    default:    return code || "$";
+  }
+}
+
+// ── Sync freshness (issue #21) ────────────────────────────────────────────────
+// attainment_snapshot.synced_at was ordered on but never surfaced, so a board
+// showing numbers from three days ago read as current and the copy cheerfully
+// said "synced nightly from Salesforce". attSyncState turns a raw timestamp
+// into { known, hours, stale, label } so the UI can say when — and shout when
+// the nightly sync has plainly not run.
+const ATT_STALE_HOURS = 24;
+function attSyncState(iso, nowMs) {
+  const now = nowMs != null ? nowMs : Date.now();
+  if (!iso) return { iso: null, known: false, hours: null, stale: true, label: "", ago: "never synced" };
+  const d = new Date(iso);
+  if (isNaN(d)) return { iso, known: false, hours: null, stale: true, label: String(iso), ago: "unknown" };
+  const hours = (now - d.getTime()) / 3600000;
+  let ago;
+  if (hours < 0) ago = "just now";
+  else if (hours < 1) ago = "less than an hour ago";
+  else if (hours < 48) ago = `${Math.round(hours)}h ago`;
+  else ago = `${Math.floor(hours / 24)} days ago`;
+  return { iso, known: true, hours, stale: hours > ATT_STALE_HOURS, label: attFmtDateTime(d), ago };
 }
 
 // ── Tier colors (null-safe: no target → neutral) ──────────────────────────────
@@ -63,16 +158,22 @@ function attRepMeta(id) {
 }
 
 // ── Compute: New Business (deal stack to quota + pace) ────────────────────────
+// hasTarget/targetRaw are the issue-#15 contract: a rep with NO quarterly quota
+// (null) or a zero quota must never be told the goal is "cleared" or that they
+// are "$0 from goal". `target` stays a plain number so the pace/projection math
+// below can't produce NaN — callers branch on hasTarget for copy and bars.
 function attNbCompute(rep) {
   const won = rep.deals.reduce((s, d) => s + d.amt, 0);
-  const target = rep.quotaQ || 0;
+  const targetRaw = attNum(rep.quotaQ);
+  const hasTarget = targetRaw != null && targetRaw > 0;
+  const target = targetRaw || 0;
   const gap = Math.max(0, target - won);
   const expected = target * (ATT_QUARTER.daysElapsed / ATT_QUARTER.daysTotal);
   const paceDelta = won - expected;
   const projection = ATT_QUARTER.daysElapsed > 0 ? won * (ATT_QUARTER.daysTotal / ATT_QUARTER.daysElapsed) : 0;
   const avg = rep.deals.length ? won / rep.deals.length : 0;
   const dealsToGo = avg > 0 ? gap / avg : 0;
-  return { won, target, gap, expected, paceDelta, projection, projPct: target ? projection / target * 100 : 0, avg, dealsToGo, pct: rep.pct };
+  return { won, target, targetRaw, hasTarget, gap, expected, paceDelta, projection, projPct: hasTarget ? projection / target * 100 : 0, avg, dealsToGo, pct: rep.pct, currency: attRepCurrency(rep), missing: !!rep.missing };
 }
 
 // ── Compute: Customer Success (renewal book) ──────────────────────────────────
@@ -85,11 +186,15 @@ function attCsCompute(rep) {
   const renewedSum = rep.renewedQ != null ? rep.renewedQ
                                           : renewed.reduce((s, d) => s + d.amt, 0);
   const openSum    = open.reduce((s, d) => s + d.amt, 0);
-  const target = rep.qTarget || 0;
-  const pct = target ? Math.round(renewedSum / target * 100) : null;
+  // Issue #15: qTarget null (no per-rep quarterly target) and qTarget 0 are
+  // both "no target set" — neither one means the rep has nothing left to hit.
+  const targetRaw = attNum(rep.qTarget);
+  const hasTarget = targetRaw != null && targetRaw > 0;
+  const target = targetRaw || 0;
+  const pct = hasTarget ? Math.round(renewedSum / target * 100) : null;
   const gap = Math.max(0, target - renewedSum);
   const coverage = gap > 0 ? openSum / gap : 0;
-  return { renewed, open, churned, renewedSum, openSum, pct, gap, coverage, target, ren: rep.ren };
+  return { renewed, open, churned, renewedSum, openSum, pct, gap, coverage, target, targetRaw, hasTarget, targetSource: rep.qTargetSource || null, currency: attRepCurrency(rep), missing: !!rep.missing, ren: rep.ren };
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -131,59 +236,132 @@ const ATT_CS_SAMPLE = [
     upsell: 0, cross: 50000, multi: 1, effective: "Annual target $1,000,000" },
 ];
 
+// ── Roster reps with no attainment_snapshot row (issue #19) ───────────────────
+// attBuildLive used to iterate ONLY over snapshot rows, so a rep the nightly
+// sync never wrote simply did not exist on the Target Board or in My Number —
+// visually identical to "this rep isn't on the team". These stubs make the
+// absence explicit. They are returned in SEPARATE arrays (missingNb/missingCs)
+// rather than merged into nb/cs so callers keep control: a rollup must not sum
+// them, and a non-manager viewer must only ever be shown their own stub.
+function attMissingRoster(haveIds) {
+  const have = new Set(haveIds || []);
+  const missingNb = [], missingCs = [];
+  for (const rep of (window.REPS || [])) {
+    if (!rep || !rep.id || have.has(rep.id)) continue;
+    if (rep.emit === false) continue;                    // intentionally hidden
+    if (rep.team === "newbiz") {
+      missingNb.push({
+        id: rep.id, missing: true,
+        pct: { mtd: null, qtd: null, ytd: null },
+        won: { mtd: null, qtd: null, ytd: null },
+        target: { mtd: null, qtd: null, ytd: null },
+        quotaQ: null, deals: [], currency: ATT_SOURCE_CURRENCY, syncedAt: null,
+      });
+    } else if (rep.team === "cs") {
+      missingCs.push({
+        id: rep.id, missing: true,
+        ren: { mtd: null, qtd: null, ytd: null },
+        qTarget: null, qTargetSource: null,
+        ramp: [], book: [], upsell: null, cross: null, multi: null,
+        effective: `FY${ATT_QUARTER.fy} renewal plan`,
+        currency: ATT_SOURCE_CURRENCY, syncedAt: null,
+      });
+    }
+  }
+  return { missingNb, missingCs };
+}
+
 // ── Live assembly: snapshot + deal/book/ramp tables → ATT_NB / ATT_CS ─────────
 function attBuildLive(snapshots, deals, book, ramps) {
   const byRep = (rows) => { const m = {}; for (const r of (rows || [])) (m[r.rep_id] ||= []).push(r); return m; };
   const dealsBy = byRep(deals), bookBy = byRep(book), rampBy = byRep(ramps);
   const { fy, quarter } = ATT_QUARTER;
   const nb = [], cs = [];
+  const seen = [];
+  let newestSync = null, oldestSync = null;
 
   for (const row of (snapshots || [])) {
     const pcts = window.deriveAttainmentPcts(row);
     if (!pcts) continue;
+    seen.push(row.rep_id);
+    // Issue #21: attainment_snapshot.synced_at was ordered on but never
+    // surfaced. Carry it per row AND track the board-wide window so the page
+    // can say "last synced X" and shout when the nightly sync did not run.
+    const syncedAt = row.synced_at || null;
+    if (syncedAt) {
+      if (!newestSync || syncedAt > newestSync) newestSync = syncedAt;
+      if (!oldestSync || syncedAt < oldestSync) oldestSync = syncedAt;
+    }
     if (pcts.type === "newbiz") {
       nb.push({
         id: row.rep_id,
         pct: { mtd: pcts.mtd, qtd: pcts.qtd, ytd: pcts.ytd },
-        won: { mtd: Number(row.nb_mtd_won) || 0, qtd: Number(row.nb_qtd_won) || 0, ytd: Number(row.nb_ytd_won) || 0 },
-        target: { mtd: Number(row.nb_mtd_target) || 0, qtd: Number(row.nb_qtd_target) || 0, ytd: Number(row.nb_annual_target) || 0 },
-        quotaQ: row.nb_qtd_target || 0,
-        deals: (dealsBy[row.rep_id] || []).map(d => ({ acct: d.account, amt: Number(d.amount), date: attFmtDate(d.close_date) })),
+        // attNum, not `Number(x) || 0` (issues #16 / #27): a column the sync
+        // never populated stays null and renders "—"; a real synced 0 stays 0.
+        won: { mtd: attNum(row.nb_mtd_won), qtd: attNum(row.nb_qtd_won), ytd: attNum(row.nb_ytd_won) },
+        target: { mtd: attNum(row.nb_mtd_target), qtd: attNum(row.nb_qtd_target), ytd: attNum(row.nb_annual_target) },
+        quotaQ: attNum(row.nb_qtd_target),
+        deals: (dealsBy[row.rep_id] || []).map(d => ({ acct: d.account, amt: attNum(d.amount) || 0, date: attFmtDate(d.close_date) })),
+        currency: ATT_SOURCE_CURRENCY,
+        syncedAt,
       });
     } else {
       const repBook = (bookBy[row.rep_id] || []).map(b => ({
-        acct: b.account, amt: Number(b.arr), status: b.status,
+        acct: b.account, amt: attNum(b.arr) || 0, status: b.status,
         date: b.status === "renewed" ? `Renewed ${attFmtDate(b.renewed_date || b.due_date)}`
             : b.status === "churn"   ? `Churned ${attFmtDate(b.due_date)}`
             :                          `Due ${attFmtDate(b.due_date)}`,
       }));
       // 4-quarter ramp from cs_quarterly_targets; fill = renewed-in-quarter ÷ target.
-      const tByQ = {}; for (const t of (rampBy[row.rep_id] || [])) tByQ[t.quarter] = Number(t.target);
+      const tByQ = {}; for (const t of (rampBy[row.rep_id] || [])) tByQ[t.quarter] = attNum(t.target);
       const renewedInQ = (q) => (bookBy[row.rep_id] || [])
         .filter(b => b.status === "renewed" && (new Date((b.due_date || "") + "T00:00:00").getMonth() >= 0) && Math.floor(new Date((b.due_date || "") + "T00:00:00").getMonth() / 3) + 1 === q)
-        .reduce((s, b) => s + Number(b.arr), 0);
+        .reduce((s, b) => s + (attNum(b.arr) || 0), 0);
       const ramp = [1, 2, 3, 4].map(q => {
         const amt = tByQ[q];
         if (amt == null) return { q: `Q${q}`, na: true, cur: q === quarter };
         return { q: `Q${q}`, amt, cur: q === quarter, fill: amt ? Math.min(100, Math.round(renewedInQ(q) / amt * 100)) : 0 };
       });
+      // Issue #13: the old expression was
+      //   row.ren_qtd_target || tByQ[quarter] || 0
+      // Two defects. (a) `||` is falsy-tested, so a REAL synced 0 in
+      // ren_qtd_target silently jumped to the ramp figure — a rep whose target
+      // was deliberately zeroed got shown someone's planned ramp instead.
+      // (b) the trailing `|| 0` manufactured a target of zero when NOTHING was
+      // set, which downstream reads as "target cleared / $0 to hit". Now: use
+      // the per-rep snapshot target if present, else the per-rep ramp row for
+      // this quarter, else null — "no per-rep quarterly target", rendered as an
+      // explicit empty state, never as a zero target and never from a
+      // region-level figure.
+      const qTarget = attNum(row.ren_qtd_target) != null ? attNum(row.ren_qtd_target)
+                    : (tByQ[quarter] != null ? tByQ[quarter] : null);
+      const qTargetSource = attNum(row.ren_qtd_target) != null ? "snapshot"
+                          : (tByQ[quarter] != null ? "ramp" : null);
       cs.push({
         id: row.rep_id,
         ren: { mtd: null, qtd: pcts.qtd, ytd: pcts.ytd },   // no monthly target → "—"
-        qTarget: row.ren_qtd_target || tByQ[quarter] || 0,
+        qTarget,
+        qTargetSource,
         ramp,
         book: repBook,
         // Backend lumps upsell+cross-sell into one "expansion" activity figure;
         // it does not split them or count multi-year deals. Show the combined
         // figure as upsell (the larger bucket) and "—" the unsplit fields.
-        upsell: row.exp_qtd_won != null ? Number(row.exp_qtd_won) : null,
+        upsell: attNum(row.exp_qtd_won),
         cross: null,
         multi: null,
         effective: `FY${fy} renewal plan`,
+        currency: ATT_SOURCE_CURRENCY,
+        syncedAt,
       });
     }
   }
-  return { nb, cs };
+  const { missingNb, missingCs } = attMissingRoster(seen);
+  return {
+    nb, cs, missingNb, missingCs,
+    sync: { newest: newestSync, oldest: oldestSync },
+    loadError: null,
+  };
 }
 
 // ── Historical quarter finals (attainment_quarter_final) → board shape ───────
@@ -267,23 +445,37 @@ function loadQuarterFinals() {
 let _attV2Promise = null;
 function loadAttainmentV2() {
   if (_attV2Promise) return _attV2Promise;
-  const sample = { nb: ATT_NB_SAMPLE, cs: ATT_CS_SAMPLE };
   if (!window.SUPABASE_CONFIGURED || !window.loadAttainment || window.IS_PREVIEW) {
     // Design sandbox / unconfigured: show sample so the board is reviewable.
     // Production signed-in users always fall through to live-only data below.
-    _attV2Promise = Promise.resolve(sample);
+    _attV2Promise = Promise.resolve({
+      nb: ATT_NB_SAMPLE, cs: ATT_CS_SAMPLE,
+      missingNb: [], missingCs: [],
+      sync: { newest: null, oldest: null }, loadError: null, sample: true,
+    });
     return _attV2Promise;
   }
   // Configured (real env): use live data as-is — never substitute sample, so a
   // signed-in rep never sees fabricated numbers if the tables are empty/blocked.
-  // An empty result renders an empty board; a load failure renders empty too.
   _attV2Promise = Promise.all([
     window.loadAttainment(),
     window.loadClosedWonDeals ? window.loadClosedWonDeals() : [],
     window.loadRenewalBook ? window.loadRenewalBook() : [],
     window.loadCsQuarterlyTargets ? window.loadCsQuarterlyTargets() : [],
   ]).then(([snap, deals, book, ramps]) => attBuildLive(snap, deals, book, ramps))
-    .catch(e => { console.warn("loadAttainmentV2 failed:", e && e.message); return { nb: [], cs: [] }; });
+    // Issue #24: this used to swallow the failure and return an empty board,
+    // which the UI rendered as "No attainment data synced yet" — i.e. a read
+    // error (RLS denial, network drop, bad column) was indistinguishable from a
+    // quarter in which nobody had closed anything. loadError carries the reason
+    // so the board can render a distinct, visible failure panel instead.
+    .catch(e => {
+      const msg = (e && e.message) || String(e);
+      console.error("loadAttainmentV2 failed:", msg);
+      return {
+        nb: [], cs: [], missingNb: [], missingCs: [],
+        sync: { newest: null, oldest: null }, loadError: msg,
+      };
+    });
   return _attV2Promise;
 }
 
@@ -293,4 +485,8 @@ Object.assign(window, {
   attRepMeta, attNbCompute, attCsCompute, attBuildLive, loadAttainmentV2,
   attBuildQuarterFinal, attQuarterFinalOptions, loadQuarterFinals, ATT_QF_SAMPLE,
   attCurrency, attCurrencyForRegion,
+  // Nullable/currency/freshness helpers (issues #13/#15/#16/#17/#19/#21/#27).
+  attNum, ATT_SOURCE_CURRENCY, attRepCurrency, attConvert,
+  attFmtMoney, attFmtMoneyK, attFmtDateTime, attCurrencyBadge,
+  ATT_STALE_HOURS, attSyncState, attMissingRoster,
 });

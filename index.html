@@ -2544,6 +2544,11 @@ function App({ authedUser, preloadedState }) {
   // separately and merged in below — keeping them OUT of `state` means realtime
   // state replacements + localStorage persistence never clobber them.
   const [standupFills, setStandupFills] = useState({});
+  // Last failed cloud write (issue #26). Every check/note/ask handler below
+  // updates local state optimistically; when the Supabase write then rejects we
+  // roll that optimistic change back and park the reason here so the user sees
+  // an inline "not saved" banner instead of losing the edit silently.
+  const [saveError, setSaveError] = useState(null);
   // Nav view: page ids (APP_PAGES) or a rep id. URL encodes rep pages as
   // view=rep&rep=<id>; page views as view=<page id>.
   const [view, setView] = useState(() => {
@@ -2667,10 +2672,48 @@ function App({ authedUser, preloadedState }) {
     document.documentElement.style.setProperty("--deliv-count", DELIVERABLES.length);
   }, [tweaks]);
 
+  // ── Optimistic write-through with rollback (issue #26) ────────────────────
+  // The adapters in supabase-client.js now throw on a Supabase error instead of
+  // console.error-ing and resolving. writeThrough is the single place that
+  // reacts: undo the optimistic local change so the UI stops lying, and raise a
+  // visible save-error banner. `rollback` is a normal setState updater applied
+  // to whatever the state is at failure time, so a later unrelated edit is not
+  // clobbered — only the key this write owned is restored.
+  const writeThrough = (label, run, rollback) => {
+    let p;
+    try { p = Promise.resolve(run()); }
+    catch (err) { p = Promise.reject(err); }
+    p.then(() => setSaveError(null))
+     .catch(err => {
+       console.error(label, err);
+       if (rollback) setState(rollback);
+       setSaveError({ label, message: (err && err.message) || String(err) });
+     });
+  };
+
+  // Snapshot the two ask maps for key `k` and return a setState updater that
+  // restores exactly those two entries — the rollback for every ask-shaped
+  // write (raise, resolve, reopen, respond).
+  const askSnapshot = (k) => {
+    const asks = state.asks || {}, resolved = state.resolvedAsks || {};
+    const hadAsk = Object.prototype.hasOwnProperty.call(asks, k);
+    const hadRes = Object.prototype.hasOwnProperty.call(resolved, k);
+    const prevAsk = asks[k], prevRes = resolved[k];
+    return s => {
+      const nextAsks = { ...(s.asks || {}) };
+      const nextRes  = { ...(s.resolvedAsks || {}) };
+      if (hadAsk) nextAsks[k] = prevAsk; else delete nextAsks[k];
+      if (hadRes) nextRes[k]  = prevRes; else delete nextRes[k];
+      return { ...s, asks: nextAsks, resolvedAsks: nextRes };
+    };
+  };
+
   const onCheck = (repId, weekId, delId) => {
     if (effectiveUser && !isManager && repId !== myRepId) return; // peer view = read-only
     const k = checkKey(repId, weekId, delId);
     const wasChecked = !!state.checks[k];
+    const hadKey = Object.prototype.hasOwnProperty.call(state.checks, k);
+    const prevCheck = state.checks[k];
     const now = new Date().toISOString();
     // Build markedBy attribution from current auth
     let markedBy = undefined;
@@ -2691,13 +2734,22 @@ function App({ authedUser, preloadedState }) {
     });
     // Write through to Supabase
     if (useCloud) {
-      window.toggleCheckSupabase(repId, weekId, delId, wasChecked, markedBy).catch(console.error);
+      writeThrough("check not saved",
+        () => window.toggleCheckSupabase(repId, weekId, delId, wasChecked, markedBy),
+        s => {
+          const checks = { ...s.checks };
+          if (hadKey) checks[k] = prevCheck; else delete checks[k];
+          return { ...s, checks };
+        });
     }
   };
 
   const onSaveNote = (repId, weekId, delId, note) => {
     if (!isManager) return; // RLS will block anyway, but bail early
     const k = `${repId}|${weekId}|${delId}`;
+    const prevNotes = state.managerNotes || {};
+    const hadNote = Object.prototype.hasOwnProperty.call(prevNotes, k);
+    const prevNote = prevNotes[k];
     setState(s => {
       const managerNotes = { ...(s.managerNotes || {}) };
       if (!note || !note.trim()) delete managerNotes[k];
@@ -2705,13 +2757,20 @@ function App({ authedUser, preloadedState }) {
       return { ...s, managerNotes };
     });
     if (useCloud) {
-      window.setManagerNoteSupabase(repId, weekId, delId, note, (authedUser || effectiveUser).authEmail).catch(console.error);
+      writeThrough("note not saved",
+        () => window.setManagerNoteSupabase(repId, weekId, delId, note, (authedUser || effectiveUser).authEmail),
+        s => {
+          const managerNotes = { ...(s.managerNotes || {}) };
+          if (hadNote) managerNotes[k] = prevNote; else delete managerNotes[k];
+          return { ...s, managerNotes };
+        });
     }
   };
 
   const onAsk = (repId, weekId, delId, text) => {
     if (effectiveUser && !isManager && repId !== myRepId) return; // peer view = read-only
     const k = `${repId}|${weekId}|${delId}`;
+    const rollback = askSnapshot(k);
     setState(s => {
       const asks = { ...(s.asks || {}) };
       const resolvedAsks = { ...(s.resolvedAsks || {}) };
@@ -2754,7 +2813,9 @@ function App({ authedUser, preloadedState }) {
             role: isManager ? "manager" : "rep",
           }
         : null;
-      window.setAskSupabase(repId, weekId, delId, text, resolvedBy).catch(console.error);
+      writeThrough("flag not saved",
+        () => window.setAskSupabase(repId, weekId, delId, text, resolvedBy),
+        rollback);
     }
   };
 
@@ -2767,6 +2828,7 @@ function App({ authedUser, preloadedState }) {
     const k = `${repId}|${weekId}|${delId}`;
     const trimmed = (text || "").trim();
     if (!trimmed) return;
+    const rollback = askSnapshot(k);
     let shouldWrite = false;
     setState(s => {
       const asks = { ...(s.asks || {}) };
@@ -2788,7 +2850,9 @@ function App({ authedUser, preloadedState }) {
       const resolvedBy = authedUser
         ? { email: authedUser.authEmail, name: authedUser.authEmail.split("@")[0], role: isManager ? "manager" : "rep" }
         : null;
-      window.setAskSupabase(repId, weekId, delId, trimmed, resolvedBy).catch(console.error);
+      writeThrough("flag not saved",
+        () => window.setAskSupabase(repId, weekId, delId, trimmed, resolvedBy),
+        rollback);
     }
   };
 
@@ -2807,6 +2871,7 @@ function App({ authedUser, preloadedState }) {
   const onReopenAsk = (repId, weekId, delId) => {
     if (!isManager) return; // manager-only action
     const k = `${repId}|${weekId}|${delId}`;
+    const rollback = askSnapshot(k);
     setState(s => {
       const asks = { ...(s.asks || {}) };
       const resolvedAsks = { ...(s.resolvedAsks || {}) };
@@ -2819,7 +2884,9 @@ function App({ authedUser, preloadedState }) {
       return { ...s, asks, resolvedAsks };
     });
     if (useCloud && window.reopenAskSupabase) {
-      window.reopenAskSupabase(repId, weekId, delId).catch(console.error);
+      writeThrough("reopen not saved",
+        () => window.reopenAskSupabase(repId, weekId, delId),
+        rollback);
     }
   };
 
@@ -2830,6 +2897,7 @@ function App({ authedUser, preloadedState }) {
     const markedBy = authedUser
       ? { email: authedUser.authEmail, name: authedUser.authEmail.split("@")[0] }
       : null;
+    const rollback = askSnapshot(k);
     setState(s => {
       const asks = { ...(s.asks || {}) };
       const existing = asks[k];
@@ -2851,7 +2919,9 @@ function App({ authedUser, preloadedState }) {
       return { ...s, asks };
     });
     if (useCloud) {
-      window.setAskResponseSupabase(repId, weekId, delId, trimmed, markedBy).catch(console.error);
+      writeThrough("response not saved",
+        () => window.setAskResponseSupabase(repId, weekId, delId, trimmed, markedBy),
+        rollback);
     }
   };
 
@@ -3040,6 +3110,25 @@ function App({ authedUser, preloadedState }) {
 
       <main className="app__main">
         <div className="app__inner">
+          {/* Issue #26: a cloud write failed and the optimistic change has been
+              rolled back. Say so — silently reverting is as bad as silently
+              dropping the write. */}
+          {saveError && (
+            <div role="alert" style={{ margin: "0 0 12px", padding: "10px 12px", borderRadius: 10,
+                                       background: "#FDECEC", border: "1px solid #E03C3C",
+                                       color: "#7A1717", fontSize: 14, lineHeight: 1.5,
+                                       display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <b>Not saved.</b> Your last change ({saveError.label}) could not be written and
+                has been undone. {saveError.message ? <span style={{ opacity: 0.85 }}>({saveError.message})</span> : null}
+                {" "}Check your connection and try again.
+              </div>
+              <button type="button" onClick={() => setSaveError(null)}
+                      style={{ border: "none", background: "transparent", color: "#7A1717",
+                               fontSize: 16, cursor: "pointer", lineHeight: 1 }}
+                      aria-label="Dismiss">×</button>
+            </div>
+          )}
           {view === "home" ? (
             <div data-screen-label="00 Home">
               <HomeView
@@ -3081,13 +3170,38 @@ function App({ authedUser, preloadedState }) {
                 regionPill={regionPill}
               />
             </div>
-          ) : (APP_PAGES.find(p => p.id === view && p.component)) ? (
+          ) : (APP_PAGES.find(p => p.id === view && (p.component || p.componentGlobal))) ? (
             // RFC-158 Phase 3 — CS pages registered on APP_PAGES with component.
             // Regions uses the shell region pill (fallback: first scoped region).
             (() => {
-              const page = APP_PAGES.find(p => p.id === view && p.component);
-              const Comp = page && page.component;
-              if (typeof Comp !== "function") return null;
+              const page = APP_PAGES.find(p => p.id === view && (p.component || p.componentGlobal));
+              // Issue #22: resolve the component from the LIVE global at render
+              // time. APP_PAGES captured `window.X` while manager.jsx was being
+              // evaluated, so any page whose <script> had not run yet captured
+              // undefined and this branch used to `return null` — a blank page
+              // under a working nav, with nothing logged. Now the failure names
+              // the page, the missing global and the file that should define it.
+              const Comp = window.resolveAppPageComponent
+                ? window.resolveAppPageComponent(page)
+                : (typeof (page && page.component) === "function" ? page.component : null);
+              if (typeof Comp !== "function") {
+                const g = (page && page.componentGlobal) || "(unnamed)";
+                const src = (window.APP_PAGE_SOURCES && window.APP_PAGE_SOURCES[g]) || "an unknown source file";
+                return (
+                  <div style={{ padding: "16px 18px", borderRadius: 10,
+                                background: "#FDECEC", border: "1px solid #E03C3C", color: "#7A1717" }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                      This page failed to load
+                    </div>
+                    <div style={{ fontSize: 14, lineHeight: 1.6 }}>
+                      <b>{(page && page.label) || view}</b> needs <code>window.{g}</code>, which
+                      should be defined by <code>{src}</code>. That script did not run
+                      (or errored). Reload the page; if this keeps happening, report it —
+                      the data is fine, the page script is not loading.
+                    </div>
+                  </div>
+                );
+              }
               const region = regionPill || allowedRegionsApp[0] || "US";
               return (
                 <Comp
@@ -3213,6 +3327,49 @@ function App({ authedUser, preloadedState }) {
     </div>
   );
 }
+
+// ── Load-order validation (issue #22) ────────────────────────────────────────
+// Every cross-file reference in this app is a window global set by a <script>
+// tag above. If one of those tags fails, the global is silently absent and the
+// app renders a blank page for the affected route. Check the required globals
+// HERE — right before bootstrap, once every script has run — and, when
+// something is missing, log it and put a banner in front of the user instead of
+// letting them stare at an empty screen.
+const REQUIRED_GLOBALS = [
+  ["App shell",      ["REPS", "REGIONS", "WEEKS", "DELIVERABLES", "APP_PAGES"]],
+  ["Attainment",     ["loadAttainmentV2", "attNbCompute", "attCsCompute", "attSyncState"]],
+  ["Supabase adapter", ["SUPABASE_CONFIGURED"]],
+];
+(function validateGlobals() {
+  const missingCore = [];
+  for (const [area, names] of REQUIRED_GLOBALS) {
+    for (const n of names) {
+      if (window[n] === undefined) missingCore.push(`${area}: window.${n}`);
+    }
+  }
+  const missingPages = window.missingAppPageGlobals ? window.missingAppPageGlobals() : [];
+  if (!missingCore.length && !missingPages.length) return;
+
+  console.error("Load-order check failed.",
+    { missingCore, missingPages: missingPages.map(p => p.global) });
+
+  const banner = document.createElement("div");
+  banner.setAttribute("role", "alert");
+  banner.style.cssText = "margin:12px;padding:12px 14px;border-radius:10px;" +
+    "background:#FDECEC;border:1px solid #E03C3C;color:#7A1717;" +
+    "font:14px/1.55 system-ui,-apple-system,sans-serif";
+  const lines = missingCore.concat(
+    missingPages.map(p => `${p.label}: window.${p.global} (expected from ${p.source})`));
+  banner.innerHTML =
+    "<b>Some scripts did not load.</b><br>" +
+    "Parts of this dashboard will not render until they do. Reload the page; " +
+    "if it keeps happening, report it — this is a page-loading problem, not your data.<ul style='margin:8px 0 0 18px'>" +
+    lines.map(t => "<li></li>").join("") + "</ul>";
+  // Fill list text via textContent so a global name can never inject markup.
+  const items = banner.querySelectorAll("li");
+  lines.forEach((t, i) => { if (items[i]) items[i].textContent = t; });
+  document.body.insertBefore(banner, document.body.firstChild);
+})();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 // isPreview is declared above App so the View-as pill can read it via closure.

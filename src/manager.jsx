@@ -9,27 +9,88 @@
 // PAGE REGISTRY — single source of truth for nav.
 // Filtered at render by user role. Append to extend.
 // =====================================================================
+// `component:` is captured at MODULE-EVAL time. This file's <script> tag runs
+// before some of the page files, so those entries capture `undefined` and the
+// route renderer used to bail out with a blank screen (issue #22). Every entry
+// therefore ALSO carries `componentGlobal` — the window key to resolve LAZILY
+// at route-render time, by which point every script has run. `component` stays
+// as the build-time fallback so nothing regresses if a global is renamed.
 const APP_PAGES = [
   { id: "home",          label: "Home",         icon: "home",        requires: "any"     },
   { id: "rollup",        label: "Team",         icon: "team",        requires: "any"     },
   { id: "leaderboard",   label: "Leaderboard",  icon: "leaderboard", requires: "any"     },
   { id: "standup",       label: "Standup",      icon: "standup",     requires: "any"     },
   { id: "wins",          label: "Weekly Wins",  icon: "wins",        requires: "any"     },
-  { id: "team-briefs",   label: "Team Briefs",  icon: "mail",        requires: "manager", component: window.TeamBriefsManager },
+  { id: "team-briefs",   label: "Team Briefs",  icon: "mail",        requires: "manager", componentGlobal: "TeamBriefsManager", component: window.TeamBriefsManager },
   // RFC-158 Phase 3 — CS workspace pages. requires:"cs" is filtered in App
   // nav the same way don-or-manager / stuart-or-manager gate on activeTeam.
-  { id: "cs:home",       label: "CS Home",      icon: "home",        requires: "cs", component: window.CsPerformancePage },
-  { id: "cs:region",     label: "Regions",      icon: "calendar",    requires: "cs", component: window.CsRegionPage },
-  { id: "cs:pipeline",   label: "Pipeline",     icon: "tracker",     requires: "cs", component: window.CsPipelinePage },
-  { id: "cs:wonlost",    label: "Won / Lost",   icon: "check",       requires: "cs", component: window.CsWonLostPage },
-  { id: "cs:targets",    label: "Targets",      icon: "leaderboard", requires: "cs", component: window.CsTargetsPage },
-  { id: "cs:team",       label: "CS Team",      icon: "user",        requires: "cs", component: window.CsTeamPage },
-  { id: "cs:risks",      label: "Risks",        icon: "flag",        requires: "cs", component: window.CsRisksPage },
-  { id: "cs:focus",      label: "Current Focus",icon: "outreach",    requires: "cs", component: window.CsFocusPage },
+  { id: "cs:home",       label: "CS Home",      icon: "home",        requires: "cs", componentGlobal: "CsPerformancePage", component: window.CsPerformancePage },
+  { id: "cs:region",     label: "Regions",      icon: "calendar",    requires: "cs", componentGlobal: "CsRegionPage", component: window.CsRegionPage },
+  { id: "cs:pipeline",   label: "Pipeline",     icon: "tracker",     requires: "cs", componentGlobal: "CsPipelinePage", component: window.CsPipelinePage },
+  { id: "cs:wonlost",    label: "Won / Lost",   icon: "check",       requires: "cs", componentGlobal: "CsWonLostPage", component: window.CsWonLostPage },
+  { id: "cs:targets",    label: "Targets",      icon: "leaderboard", requires: "cs", componentGlobal: "CsTargetsPage", component: window.CsTargetsPage },
+  { id: "cs:team",       label: "CS Team",      icon: "user",        requires: "cs", componentGlobal: "CsTeamPage", component: window.CsTeamPage },
+  { id: "cs:risks",      label: "Risks",        icon: "flag",        requires: "cs", componentGlobal: "CsRisksPage", component: window.CsRisksPage },
+  { id: "cs:focus",      label: "Current Focus",icon: "outreach",    requires: "cs", componentGlobal: "CsFocusPage", component: window.CsFocusPage },
   { id: "manager:flags", label: "Open flags",   icon: "flag",        requires: "manager" },
   { id: "don:onboarding", label: "Don — Onboarding", icon: "onboarding", requires: "don-or-manager" },
   { id: "stuart:onboarding", label: "Stuart — Onboarding", icon: "onboarding", requires: "stuart-or-manager" },
 ];
+
+// =====================================================================
+// LAZY COMPONENT RESOLUTION + LOAD-ORDER DIAGNOSTIC (issue #22)
+//
+// With no module system, every cross-file reference goes through a window
+// global set by a <script> tag in index.html. If one of those tags fails to
+// load (network blip, a syntax error in the file, a tag removed during an
+// edit) the global is simply absent — and the old route dispatch answered
+// `typeof Comp !== "function"` with `return null`, i.e. a blank page with a
+// working nav and nothing in the console. These two helpers make the failure
+// name itself: which page, which global, which file should have defined it.
+// =====================================================================
+
+// The file each page global is expected to come from — used only for the
+// diagnostic message, so a blank page points straight at the broken script.
+const APP_PAGE_SOURCES = {
+  TeamBriefsManager:  "src/team-briefs.jsx",
+  CsPerformancePage:  "src/cs-performance.jsx",
+  CsRegionPage:       "src/cs-region.jsx",
+  CsPipelinePage:     "src/cs-pipeline.jsx",
+  CsWonLostPage:      "src/cs-pipeline.jsx",
+  CsTargetsPage:      "src/cs-targets-view.jsx",
+  CsTeamPage:         "src/cs-team.jsx",
+  CsRisksPage:        "src/cs-risks-focus.jsx",
+  CsFocusPage:        "src/cs-risks-focus.jsx",
+};
+
+// Resolve a page's component at RENDER time, preferring the live global over
+// the value captured when this file was evaluated. Returns null when neither
+// is a function — callers render a diagnostic, never a blank page.
+function resolveAppPageComponent(page) {
+  if (!page) return null;
+  const live = page.componentGlobal ? window[page.componentGlobal] : null;
+  if (typeof live === "function") return live;
+  if (typeof page.component === "function") return page.component;
+  return null;
+}
+
+// Which page globals are missing right now. Returns
+// [{ id, label, global, source }] — empty when everything loaded.
+function missingAppPageGlobals(pages) {
+  const list = pages || APP_PAGES;
+  const out = [];
+  for (const page of list) {
+    if (!page.componentGlobal && !page.component) continue;   // no component by design
+    if (resolveAppPageComponent(page)) continue;
+    out.push({
+      id: page.id,
+      label: page.label,
+      global: page.componentGlobal || "(unnamed)",
+      source: APP_PAGE_SOURCES[page.componentGlobal] || "unknown source file",
+    });
+  }
+  return out;
+}
 
 // =====================================================================
 // FlagQueue — landing list of every open ask across the team, oldest first.
@@ -403,6 +464,9 @@ function MarkedByStamp({ check }) {
 }
 
 window.APP_PAGES = APP_PAGES;
+window.APP_PAGE_SOURCES = APP_PAGE_SOURCES;
+window.resolveAppPageComponent = resolveAppPageComponent;
+window.missingAppPageGlobals = missingAppPageGlobals;
 window.FlagQueue = FlagQueue;
 window.ManagerNote = ManagerNote;
 window.MarkedByStamp = MarkedByStamp;

@@ -95,8 +95,13 @@ test("Team Briefs owns a separate load and realtime cycle", () => {
 
 test("generic component routing threads identity and scope props", () => {
   const html = read("index.html");
-  const routeStart = html.indexOf('APP_PAGES.find(p => p.id === view && p.component)');
-  const route = html.slice(routeStart, routeStart + 1200);
+  // Issue #22 widened the selector to `p.component || p.componentGlobal` so a
+  // page whose global had not been defined at APP_PAGES eval time still routes
+  // (and renders a named diagnostic) instead of silently falling through to a
+  // blank screen. Locate the branch by its stable prefix, not the full literal.
+  const routeStart = html.indexOf('APP_PAGES.find(p => p.id === view &&');
+  assert.notStrictEqual(routeStart, -1, "generic APP_PAGES route branch must exist");
+  const route = html.slice(routeStart, routeStart + 2600);
   assert.match(route, /authedUser=\{effectiveUser\}/);
   assert.match(route, /activeTeam=\{activeTeam\}/);
   assert.match(route, /viewerScope=\{viewerScope\}/);
