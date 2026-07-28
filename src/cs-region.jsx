@@ -19,11 +19,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Memoized attainment_snapshot load (latest row per rep). See cs-performance.jsx.
+// Issue #24: resolves { rows, error } — a blocked read must not arrive as an
+// empty quarter. Mirrors cs-performance.jsx (both copies resolve to one global;
+// only the memo variable name differs).
 let _csrAttPromise = null;
 function loadCsActuals() {
   if (_csrAttPromise) return _csrAttPromise;
   const fn = window.loadAttainment;
-  _csrAttPromise = fn ? Promise.resolve(fn()).catch(() => []) : Promise.resolve([]);
+  _csrAttPromise = fn
+    ? Promise.resolve(fn()).then(rows => ({ rows: rows || [], error: null }))
+        .catch(e => {
+          const msg = (e && e.message) || String(e);
+          console.error("loadCsActuals failed:", msg);
+          return { rows: [], error: msg };
+        })
+    : Promise.resolve({ rows: [], error: null });
   return _csrAttPromise;
 }
 
@@ -49,9 +59,60 @@ function _csFmtDate(d) {
   const m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${m[d.getMonth()]} ${d.getDate()}`;
 }
-function _csFreshness(iso) {
-  const d = _csParseDate(iso);
-  return d ? `Synced ${_csFmtDate(d)}` : "";
+
+// ── freshness as a STATE, not decoration (issue #23) ────────────────────────
+// Duplicated verbatim from cs-performance.jsx. These helpers are plain top-level
+// declarations in a no-module-system page, so both copies resolve to one global
+// and MUST stay identical — the #30 dedup pass folds them together later.
+const CS_FRESH_HOURS = 30;  // one nightly run + 6h grace
+const CS_STALE_HOURS = 48;  // two missed nights → treat the feed as failed
+
+function _csToDate(v) {
+  if (v instanceof Date) return isNaN(v) ? null : v;
+  return _csParseDate(v);
+}
+function _csAgo(hours) {
+  if (hours == null) return "age unknown";
+  if (hours < 1) return "just now";
+  if (hours < 48) return `${Math.round(hours)}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+function _csFreshness(value, nowMs) {
+  const d = _csToDate(value);
+  if (!d) {
+    return {
+      known: false, state: "missing", tone: "warn", hours: null, at: null,
+      label: "Actuals awaiting Salesforce sync",
+    };
+  }
+  const now = nowMs == null ? Date.now() : nowMs;
+  const hours = Math.max(0, (now - d.getTime()) / 36e5);
+  const state = hours > CS_STALE_HOURS ? "stale" : (hours > CS_FRESH_HOURS ? "aging" : "fresh");
+  return {
+    known: true, state, hours, at: d,
+    tone: state === "stale" ? "bad" : (state === "aging" ? "warn" : "ok"),
+    label: `Synced ${_csFmtDate(d)} · ${_csAgo(hours)}`,
+  };
+}
+const _CS_TONE_COLOR = { ok: "var(--ink-50)", warn: "#B26B00", bad: "#E03C3C" };
+function _csFreshnessNote(f) {
+  if (!f.known) return "no synced_at on any attainment_snapshot row in scope";
+  if (f.state === "stale") return "feed has missed two or more nightly runs — numbers below are NOT current";
+  if (f.state === "aging") return "older than the nightly cadence — the last sync may have failed";
+  return "Salesforce-fed actuals (read-only); targets manual (cs_targets)";
+}
+function CsFreshnessStamp({ freshness, style }) {
+  const bad = freshness.state === "stale" || freshness.state === "missing";
+  return (
+    <div style={{
+      fontSize: 11, fontFamily: "var(--font-mono)", marginTop: 8,
+      color: _CS_TONE_COLOR[freshness.tone] || "var(--ink-50)",
+      fontWeight: freshness.tone === "ok" ? 400 : 600,
+      ...(style || {}),
+    }}>
+      {bad ? "⚠ " : ""}{freshness.label} · {_csFreshnessNote(freshness)}
+    </div>
+  );
 }
 
 // ── currency helpers (decision 3 native-currency) ──────────────────────────
@@ -63,6 +124,9 @@ function _csFmtMoney(amount, currency) {
   return window.formatCurrencyAmount
     ? window.formatCurrencyAmount(amount || 0, currency)
     : String(amount || 0);
+}
+function _csConvert(amount, fromCur, toCur) {
+  return window.convertAmount ? window.convertAmount(amount || 0, fromCur, toCur) : (amount || 0);
 }
 function _csRepNativeCurrency(repId) {
   const r = (window.REPS || []).find(x => x.id === repId);
@@ -130,26 +194,73 @@ function _csTargetRows(targets, rid, component, period) {
     String(t.period_type).toLowerCase() === "ytd" &&
     Number(t.fy) === fy && t.period == null);
 }
+// `present` = a cs_targets row exists. `positive` = that row carries an amount
+// worth measuring against. A zero-amount row is NOT a cleared target — it is an
+// unset one (issue #15), and it must never reach a denominator (issue #14).
 function _csRegionTarget(targets, rid, component, period) {
   const rows = _csTargetRows(targets, rid, component, period);
-  if (!rows.length) return { amount: null, currency: _csRegionCurrencyLong(rid), present: false, row: null };
+  if (!rows.length) {
+    return { amount: null, currency: _csRegionCurrencyLong(rid), present: false, positive: false, row: null };
+  }
   const amount = rows.reduce((s, t) => s + (_csNum(t.amount) || 0), 0);
+  // cs_targets rows carry their own currency (they are authored in GBP even for
+  // a USD/AUD region) — issue #17. Never assume the region's native currency.
   const currency = (rows[0] && rows[0].currency) || _csRegionCurrencyLong(rid);
-  return { amount, currency, present: true, row: rows[0] };
+  return { amount, currency, present: true, positive: amount > 0, row: rows[0] };
 }
 
+// ── numerator/denominator pairing (issue #14) ────────────────────────────────
+// Duplicated verbatim from cs-performance.jsx — see the note above _csFreshness.
+// A unit joins BOTH sides of the ratio or NEITHER; anything dropped is reported.
+function _csPairUnits(units) {
+  let num = null, den = null, totalActual = null, excludedActual = 0;
+  const excluded = [];
+  for (const u of (units || [])) {
+    if (u.hasActual) totalActual = (totalActual || 0) + u.actual;
+    if (u.hasTarget && u.target > 0) {
+      den = (den || 0) + u.target;
+      num = (num || 0) + (u.hasActual ? u.actual : 0);
+    } else if (u.hasActual && u.actual !== 0) {
+      excluded.push(u.label);
+      excludedActual += u.actual;
+    }
+  }
+  return {
+    actual: num, target: den, totalActual, excluded, excludedActual,
+    pct: den != null && den > 0 ? Math.round((num || 0) / den * 100) : null,
+  };
+}
+
+// The target is converted into the ACTUAL's currency before it is displayed or
+// divided (issue #17): cs_targets amounts are authored in GBP regardless of the
+// region, so a raw comparison against a USD/AUD actual is both a wrong ratio and
+// a wrong label.
 function _csRegionMetric(att, targets, rid, component, period) {
   const a = _csRegionActual(att, rid, component, period);
   const t = _csRegionTarget(targets, rid, component, period);
-  const pct = (a.hasValue && t.present) ? _csPct(a.nativeTotal, t.amount) : null;
+  const targetNative = t.positive ? _csConvert(t.amount, t.currency, a.currency) : null;
   return {
-    actual: a.nativeTotal, hasActual: a.hasValue, syncedAt: a.syncedAt,
-    target: t.present ? t.amount : null, hasTarget: t.present,
-    pct, currency: a.currency,
+    actual: a.hasValue ? a.nativeTotal : null, hasActual: a.hasValue, syncedAt: a.syncedAt,
+    target: targetNative, hasTarget: targetNative != null && targetNative > 0,
+    targetRowPresent: t.present, targetSourceCurrency: t.currency,
+    pct: (a.hasValue && targetNative != null && targetNative > 0)
+      ? _csPct(a.nativeTotal, targetNative) : null,
+    currency: a.currency,
   };
 }
 
 // ── WoW strip (cs_dashboard_snapshot) ────────────────────────────────────────
+// Duplicated verbatim from cs-performance.jsx — see the note above _csFreshness.
+// Issue #14 (stored path): the stored metric==='combined' pct is NOT trusted
+// blind; the pct is DERIVED from the per-metric numerator/denominator rows with
+// the pairing rule applied, and the stored value is only a cross-check whose
+// disagreement raises a visible warning.
+function _csSnapshotSignature(rowsOnDate) {
+  return rowsOnDate
+    .map(r => `${String(r.metric)}:${_csNum(r.numerator)}/${_csNum(r.denominator)}`)
+    .sort()
+    .join("|");
+}
 function _csWow(snapshots, scopeLabel) {
   const rows = (snapshots || []).filter(r => r && r.region === scopeLabel);
   const dates = [];
@@ -159,30 +270,78 @@ function _csWow(snapshots, scopeLabel) {
     seen.add(r.snapshot_date);
     dates.push(r.snapshot_date);
   }
-  const pctOn = (date) => {
+  const readOn = (date) => {
     const onDate = rows.filter(r => r.snapshot_date === date);
     const combined = onDate.find(r => String(r.metric).toLowerCase() === "combined");
-    if (combined) {
-      const p = _csNum(combined.pct);
-      if (p != null) return p;
-      const num = _csNum(combined.numerator), den = _csNum(combined.denominator);
-      if (num != null && den != null && den !== 0) return Math.round((num / den) * 100);
-    }
-    let num = 0, den = 0, any = false;
+    let num = 0, den = 0, any = false, dropped = 0;
     for (const r of onDate) {
+      if (r === combined) continue;  // the aggregate row is not a unit
       const n = _csNum(r.numerator), d = _csNum(r.denominator);
-      if (n != null && d != null && d !== 0) { num += n; den += d; any = true; }
+      if (d != null && d > 0) { num += (n || 0); den += d; any = true; }
+      else if (n != null && n !== 0) { dropped += 1; }
     }
-    return any && den !== 0 ? Math.round((num / den) * 100) : null;
+    let derived = any && den > 0 ? Math.round((num / den) * 100) : null;
+    // Only a lone combined row (no per-metric units) may stand in for itself.
+    if (derived == null && combined) {
+      const cn = _csNum(combined.numerator), cd = _csNum(combined.denominator);
+      if (cn != null && cd != null && cd > 0) derived = Math.round((cn / cd) * 100);
+    }
+    const stored = combined ? _csNum(combined.pct) : null;
+    const pct = derived != null ? derived : stored;
+    const mismatch = derived != null && stored != null && Math.abs(derived - stored) > 1;
+    return {
+      pct, derived, stored, mismatch, dropped,
+      unverified: derived == null && stored != null,
+      signature: _csSnapshotSignature(onDate),
+    };
   };
-  const currentPct = dates.length >= 1 ? pctOn(dates[0]) : null;
-  const priorPct = dates.length >= 2 ? pctOn(dates[1]) : null;
+  const cur = dates.length >= 1 ? readOn(dates[0]) : null;
+  const prior = dates.length >= 2 ? readOn(dates[1]) : null;
+  const currentPct = cur ? cur.pct : null;
+  const priorPct = prior ? prior.pct : null;
   const delta = (currentPct != null && priorPct != null) ? currentPct - priorPct : null;
+  // Issue #23: two consecutive dates with byte-identical numerators and
+  // denominators is a stalled feed, not a flat week.
+  const stalled = !!(cur && prior && cur.signature && cur.signature === prior.signature);
+  const warnings = [];
+  if (cur && cur.mismatch) {
+    warnings.push(`stored combined % (${cur.stored}%) disagrees with the paired numerator/denominator (${cur.derived}%) — showing the paired figure`);
+  }
+  if (cur && cur.dropped) {
+    warnings.push(`${cur.dropped} snapshot row${cur.dropped === 1 ? "" : "s"} excluded from the % (no positive target)`);
+  }
+  if (cur && cur.unverified) {
+    warnings.push("stored % could not be verified against numerator/denominator rows");
+  }
+  if (stalled) {
+    warnings.push("this Monday's snapshot is identical to the prior one — the nightly feed may not have run");
+  }
   return {
     currentPct, priorPct, delta,
     currentDate: _csParseDate(dates[0]), priorDate: _csParseDate(dates[1]),
-    hasData: dates.length > 0,
+    hasData: dates.length > 0, stalled, warnings,
   };
+}
+
+// Warning list attached to a snapshot-derived figure (issues #14 / #23).
+function CsWowWarnings({ wow }) {
+  if (!wow.warnings || !wow.warnings.length) return null;
+  return (
+    <div style={{ fontSize: 11, color: "#B26B00", marginTop: 8, fontWeight: 600, width: "100%" }}>
+      {wow.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+    </div>
+  );
+}
+
+// Issue #14: whatever the pairing rule dropped is stated, with the money it
+// represents, so a headline % is never quietly narrower than the actuals above it.
+function CsExcludedNote({ metric, style }) {
+  if (!metric || !metric.excluded || !metric.excluded.length) return null;
+  return (
+    <div style={{ fontSize: 11, color: "#B26B00", marginTop: 6, ...(style || {}) }}>
+      Excluded from the %: {metric.excluded.join(", ")} ({_csFmtMoney(metric.excludedActual, metric.currency)} with no target set).
+    </div>
+  );
 }
 
 function _csMondayRangeLabel(snapshots, scopeLabel) {
@@ -246,6 +405,7 @@ function CsRegionWowRow({ snapshots, region }) {
         {arrow} {deltaTxt}
       </span>
       <span style={{ fontSize: 12, color: "var(--ink-50)" }}>{priorTxt}</span>
+      <CsWowWarnings wow={wow} />
     </div>
   );
 }
@@ -264,6 +424,7 @@ function CsPeriodTable({ att, targets, region, component }) {
     return { ...p, m };
   });
   const latestSync = rows.map(r => r.m.syncedAt).filter(Boolean).sort((a, b) => b - a)[0] || null;
+  const tableFreshness = _csFreshness(latestSync);
   const cur = _csRegionCurrencyLong(region);
   const th = { fontSize: 10, fontWeight: 700, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-50)", textAlign: "left", padding: "11px 12px", background: "var(--paper-deep)" };
   const td = { padding: "11px 12px", borderTop: "1px solid var(--ink-10)", verticalAlign: "middle" };
@@ -273,16 +434,7 @@ function CsPeriodTable({ att, targets, region, component }) {
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".1em", textTransform: "uppercase", color: "var(--ink-50)" }}>
           {component === "renewal" ? "Renewals" : "Growth"} · target vs actual
         </span>
-        {latestSync && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-50)" }}>
-            {_csFreshness(latestSync)} · fed actuals (read-only)
-          </span>
-        )}
-        {!latestSync && (
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-50)" }}>
-            Actuals awaiting Salesforce sync
-          </span>
-        )}
+        <CsFreshnessStamp freshness={tableFreshness} style={{ marginTop: 0 }} />
       </div>
       <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, font: "inherit" }}>
         <thead>
@@ -300,19 +452,27 @@ function CsPeriodTable({ att, targets, region, component }) {
               <td style={td}><b style={{ fontWeight: 600 }}>{r.label}</b></td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>
                 {r.m.hasTarget ? _csFmtMoney(r.m.target, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
-                <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>manual target</div>
+                {/* Issue #15: an absent or zero cs_targets amount is "no target
+                    set", never a cleared/$0 target. */}
+                <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>
+                  {r.m.hasTarget ? "manual target" : "no target set"}
+                </div>
               </td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)" }}>
                 {r.m.hasActual ? _csFmtMoney(r.m.actual, cur) : <span style={{ color: "var(--ink-50)" }}>—</span>}
-                {r.m.syncedAt && (
-                  <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>{_csFreshness(r.m.syncedAt)}</div>
-                )}
+                {/* Issue #16: a missing feed value is "not yet synced", which is
+                    not the same claim as a genuine synced zero. */}
+                <div style={{ fontSize: 10, color: "var(--ink-50)", marginTop: 2 }}>
+                  {r.m.hasActual ? _csFreshness(r.m.syncedAt).label : "not yet synced"}
+                </div>
               </td>
               <td style={{ ...td, textAlign: "right", fontFamily: "var(--font-mono)", fontWeight: 600, color: _csPctColor(r.m.pct) }}>
                 {_csPctText(r.m.pct)}
               </td>
               <td style={td}>
-                <CsProgressBar pct={r.m.pct} />
+                {r.m.hasTarget
+                  ? <CsProgressBar pct={r.m.pct} />
+                  : <span style={{ fontSize: 10, color: "var(--ink-50)" }}>—</span>}
               </td>
             </tr>
           ))}
@@ -433,6 +593,7 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
   const isManager = window.canManageAny ? window.canManageAny(authedUser) : false;
   const [cs, setCs] = React.useState(() => ({ targets: [], snapshots: [], pipeline: [], risks: [], currentFocus: [], teamFocus: [] }));
   const [att, setAtt] = React.useState([]);
+  const [attError, setAttError] = React.useState(null);
   const [tab, setTab] = React.useState("renewal");
 
   React.useEffect(() => {
@@ -441,7 +602,7 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
     Promise.all([loadCs, loadCsActuals()]).then(([d, a]) => {
       if (cancelled) return;
       if (d) setCs(d);
-      if (a) setAtt(a);
+      if (a) { setAtt(a.rows || []); setAttError(a.error || null); }
     });
     return () => { cancelled = true; };
   }, []);
@@ -469,19 +630,28 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
   const rObj = _csRegionObj(rid);
   const badge = rObj ? rObj.badge : "$";
   const cur = _csRegionCurrencyLong(rid);
+  const csErr = (key) => (cs && cs.errors && cs.errors[key]) || null;
   const rangeLabel = _csMondayRangeLabel(cs.snapshots, rid);
+  // Issue #14: renewal and growth are paired independently — a component with
+  // actuals but no target contributes to neither side of the combined %.
   const qCombined = (function () {
     const ren = _csRegionMetric(att, cs.targets, rid, "renewal", "qtd");
     const gro = _csRegionMetric(att, cs.targets, rid, "growth", "qtd");
-    const hasActual = ren.hasActual || gro.hasActual;
-    const actual = (ren.hasActual ? ren.actual : 0) + (gro.hasActual ? gro.actual : 0);
-    const hasTarget = ren.hasTarget || gro.hasTarget;
-    const target = (ren.hasTarget ? ren.target : 0) + (gro.hasTarget ? gro.target : 0);
-    const pct = (hasActual && hasTarget) ? _csPct(actual, target) : null;
+    const paired = _csPairUnits([
+      { label: "renewals", ...ren },
+      { label: "growth", ...gro },
+    ]);
     const synced = (ren.syncedAt && gro.syncedAt ? (ren.syncedAt > gro.syncedAt ? ren.syncedAt : gro.syncedAt) : (ren.syncedAt || gro.syncedAt));
-    return { actual: hasActual ? actual : null, hasActual, target: hasTarget ? target : null, hasTarget, pct, syncedAt: synced };
+    return {
+      actual: paired.actual, hasActual: paired.actual != null,
+      target: paired.target, hasTarget: paired.target != null,
+      totalActual: paired.totalActual, excluded: paired.excluded,
+      excludedActual: paired.excludedActual,
+      pct: paired.pct, currency: cur, syncedAt: synced,
+    };
   })();
   const freshness = _csFreshness(qCombined.syncedAt);
+  const regionStale = freshness.state === "stale" || freshness.state === "missing";
 
   const handleCommit = (payload) => {
     const upsert = window.upsertCsTarget;
@@ -542,13 +712,42 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
           </p>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-          {freshness ? (
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-50)" }}>{freshness}</span>
-          ) : (
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-50)" }}>Actuals awaiting sync</span>
-          )}
+          <span style={{
+            fontFamily: "var(--font-mono)", fontSize: 11,
+            color: _CS_TONE_COLOR[freshness.tone] || "var(--ink-50)",
+            fontWeight: freshness.tone === "ok" ? 400 : 600,
+          }}>
+            {regionStale ? "⚠ " : ""}{freshness.label}
+          </span>
         </div>
       </div>
+
+      {regionStale && (
+        <div role="alert" style={{
+          marginTop: 14, padding: "12px 16px", borderRadius: "var(--radius-card)",
+          border: "1px solid #E03C3C", background: "rgba(224,60,60,.08)",
+          color: "#8E1E1E", fontSize: 13, fontWeight: 600,
+        }}>
+          {freshness.known
+            ? `Salesforce actuals last synced ${_csAgo(freshness.hours)} — the nightly feed has missed at least two runs. Treat every figure on this page as out of date.`
+            : "No Salesforce sync timestamp is present on any attainment_snapshot row for this region — these actuals cannot be dated."}
+        </div>
+      )}
+
+      {/* Issue #25: per-table load failures, so a blocked cs_targets read reads
+          as an error rather than as "no target set" on every row. */}
+      {window.CsSectionError && attError && (
+        <window.CsSectionError error={attError} label="Salesforce actuals"
+                               style={{ marginTop: 14 }} />
+      )}
+      {window.CsSectionError && csErr("targets") && (
+        <window.CsSectionError error={csErr("targets")} label="CS targets"
+                               style={{ marginTop: 14 }} />
+      )}
+      {window.CsSectionError && csErr("snapshots") && (
+        <window.CsSectionError error={csErr("snapshots")} label="The week-over-week history"
+                               style={{ marginTop: 14 }} />
+      )}
 
       <div style={{
         background: "var(--card)", border: "1px solid var(--ink-10)",
@@ -565,10 +764,15 @@ function CsRegionPage({ region, authedUser, activeTeam, viewerScope, regionPill 
           </div>
         </div>
         <div style={{ fontFamily: "var(--font-mono)", fontSize: 26, fontWeight: 600, letterSpacing: "-.02em", marginTop: 8 }}>
-          <b>{qCombined.hasActual ? _csFmtMoney(qCombined.actual, cur) : "—"}</b>
-          <span style={{ fontSize: 13, color: "var(--ink-50)" }}> of {qCombined.hasTarget ? _csFmtMoney(qCombined.target, cur) : "—"}</span>
+          <b>{qCombined.hasTarget
+            ? _csFmtMoney(qCombined.actual, cur)
+            : (qCombined.totalActual != null ? _csFmtMoney(qCombined.totalActual, cur) : "—")}</b>
+          <span style={{ fontSize: 13, color: "var(--ink-50)" }}>
+            {qCombined.hasTarget ? <> of {_csFmtMoney(qCombined.target, cur)}</> : <> · no target set</>}
+          </span>
         </div>
-        <CsProgressBar pct={qCombined.pct} />
+        {qCombined.hasTarget && <CsProgressBar pct={qCombined.pct} />}
+        <CsExcludedNote metric={qCombined} />
       </div>
 
       <CsRegionWowRow snapshots={cs.snapshots} region={rid} />

@@ -289,7 +289,9 @@ function CsTeamPage({ authedUser, activeTeam, viewerScope, regionPill }) {
   // CS workspace only.
   const teamOk = !activeTeam || activeTeam === "cs";
 
-  const [cs, setCs] = useState({ targets: [], teamFocus: [] });
+  // Issue #25: `errors` carries loadCsDashboard's per-table failure strings so a
+  // blocked read is distinguishable from a genuinely empty table.
+  const [cs, setCs] = useState({ targets: [], teamFocus: [], errors: {} });
   const [attainment, setAttainment] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -297,8 +299,11 @@ function CsTeamPage({ authedUser, activeTeam, viewerScope, regionPill }) {
     let cancelled = false;
     if (window.loadCsDashboard) {
       window.loadCsDashboard().then(d => {
-        if (!cancelled && d) setCs({ targets: d.targets || [], teamFocus: d.teamFocus || [] });
-      }).catch(() => { if (!cancelled) setCs({ targets: [], teamFocus: [] }); });
+        if (!cancelled && d) setCs({ targets: d.targets || [], teamFocus: d.teamFocus || [], errors: d.errors || {} });
+      }).catch(e => {
+        const msg = (e && e.message) || "load failed";
+        if (!cancelled) setCs({ targets: [], teamFocus: [], errors: { targets: msg, teamFocus: msg } });
+      });
     }
     if (window.loadAttainmentV2) {
       window.loadAttainmentV2().then(d => { if (!cancelled && d) setAttainment(d.cs || []); })
@@ -343,6 +348,15 @@ function CsTeamPage({ authedUser, activeTeam, viewerScope, regionPill }) {
         Each CS rep's targets (read-only — edit on the Targets page), fed renewal actuals, and team focus.
         Per-rep quarterly renewal carries the comp-sensitive marker; actuals sync nightly from Salesforce.
       </p>
+
+      {/* Issue #25: a failed cs_targets or cs_team_focus read must not render as
+          a rep with no targets and no focus. */}
+      {window.CsSectionError && (cs.errors || {}).targets && (
+        <window.CsSectionError error={cs.errors.targets} label="CS targets" />
+      )}
+      {window.CsSectionError && (cs.errors || {}).teamFocus && (
+        <window.CsSectionError error={cs.errors.teamFocus} label="Team focus" />
+      )}
 
       {reps.length === 0 ? (
         <div style={{ color: "var(--ink-50)", fontSize: 14 }}>

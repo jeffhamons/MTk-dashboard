@@ -368,14 +368,23 @@ function CsTargetsPage({ authedUser, activeTeam, viewerScope, regionPill }) {
 
   const [periodType, setPeriodType] = useState("monthly");
   const [quarterlyComponent, setQuarterlyComponent] = useState("renewal");
-  const [data, setData] = useState({ targets: [] });
+  // Issue #25: a failed cs_targets read used to land here as `{ targets: [] }`,
+  // which the grid renders identically to "no targets have been set yet" — the
+  // exact case an editor is here to fix. Carry the loader's per-section error
+  // through so the page can say the grid is unreliable instead of empty.
+  const [data, setData] = useState({ targets: [], error: null });
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     if (!window.loadCsDashboard) return;
-    window.loadCsDashboard().then(d => { if (!cancelled && d) setData({ targets: d.targets || [] }); })
-      .catch(() => { if (!cancelled) setData({ targets: [] }); });
+    window.loadCsDashboard().then(d => {
+      if (cancelled) return;
+      if (!d) { setData({ targets: [], error: "CS dashboard data unavailable" }); return; }
+      setData({ targets: d.targets || [], error: (d.errors && d.errors.targets) || null });
+    }).catch(e => {
+      if (!cancelled) setData({ targets: [], error: (e && e.message) || "load failed" });
+    });
     return () => { cancelled = true; };
   }, [reloadKey]);
 
@@ -449,6 +458,13 @@ function CsTargetsPage({ authedUser, activeTeam, viewerScope, regionPill }) {
           <CompMark />
           <span>comp-sensitive — per-rep quarterly renewal drives commission; confirm before saving.</span>
         </div>
+      )}
+
+      {/* Issue #25: an unreadable cs_targets table must never render as an
+          empty-but-editable grid — an editor would "fix" it by re-entering
+          targets that already exist. */}
+      {data.error && window.CsSectionError && (
+        <window.CsSectionError error={data.error} label="The CS targets grid" />
       )}
 
       {regionsInView.length === 0 ? (

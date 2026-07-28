@@ -148,6 +148,24 @@ async function loadStateFromSupabase() {
 }
 
 // ============================================================
+// WRITE-ERROR CONTRACT (issue #26)
+//
+// Every write below used to `console.error(...)` and resolve successfully.
+// The UI flips its optimistic local state BEFORE the write settles, so a
+// rejected write (RLS denial, offline, constraint) left the checkbox looking
+// saved while the database never changed — the user's work silently evaporated
+// on the next reload. These adapters now throw, exactly like saveWins() always
+// has, so callers can roll the optimistic state back and surface a save error.
+// ============================================================
+function throwWriteError(label, error) {
+  if (!error) return;
+  console.error(label, error);
+  const err = error instanceof Error ? error : new Error((error && error.message) || String(error));
+  err.writeLabel = label;
+  throw err;
+}
+
+// ============================================================
 // WRITE — toggle a check (rep, weekId, delId, currentlyChecked, markedBy)
 // markedBy = { email, name, role: 'rep'|'manager' }
 // ============================================================
@@ -157,7 +175,7 @@ async function toggleCheckSupabase(rep, weekId, del, currentlyChecked, markedBy)
   if (currentlyChecked) {
     const { error } = await sb.from("checks").delete()
       .match({ rep_id: rep, week_index, deliverable_id: del });
-    if (error) console.error("uncheck error", error);
+    throwWriteError("uncheck error", error);
   } else {
     const row = {
       rep_id: rep, week_index, deliverable_id: del,
@@ -169,7 +187,7 @@ async function toggleCheckSupabase(rep, weekId, del, currentlyChecked, markedBy)
       row.marked_by_role  = markedBy.role  || "rep";
     }
     const { error } = await sb.from("checks").upsert(row, { onConflict: "rep_id,week_index,deliverable_id" });
-    if (error) console.error("check error", error);
+    throwWriteError("check error", error);
   }
 }
 
@@ -182,13 +200,13 @@ async function setManagerNoteSupabase(rep, weekId, del, note, updatedByEmail) {
   if (!note || !note.trim()) {
     const { error } = await sb.from("manager_notes").delete()
       .match({ rep_id: rep, week_id: weekId, del_id: del });
-    if (error) console.error("mgr note clear error", error);
+    throwWriteError("mgr note clear error", error);
   } else {
     const { error } = await sb.from("manager_notes").upsert(
       { rep_id: rep, week_id: weekId, del_id: del, note: note.trim(), updated_by: updatedByEmail || null, updated_at: new Date().toISOString() },
       { onConflict: "rep_id,week_id,del_id" }
     );
-    if (error) console.error("mgr note set error", error);
+    throwWriteError("mgr note set error", error);
   }
 }
 
@@ -216,7 +234,7 @@ async function setAskSupabase(rep, weekId, del, text, resolvedBy) {
       .update(patch)
       .match({ rep_id: rep, week_index, deliverable_id: del })
       .is("resolved_at", null);
-    if (error) console.error("ask resolve error", error);
+    throwWriteError("ask resolve error", error);
   } else {
     const { error } = await sb.from("asks").upsert(
       {
@@ -229,7 +247,7 @@ async function setAskSupabase(rep, weekId, del, text, resolvedBy) {
       },
       { onConflict: "rep_id,week_index,deliverable_id" }
     );
-    if (error) console.error("ask set error", error);
+    throwWriteError("ask set error", error);
   }
 }
 
@@ -246,7 +264,7 @@ async function reopenAskSupabase(rep, weekId, del) {
     resolved_by_name:  null,
     resolved_by_role:  null,
   }).match({ rep_id: rep, week_index, deliverable_id: del });
-  if (error) console.error("ask reopen error", error);
+  throwWriteError("ask reopen error", error);
 }
 
 // ============================================================
@@ -268,7 +286,7 @@ async function setAskResponseSupabase(rep, weekId, del, responseText, markedBy) 
     : { response: null, response_by_email: null, response_by_name: null, response_at: null };
   const { error } = await sb.from("asks").update(patch)
     .match({ rep_id: rep, week_index, deliverable_id: del });
-  if (error) console.error("ask response set error", error);
+  throwWriteError("ask response set error", error);
 }
 
 // ============================================================
@@ -690,6 +708,24 @@ async function loadStandupFills() {
 }
 
 // ============================================================
+// ATTAINMENT LOAD-ERROR CONTRACT (issue #24)
+//
+// These four loaders used to `return []` after logging the error, so a failed
+// read (RLS denial, dropped connection, renamed column) arrived at the Target
+// Board as an empty array and rendered "No attainment data synced yet — check
+// back after tonight's Salesforce sync." A rep therefore could not tell "the
+// sync hasn't run" from "the query blew up". They now throw; loadAttainmentV2
+// catches and surfaces the reason as a distinct error panel.
+// ============================================================
+function throwLoadError(label, error) {
+  if (!error) return;
+  console.error(label, error);
+  const err = error instanceof Error ? error : new Error((error && error.message) || String(error));
+  err.loadLabel = label;
+  throw err;
+}
+
+// ============================================================
 // ATTAINMENT — load latest snapshot per rep
 // Returns array of rows, one per rep, sorted by rep_id.
 // ============================================================
@@ -701,7 +737,7 @@ async function loadAttainment() {
     .order("rep_id", { ascending: true })
     .order("synced_at", { ascending: false });
 
-  if (error) { console.error("loadAttainment", error); return []; }
+  throwLoadError("loadAttainment", error);
 
   const seen = new Set();
   const latest = [];
@@ -726,7 +762,7 @@ async function loadClosedWonDeals() {
     .from("closed_won_deals")
     .select("*")
     .order("close_date", { ascending: true });
-  if (error) { console.error("loadClosedWonDeals", error); return []; }
+  throwLoadError("loadClosedWonDeals", error);
   return data || [];
 }
 
@@ -736,7 +772,7 @@ async function loadRenewalBook() {
     .from("renewal_book")
     .select("*")
     .order("due_date", { ascending: true });
-  if (error) { console.error("loadRenewalBook", error); return []; }
+  throwLoadError("loadRenewalBook", error);
   return data || [];
 }
 
@@ -772,7 +808,7 @@ async function loadCsQuarterlyTargets() {
     .from("cs_quarterly_targets")
     .select("*")
     .order("quarter", { ascending: true });
-  if (error) { console.error("loadCsQuarterlyTargets", error); return []; }
+  throwLoadError("loadCsQuarterlyTargets", error);
   return data || [];
 }
 
@@ -798,11 +834,22 @@ function deriveAttainmentPcts(row) {
     const target = row.nb_annual_target;
     const mtdTarget = target / 12;
     const qtdTarget = target / 4;
+    // Issue #16: `Math.round(null / t * 100)` is 0, so a rep the nightly sync
+    // never wrote a won figure for showed a confident 0% — identical to a rep
+    // who genuinely sold nothing. A missing won value now yields null, which
+    // attPctText renders "—", the same "no data" convention the CS branch below
+    // already used for a missing target. A real synced 0 still yields 0%.
+    const nbPct = (won, t) => {
+      if (won === null || won === undefined || won === "") return null;
+      const n = Number(won);
+      if (!Number.isFinite(n) || !t) return null;
+      return Math.round((n / t) * 100);
+    };
     return {
       type: "newbiz",
-      mtd: Math.round((row.nb_mtd_won / mtdTarget) * 100),
-      qtd: Math.round((row.nb_qtd_won / qtdTarget) * 100),
-      ytd: Math.round((row.nb_ytd_won / target)    * 100),
+      mtd: nbPct(row.nb_mtd_won, mtdTarget),
+      qtd: nbPct(row.nb_qtd_won, qtdTarget),
+      ytd: nbPct(row.nb_ytd_won, target),
     };
   }
 
