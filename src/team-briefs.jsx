@@ -50,7 +50,6 @@ const TEAM_BRIEF_STYLES = `
 .tb-card[data-urgency="soon"]{border-left-color:#f59e0b}
 .tb-card[data-urgency="tomorrow"],.tb-card[data-urgency="today"]{border-left-color:#ea580c}
 .tb-card[data-urgency="overdue"]{border-left-color:#dc2626;background:#fffafa}
-.tb-card[data-read="1"]{opacity:.78}
 .tb-card__top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .tb-card__meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:5px}
 .tb-pill{display:inline-flex;border-radius:999px;background:#f1f0f7;padding:3px 7px;font-size:9px;text-transform:uppercase;letter-spacing:.06em;font-weight:800}
@@ -428,7 +427,7 @@ function TeamBriefsTodayPanel({ authedUser, onOpen }) {
       {loading && <div className="tb-loading">Loading Team Briefs…</div>}
       {error && <div className="tb-error">{error}</div>}
       <div className="tb-list">
-        {active.slice(0, 3).map(brief => (
+        {active.map(brief => (
           <TeamBriefCard
             key={brief.id}
             brief={brief}
@@ -485,7 +484,10 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
 
   function selectType(briefType) {
     const defaults = briefType === "morning_message"
-      ? { display_rule: "today_only", require_ack: false, auto_escalate: false }
+      // RFC-164 D11 — a Friday morning message vanished before Monday under
+      // `today_only`. It stays informational (`require_ack: false`); only its
+      // display window changes.
+      ? { display_rule: "for_days", display_days: 3, require_ack: false, auto_escalate: false }
       : briefType === "action_required"
         ? { display_rule: "manual_clear", require_ack: true, auto_escalate: true }
         : briefType === "reminder"
@@ -608,7 +610,10 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
               <select value={form.display_rule} onChange={event => patch({ display_rule: event.target.value })}>
                 <option value="today_only">Today only</option>
                 <option value="for_days">For days</option>
-                <option value="until_acknowledged">Until acknowledged</option>
+                {/* RFC-164 D12 — `until_acknowledged` is not offered: it removes
+                    the brief the moment a rep confirms they read it, which is
+                    exactly when an unfinished ask still needs to be visible. The
+                    DB enum and the data-model branch stay for existing rows. */}
                 <option value="until_date">Until date</option>
                 <option value="manual_clear">Until archived</option>
               </select>

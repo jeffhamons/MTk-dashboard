@@ -21,7 +21,9 @@ const APP_PAGES = [
   { id: "leaderboard",   label: "Leaderboard",  icon: "leaderboard", requires: "any"     },
   { id: "standup",       label: "Standup",      icon: "standup",     requires: "any"     },
   { id: "wins",          label: "Weekly Wins",  icon: "wins",        requires: "any"     },
-  { id: "team-briefs",   label: "Team Briefs",  icon: "mail",        requires: "manager", componentGlobal: "TeamBriefsManager", component: window.TeamBriefsManager },
+  // RFC-164 Phase 0.1 — reps are the primary audience; `manager` hid the page
+  // from every account that actually receives briefs. RLS is the real boundary.
+  { id: "team-briefs",   label: "Team Briefs",  icon: "mail",        requires: "any",     componentGlobal: "TeamBriefsManager", component: window.TeamBriefsManager },
   // RFC-158 Phase 3 — CS workspace pages. requires:"cs" is filtered in App
   // nav the same way don-or-manager / stuart-or-manager gate on activeTeam.
   { id: "cs:home",       label: "CS Home",      icon: "home",        requires: "cs", componentGlobal: "CsPerformancePage", component: window.CsPerformancePage },

@@ -2265,17 +2265,9 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
         </p>
       </div>
 
-      {(() => { const q = todayQuote(); return (
-        <div className="home__quote">
-          <div className="home__quote-mark">"</div>
-          <div className="home__quote-body">
-            <p className="home__quote-text">{q.text}</p>
-            <div className="home__quote-attr">{q.attr}</div>
-          </div>
-        </div>
-      ); })()}
-
-      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle. */}
+      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle.
+          RFC-164 Phase 0.4 — hoisted above the quote: the quote is decoration
+          and the briefs are the day's asks; asks come before decoration. */}
       {!isManager && myRepId && typeof TeamBriefsTodayPanel !== "undefined" && (
         <TeamBriefsTodayPanel
           authedUser={authedUser}
@@ -2285,6 +2277,16 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
           onOpen={() => setView("team-briefs")}
         />
       )}
+
+      {(() => { const q = todayQuote(); return (
+        <div className="home__quote">
+          <div className="home__quote-mark">"</div>
+          <div className="home__quote-body">
+            <p className="home__quote-text">{q.text}</p>
+            <div className="home__quote-attr">{q.attr}</div>
+          </div>
+        </div>
+      ); })()}
 
       <div className="home__cards">
         {isManager ? (
