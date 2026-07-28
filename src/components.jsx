@@ -170,7 +170,7 @@ function StatusDot({ checked, size = 14, label }) {
 // Two-way: when a manager is viewing a raised flag they can write a short
 // response inline. The response is stored on the same row and is visible
 // to the rep (closing the loop without scheduling a separate conversation).
-function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager, disabled }) {
+function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager, disabled, resolveDisabled }) {
   const askKey = `${rep.id}|${weekId}|${delId}`;
   const existing = state.asks && state.asks[askKey];
   const response = existing && existing.response;
@@ -189,6 +189,13 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager
 
   const hasFlag = !!existing;
   const hasResp = !!response;
+
+  // Resolved is gated independently of the shared `disabled` prop: checking
+  // off the linked deliverable and resolving the ask are separate actions,
+  // so a checked deliverable must not lock out "Resolved" (issue #29).
+  // Callers that don't pass resolveDisabled fall back to `disabled` so
+  // existing call sites keep their prior behavior.
+  const resolvedBtnDisabled = resolveDisabled !== undefined ? resolveDisabled : disabled;
 
   if (disabled && !hasFlag) return null;
 
@@ -316,7 +323,7 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager
               type="button"
               className="ask__btn ask__btn--ghost"
               onClick={() => { onAsk(rep.id, weekId, delId, ""); setDraft(""); }}
-              disabled={disabled}
+              disabled={resolvedBtnDisabled}
               title="Clear flag — issue is resolved"
             >Resolved</button>
           </div>

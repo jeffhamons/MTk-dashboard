@@ -286,6 +286,7 @@ function RepView({ rep, state, weekIdx, setWeekIdx, onCheck, onAsk, onAskRespons
                       onAskResponse={onAskResponse}
                       isManager={isManager}
                       disabled={checked || readOnly}
+                      resolveDisabled={readOnly}
                     />
                   </>
                 )}
