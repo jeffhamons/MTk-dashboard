@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import vm from "node:vm";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -73,7 +74,13 @@ test("multi-email aliases acknowledge and report once per rep", () => {
   assert.match(source, /function teamBriefAudienceByRep/);
   assert.match(source, /member\.rep_id[\s\S]*read\.rep_id === member\.rep_id/);
   assert.match(source, /teamBriefReadBy\(brief,\s*authedUser\)/);
-  assert.match(source, /acknowledged\.length\}\/\{audience\.length\}/);
+  // RFC-164 §4.4 replaced the single "Acknowledged N/M" counter this test used
+  // to pin. The claim under test is unchanged — a rep with three email aliases
+  // is ONE seat in the denominator — so it now pins the counters that replaced
+  // it, both of which must denominate on the deduped rep audience.
+  assert.match(source, /audienceState\.read\.length\}\/\{audienceState\.audience\.length\}/);
+  assert.match(source, /audienceState\.done\.length\}\/\{audienceState\.audience\.length\}/);
+  assert.match(source, /function teamBriefAudienceState[\s\S]{0,400}teamBriefAudienceByRep\(brief\)/);
 });
 
 test("Team Briefs owns a separate load and realtime cycle", () => {
@@ -387,4 +394,132 @@ test("the older-briefs link lands on History and the request cannot go stale", (
   assert.match(init, /consumeTeamBriefTab\(\)/);
   // A manager has no History tab; handing them one would render an empty page.
   assert.match(init, /!managerial && requested/);
+});
+
+// ── RFC-164 §4.4 — the manager's receipt algebra ───────────────────────────
+//
+// These run the real functions rather than grepping for them. The three are
+// pure JS with no JSX and no dependencies outside each other, so they can be
+// lifted out of the .jsx and executed directly — which is the only way to
+// prove the counters actually partition rather than merely look like they do.
+function loadAudienceState() {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function teamBriefAudienceByRep");
+  const end = source.indexOf("function teamBriefRepName", start);
+  assert.ok(start >= 0 && end > start, "audience helpers must still be extractable");
+  const slice = source.slice(start, end);
+  assert.doesNotMatch(slice, /<\/?[A-Za-z]/, "extraction only works while this block is JSX-free");
+  // runInThisContext, NOT createContext: a fresh context is a fresh realm with
+  // its own Array.prototype, and assert/strict compares prototypes — every
+  // array this returns would fail deepStrictEqual against a literal with
+  // "same structure but not reference-equal". The IIFE keeps the extracted
+  // declarations out of globalThis without paying that price.
+  const factory = vm.runInThisContext(
+    `(function () {\n${slice}\nreturn teamBriefAudienceState;\n})`,
+    { filename: "team-briefs-audience.js" });
+  return factory();
+}
+
+const audienceOf = ids => ids.map(id => ({ rep_id: id, auth_id: `auth-${id}` }));
+const ids = members => members.map(m => m.rep_id).sort();
+
+test("a swept receipt never moves the manager read count (RFC-164 D10)", () => {
+  const teamBriefAudienceState = loadAudienceState();
+  const brief = {
+    audience: audienceOf(["ann", "bob"]),
+    reads: [
+      { rep_id: "ann", auth_id: "auth-ann", read_at: "2026-07-20T10:00:00Z", done_at: null, swept: true },
+    ],
+  };
+  const state = teamBriefAudienceState(brief);
+
+  // The whole point of Phase 6's third exit criterion: the sweep wrote a row
+  // carrying read_at, and the manager's headline must be blind to it.
+  assert.deepEqual(ids(state.read), [], "a swept row is not a read");
+  assert.deepEqual(ids(state.outstanding), ["ann", "bob"], "sweeping does not discharge the ask");
+  assert.deepEqual(ids(state.haventRead), ["ann", "bob"]);
+  assert.deepEqual(ids(state.readNotDone), []);
+
+  // ...and it is marked, so the manager can tell "never saw it" from
+  // "cleared a backlog without reading this one".
+  assert.equal(state.haventRead.find(m => m.rep_id === "ann").swept, true);
+  assert.equal(state.haventRead.find(m => m.rep_id === "bob").swept, false);
+});
+
+test("read/done/outstanding hold the §4.4 algebra over a mixed audience", () => {
+  const teamBriefAudienceState = loadAudienceState();
+  const brief = {
+    audience: audienceOf(["ann", "bob", "cat", "dee"]),
+    reads: [
+      // read, not done — the enforcement list (D8)
+      { rep_id: "ann", auth_id: "auth-ann", read_at: "2026-07-20T10:00:00Z", done_at: null, swept: false },
+      // done: complete_team_brief stamps read_at alongside done_at
+      { rep_id: "bob", auth_id: "auth-bob", read_at: "2026-07-20T11:00:00Z", done_at: "2026-07-20T11:00:00Z", swept: false },
+      // swept
+      { rep_id: "cat", auth_id: "auth-cat", read_at: "2026-07-21T09:00:00Z", done_at: null, swept: true },
+      // dee: no row at all
+    ],
+  };
+  const s = teamBriefAudienceState(brief);
+
+  assert.equal(s.audience.length, 4);
+  assert.deepEqual(ids(s.read), ["ann", "bob"]);
+  assert.deepEqual(ids(s.done), ["bob"]);
+  assert.deepEqual(ids(s.outstanding), ["ann", "cat", "dee"]);
+  assert.deepEqual(ids(s.haventRead), ["cat", "dee"]);
+  assert.deepEqual(ids(s.readNotDone), ["ann"]);
+
+  // Done ⊆ Read — if this inverts, the counters can read "3 read, 4 done".
+  assert.ok(ids(s.done).every(id => ids(s.read).includes(id)));
+  // The two lists partition Outstanding exactly, with no overlap and no gap.
+  assert.deepEqual(
+    ids(s.haventRead).concat(ids(s.readNotDone)).sort(),
+    ids(s.outstanding),
+    "haventRead + readNotDone must equal outstanding"
+  );
+  assert.equal(s.haventRead.filter(m => ids(s.readNotDone).includes(m.rep_id)).length, 0);
+});
+
+test("one rep with several aliases is one seat in every §4.4 bucket", () => {
+  const teamBriefAudienceState = loadAudienceState();
+  const brief = {
+    audience: [
+      { rep_id: "ann", auth_id: "auth-ann-1" },
+      { rep_id: "ann", auth_id: "auth-ann-2" },
+      { rep_id: "bob", auth_id: "auth-bob" },
+    ],
+    // The read arrives on the alias that is NOT the first one seen.
+    reads: [{ auth_id: "auth-ann-2", read_at: "2026-07-20T10:00:00Z", done_at: null, swept: false }],
+  };
+  const s = teamBriefAudienceState(brief);
+  assert.equal(s.audience.length, 2, "aliases collapse to one seat");
+  assert.deepEqual(ids(s.read), ["ann"]);
+  assert.deepEqual(ids(s.outstanding), ["ann", "bob"]);
+  assert.deepEqual(ids(s.readNotDone), ["ann"]);
+  assert.deepEqual(ids(s.haventRead), ["bob"]);
+});
+
+test("§4.4 manager surface names people and offers the stale-ask archive", () => {
+  const source = read("src/team-briefs.jsx");
+  // The predecessor predicate counted any row as a read. It must be gone, not
+  // merely unused — a stray call site would silently restore the old number.
+  assert.doesNotMatch(source, /teamBriefAudienceMemberRead\b/);
+  assert.doesNotMatch(source, /Unread:\s*\{/, "the bare Unread line is replaced by the two lists");
+
+  assert.match(source, /Haven't read/);
+  assert.match(source, /Read, not done/);
+  // Both lists must render names, not counts — that is the lever in D8.
+  assert.match(source, /haventRead[\s\S]{0,300}teamBriefRepName\(member\.rep_id\)/);
+  assert.match(source, /readNotDone[\s\S]{0,200}teamBriefRepName\(member\.rep_id\)/);
+  assert.match(source, /member\.swept\s*\?\s*" \(cleared in catch-up\)"/);
+
+  // Stale asks composes the pure age predicate with "somebody still owes it",
+  // and every row can be archived from the list.
+  const staleStart = source.indexOf("function TeamBriefStaleAsks");
+  const stale = source.slice(staleStart, source.indexOf("function TeamBriefsManager", staleStart));
+  assert.ok(staleStart >= 0, "stale asks section must exist");
+  assert.match(stale, /window\.teamBriefIsStaleAsk\(brief,\s*now\)/);
+  assert.match(stale, /outstanding\.length > 0/);
+  assert.match(stale, /window\.archiveTeamBrief\(brief\.id\)/);
+  assert.match(source, /<TeamBriefStaleAsks[\s\S]{0,160}onChanged=\{refresh\}/);
 });

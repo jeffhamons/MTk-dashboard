@@ -643,3 +643,66 @@ test("teamBriefCatchup includes briefs that have already expired", () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].id, "expired");
 });
+
+// RFC-164 D9 / §4.4. The RFC's §4.4 wording ("rung-3 briefs past STALE_DAYS")
+// names the empty set: teamBriefRung decays a never-read overdue ask OUT of
+// rung 3 at exactly that boundary. §2.2 describes the brief this predicate
+// actually names, and these tests pin the two together — stale begins exactly
+// where rung 3 ends, with no gap and no overlap.
+test("teamBriefIsStaleAsk begins exactly where rung 3 ends", () => {
+  const dueAtBoundary = "2026-07-09T22:00:00Z";      // 14 local days before...
+  const atStale = "2026-07-23T14:00:00Z";            // ...this instant
+  const pastStale = "2026-07-24T14:00:00Z";
+  const brief = { ...askBase, due_at: dueAtBoundary };
+
+  assert.equal(dm.teamBriefRung(brief, null, atStale), 3);
+  assert.equal(dm.teamBriefIsStaleAsk(brief, atStale), false,
+    "at exactly STALE_DAYS the brief is still escalating, so it is not yet stale");
+
+  assert.equal(dm.teamBriefRung(brief, null, pastStale), 2);
+  assert.equal(dm.teamBriefIsStaleAsk(brief, pastStale), true,
+    "the day rung 3 decays away is the day the ask goes stale");
+
+  // The complementarity is the point: across the whole overdue range, exactly
+  // one of {rung 3, stale} holds. A vacuous version of this test would pass
+  // with both always false, so assert that both sides actually fire.
+  let sawRung3 = 0;
+  let sawStale = 0;
+  for (let day = 0; day <= 30; day++) {
+    const at = new Date(Date.parse(atStale) + day * 86400000).toISOString();
+    const isRung3 = dm.teamBriefRung(brief, null, at) === 3;
+    const isStale = dm.teamBriefIsStaleAsk(brief, at);
+    assert.notEqual(isRung3, isStale,
+      `day ${day} after the boundary: rung3=${isRung3} stale=${isStale} — must be exactly one`);
+    if (isRung3) sawRung3++;
+    if (isStale) sawStale++;
+  }
+  assert.ok(sawRung3 > 0 && sawStale > 0, "both branches must be exercised");
+});
+
+test("teamBriefIsStaleAsk ignores briefs that cannot be owed", () => {
+  const stale = { ...askBase, due_at: "2026-07-01T22:00:00Z" };
+  assert.equal(dm.teamBriefIsStaleAsk(stale, nowFixed), true, "control: this one is stale");
+
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, require_ack: false }, nowFixed), false,
+    "an informational brief is never an ask");
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, status: "archived" }, nowFixed), false);
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, archived_at: "2026-07-20T00:00:00Z" }, nowFixed), false);
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, due_at: null }, nowFixed), false,
+    "no due date means nothing to be overdue against — must not read null as the epoch");
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, due_at: "" }, nowFixed), false);
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, due_at: "not a date" }, nowFixed), false);
+  assert.equal(dm.teamBriefIsStaleAsk(null, nowFixed), false);
+
+  // Not yet due at all is the far side of the same guard.
+  assert.equal(dm.teamBriefIsStaleAsk({ ...stale, due_at: "2026-08-30T22:00:00Z" }, nowFixed), false);
+});
+
+test("teamBriefIsStaleAsk survives a bad timezone the way teamBriefRung does", () => {
+  // teamBriefRung falls back to raw UTC day math on an Intl throw; the stale
+  // predicate must fall back the same way or the two disagree about the
+  // boundary for exactly the briefs with corrupt timezone data.
+  const brief = { ...askBase, timezone: "Not/AZone", due_at: "2026-07-01T22:00:00Z" };
+  assert.equal(dm.teamBriefIsStaleAsk(brief, nowFixed), true);
+  assert.equal(dm.teamBriefIsStaleAsk({ ...brief, due_at: "2026-07-20T22:00:00Z" }, nowFixed), false);
+});

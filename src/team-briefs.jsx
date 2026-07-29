@@ -75,11 +75,29 @@ const TEAM_BRIEF_STYLES = `
 .tb-ack[data-read="1"],.tb-ack[data-done="1"]{color:var(--done-deep);background:white;border-color:var(--done-light);box-shadow:none;cursor:default}
 .tb-ack--done{border-color:var(--done-deep);background:var(--done-deep)}
 .tb-ack--done:focus-visible{outline-color:var(--done-light)}
-.tb-track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.tb-track{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .tb-track__cell{border-radius:8px;background:#f6f5f9;padding:9px}
 .tb-track__cell strong{display:block;font-size:16px}
 .tb-track__cell span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
-.tb-unread{font-size:11px;color:var(--muted)}
+/* §4.4 — both lists name people, because that is the whole lever (D8). The
+   "read, not done" half gets the ink: those reps have already seen the ask,
+   so it is the list a manager can act on today. */
+.tb-names{font-size:11px;color:var(--muted);line-height:1.5}
+.tb-names__label{display:inline-block;margin-right:6px;font-weight:700;color:var(--ink-70);text-transform:uppercase;font-size:9px;letter-spacing:.06em}
+.tb-names--lever{color:var(--ink-70)}
+.tb-names--lever .tb-names__label{color:var(--brand,#4c1d95)}
+.tb-names--clear{color:var(--done-deep)}
+/* §4.4 D9 — stale asks. A manager-level list, not a per-card badge: these are
+   the briefs that stopped escalating, so nothing on the card itself will ever
+   draw the eye to them again. */
+.tb-stale{border:1px solid #fcd34d;border-radius:12px;background:#fffbeb;padding:13px 15px;display:grid;gap:9px;margin-bottom:14px}
+.tb-stale__head h3{margin:0;font-size:13px}
+.tb-stale__head span{font-size:11px;color:var(--muted)}
+.tb-stale__list{margin:0;padding:0;list-style:none;display:grid;gap:7px}
+.tb-stale__item{display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap;font-size:12px}
+.tb-stale__title{font-weight:600;color:var(--ink-70)}
+.tb-stale__meta{font-size:11px;color:var(--muted)}
+.tb-stale__error{font-size:11px;color:#b91c1c}
 .tb-comments{border-top:1px solid var(--line);padding-top:10px;display:grid;gap:8px}
 .tb-comment{background:#f7f7fa;border-radius:8px;padding:8px 10px;font-size:12px}
 .tb-comment__head{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-bottom:3px}
@@ -187,11 +205,49 @@ function teamBriefAudienceByRep(brief) {
   return Array.from(seats.values());
 }
 
-function teamBriefAudienceMemberRead(brief, member) {
-  return (brief.reads || []).some(read =>
+// RFC-164 §4.4 — the manager's view of one audience member. The predecessor
+// answered "is there a row", which was the same question as "did they read it"
+// only until Phase 5 and 6 started writing rows for other reasons: a `done`
+// receipt is a row, and so is a catch-up sweep. Counting rows would let ten
+// briefs a rep cleared without reading register as ten reads, which is the one
+// number D10 says has to stay honest.
+function teamBriefAudienceMemberReceipt(brief, member) {
+  const row = (brief.reads || []).find(read =>
     (member.rep_id && read.rep_id === member.rep_id)
     || (read.auth_id && member.auth_ids.includes(read.auth_id))
   );
+  if (!row) return null;
+  return { read_at: row.read_at || null, done_at: row.done_at || null, swept: row.swept === true };
+}
+
+// The three buckets behind §4.4's counters and lists. Deliberately not a
+// partition: `read` contains `done` (complete_team_brief stamps read_at
+// alongside done_at), and `outstanding` is everyone not done — so
+// outstanding = haventRead + readNotDone, which is exactly the two lists.
+//
+// A swept receipt is read_at-bearing and lands in `haventRead` anyway. That is
+// the deliberate divergence from teamBriefRung, which retires a swept brief for
+// the rep: the sweep is the rep saying "I saw the pile", not "I read this one",
+// so the rep's queue clears and the manager's number does not move.
+function teamBriefAudienceState(brief) {
+  const audience = teamBriefAudienceByRep(brief);
+  const withReceipt = audience.map(member => ({
+    member,
+    receipt: teamBriefAudienceMemberReceipt(brief, member),
+  }));
+  const isRead = entry => !!(entry.receipt && entry.receipt.read_at && !entry.receipt.swept);
+  const isDone = entry => !!(entry.receipt && entry.receipt.done_at);
+  return {
+    audience,
+    read: withReceipt.filter(isRead).map(e => e.member),
+    done: withReceipt.filter(isDone).map(e => e.member),
+    outstanding: withReceipt.filter(e => !isDone(e)).map(e => e.member),
+    haventRead: withReceipt.filter(e => !isRead(e)).map(e => ({
+      ...e.member,
+      swept: !!(e.receipt && e.receipt.swept),
+    })),
+    readNotDone: withReceipt.filter(e => isRead(e) && !isDone(e)).map(e => e.member),
+  };
 }
 
 function teamBriefRepName(repId) {
@@ -633,9 +689,7 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
   const [error, setError] = React.useState("");
   const active = brief.status === "published" && !brief.archived_at;
   const visibleComments = (brief.comments || []).filter(c => !c.deleted_at || (managerial && !historical));
-  const audience = teamBriefAudienceByRep(brief);
-  const acknowledged = audience.filter(member => teamBriefAudienceMemberRead(brief, member));
-  const unread = audience.filter(member => !teamBriefAudienceMemberRead(brief, member));
+  const audienceState = teamBriefAudienceState(brief);
 
   async function act(fn) {
     setBusy(true);
@@ -683,13 +737,38 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
 
       {managerial && (
         <>
+          {/* §4.4 — "Acknowledged 7/9" was one number doing two jobs, and it
+              answered neither: it counted a read as a finish, so a manager
+              could not tell a team that had done the work from a team that had
+              opened the email. Read and done are now separate columns, and
+              outstanding is the only one that should ever drive a nudge. */}
           <div className="tb-track">
-            <div className="tb-track__cell"><strong>{acknowledged.length}/{audience.length}</strong><span>Acknowledged</span></div>
-            <div className="tb-track__cell"><strong>{unread.length}</strong><span>Unread</span></div>
+            <div className="tb-track__cell"><strong>{audienceState.read.length}/{audienceState.audience.length}</strong><span>Read</span></div>
+            <div className="tb-track__cell"><strong>{audienceState.done.length}/{audienceState.audience.length}</strong><span>Done</span></div>
+            <div className="tb-track__cell"><strong>{audienceState.outstanding.length}</strong><span>Outstanding</span></div>
             <div className="tb-track__cell"><strong>{visibleComments.filter(c => !c.deleted_at).length}</strong><span>Comments</span></div>
           </div>
-          {unread.length > 0 && (
-            <div className="tb-unread">Unread: {unread.map(member => teamBriefRepName(member.rep_id)).join(", ")}</div>
+          {/* The two lists partition Outstanding exactly, which is why they
+              name people instead of counting them (D8): the manager's next
+              move is different for each half — one group needs the brief put
+              back in front of them, the other has already seen it and needs
+              asking. */}
+          {audienceState.haventRead.length > 0 && (
+            <div className="tb-names">
+              <span className="tb-names__label">Haven't read</span>
+              {audienceState.haventRead
+                .map(member => teamBriefRepName(member.rep_id) + (member.swept ? " (cleared in catch-up)" : ""))
+                .join(", ")}
+            </div>
+          )}
+          {audienceState.readNotDone.length > 0 && (
+            <div className="tb-names tb-names--lever">
+              <span className="tb-names__label">Read, not done</span>
+              {audienceState.readNotDone.map(member => teamBriefRepName(member.rep_id)).join(", ")}
+            </div>
+          )}
+          {active && brief.require_ack && audienceState.outstanding.length === 0 && audienceState.audience.length > 0 && (
+            <div className="tb-names tb-names--clear">Everyone's done.</div>
           )}
         </>
       )}
@@ -947,6 +1026,74 @@ function TeamBriefsTodayPanel({ view, heroMounted, authedUser, onOpen }) {
   );
 }
 
+// RFC-164 §4.4 / D9 — the asks that went quiet.
+//
+// Two conditions, deliberately kept apart: `teamBriefIsStaleAsk` is pure and
+// lives in data-model.js because it is only about age, and "somebody still owes
+// it" composes here because audience state is this file's business.
+//
+// A stale ask with nobody outstanding is not a problem, it is a finished job
+// that nobody archived — listing it would train the manager to ignore the
+// section, which is exactly how the old Unread line died.
+function TeamBriefStaleAsks({ briefs, now, onChanged }) {
+  const [busyId, setBusyId] = React.useState("");
+  const [error, setError] = React.useState("");
+
+  const stale = briefs
+    .filter(brief => window.teamBriefIsStaleAsk(brief, now))
+    .map(brief => ({ brief, outstanding: teamBriefAudienceState(brief).outstanding }))
+    .filter(entry => entry.outstanding.length > 0)
+    .sort((a, b) => String(a.brief.due_at || "").localeCompare(String(b.brief.due_at || "")));
+
+  if (stale.length === 0) return null;
+
+  async function archive(brief) {
+    setBusyId(brief.id);
+    setError("");
+    try {
+      await window.archiveTeamBrief(brief.id);
+      await onChanged();
+    } catch (err) {
+      setError(err.message || "That brief could not be archived.");
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  return (
+    <section className="tb-stale">
+      <div className="tb-stale__head">
+        <h3>Stale asks</h3>
+        <span>
+          Overdue by more than {window.TEAM_BRIEF_STALE_DAYS} days and still owed. These have stopped
+          escalating — chase them or archive them, but don't leave them sitting on the queue.
+        </span>
+      </div>
+      <ul className="tb-stale__list">
+        {stale.map(({ brief, outstanding }) => (
+          <li className="tb-stale__item" key={brief.id}>
+            <div>
+              <div className="tb-stale__title">{brief.title}</div>
+              <div className="tb-stale__meta">
+                Due {teamBriefFormatDate(brief.due_at, brief.timezone)} · {outstanding.length} still outstanding
+                {" — "}{outstanding.map(member => teamBriefRepName(member.rep_id)).join(", ")}
+              </div>
+            </div>
+            <button
+              className="tb-btn"
+              disabled={busyId === brief.id}
+              onClick={() => archive(brief)}
+            >
+              {busyId === brief.id ? "Archiving…" : "Archive"}
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && <div className="tb-stale__error">{error}</div>}
+    </section>
+  );
+}
+
 function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const managerial = canManageAny(authedUser);
   const { briefs, loading, error, refresh, now } = useTeamBriefs(true);
@@ -1176,6 +1323,9 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
             placeholder="Search past briefs"
           />
         </div>
+      )}
+      {managerial && tab === "active" && (
+        <TeamBriefStaleAsks briefs={filtered} now={now} onChanged={refresh} />
       )}
       <div className="tb-list">
         {!loading && filtered.length === 0 && (

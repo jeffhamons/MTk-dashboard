@@ -1122,6 +1122,39 @@ function teamBriefRung(brief, receipt, now) {
   return 1;
 }
 
+// D9 — the manager's "stale ask" predicate (§4.4). Deliberately NOT what §4.4
+// literally says ("rung-3 briefs past STALE_DAYS"): teamBriefRung decays a
+// never-read overdue brief OUT of rung 3 at exactly that boundary, so that set
+// is empty by construction. §2.2 describes the brief this actually names — an
+// ask overdue long enough that it has stopped escalating, which is the moment
+// it goes quiet and starts suppressing everything published after it.
+//
+// Complementary to the rung-3 window with no gap and no overlap: rung 3 holds
+// while daysPastDue <= STALE_DAYS, stale begins at daysPastDue > STALE_DAYS.
+//
+// Says nothing about who has read it — that is audience state, which lives in
+// team-briefs.jsx. This answers only "has this ask aged out".
+function teamBriefIsStaleAsk(brief, now) {
+  if (!brief || brief.require_ack === false) return false;
+  if (brief.status !== "published" || brief.archived_at) return false;
+  if (brief.due_at == null || brief.due_at === "") return false;
+  const due = new Date(brief.due_at);
+  if (!Number.isFinite(due.getTime())) return false;
+
+  const current = new Date(now);
+  const timeZone = brief.timezone || REGIONS[0].timezone;
+  let daysPastDue;
+  try {
+    daysPastDue = _teamBriefLocalDayNumber(current, timeZone)
+      - _teamBriefLocalDayNumber(due, timeZone);
+  } catch {
+    // Mirrors teamBriefRung's fallback exactly: it computes
+    // ceil((due - current)/DAY) and negates, which is this floor().
+    daysPastDue = Math.floor((current.getTime() - due.getTime()) / 86400000);
+  }
+  return daysPastDue > TEAM_BRIEF_STALE_DAYS;
+}
+
 // Decides hero vs strip. Order is load-bearing: view must beat heroOnScreen
 // so non-home routes never claim "hero" when no hero is mounted (regression).
 function briefSurfaceShape({ view, heroMounted, heroOnScreen, outstandingCount }) {
@@ -1255,7 +1288,7 @@ Object.assign(window, {
   teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
   teamBriefUrgency, teamBriefIsVisible, teamBriefRepSection,
   teamBriefRung, briefSurfaceShape, teamBriefRungOrder, teamBriefOutstanding,
-  teamBriefCatchup,
+  teamBriefCatchup, teamBriefIsStaleAsk,
   normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,
