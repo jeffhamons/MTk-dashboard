@@ -316,6 +316,47 @@ test("teamBriefRung overdue-and-read is rung 2 not 3", () => {
   );
 });
 
+// RFC-164 D10. The bulk RPC writes read_at and swept — never done_at — so if
+// only done_at were terminal, every swept brief would come back on rung 2 (the
+// overdue-and-read case directly above) and the sweep button would clear
+// nothing. This is the test that says the sweep works.
+test("teamBriefRung treats a swept receipt as terminal", () => {
+  const sweptReceipt = { read_at: "2026-07-21T10:00:00Z", done_at: null, swept: true };
+  assert.equal(
+    dm.teamBriefRung({ ...askBase, due_at: "2026-07-20T22:00:00Z" }, sweptReceipt, nowFixed),
+    0,
+    "an overdue brief cleared by the sweep must leave the queue"
+  );
+  assert.equal(
+    dm.teamBriefRung({ ...askBase, due_at: null }, sweptReceipt, nowFixed),
+    0,
+    "a swept ask with no due date must leave the queue too"
+  );
+  // swept: false is the column default on every ordinary receipt — it must not
+  // retire anything by itself.
+  assert.equal(
+    dm.teamBriefRung(
+      { ...askBase, due_at: "2026-07-20T22:00:00Z" },
+      { read_at: "2026-07-21T10:00:00Z", done_at: null, swept: false },
+      nowFixed
+    ),
+    2,
+    "swept:false leaves the existing overdue-and-read behaviour untouched"
+  );
+});
+
+test("teamBriefOutstanding drops swept briefs", () => {
+  const briefs = [
+    { ...askBase, id: "swept", due_at: "2026-07-20T22:00:00Z" },
+    { ...askBase, id: "live", due_at: "2026-07-20T22:00:00Z" },
+  ];
+  const receipts = { swept: { read_at: "2026-07-21T10:00:00Z", done_at: null, swept: true } };
+  assert.deepEqual(
+    dm.teamBriefOutstanding(briefs, receipts, nowFixed).map(b => b.id),
+    ["live"]
+  );
+});
+
 test("teamBriefRung decays from 3 to 2 past TEAM_BRIEF_STALE_DAYS", () => {
   // due 2026-07-09, now 2026-07-23 → 14 local days past due in Chicago (inclusive → still 3)
   const dueAtBoundary = "2026-07-09T22:00:00Z";

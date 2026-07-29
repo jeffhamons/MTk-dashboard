@@ -291,3 +291,100 @@ test("the done tint keys off done_at, not read_at", () => {
   );
   assert.match(source, /data-done=\{done \? "1" : "0"\}/);
 });
+
+test("the bulk catch-up wrapper treats zero rows as success", () => {
+  const source = read("src/supabase-client.js");
+  const start = source.indexOf("async function acknowledgeTeamBriefsBulk");
+  assert.notStrictEqual(start, -1, "acknowledgeTeamBriefsBulk must exist");
+  const fn = source.slice(start, source.indexOf("\n}", start) + 2);
+
+  assert.match(fn, /rpc\("acknowledge_team_briefs_bulk",\s*\{/);
+  assert.match(fn, /p_brief_ids/);
+  assert.match(fn, /teamBriefFailure\("catch-up"/);
+  // `on conflict (brief_id, rep_id) do nothing` plus the catch-up predicate mean
+  // a perfectly successful sweep can insert zero rows — the rep already had
+  // receipts, or every id was archived. Copying acknowledgeTeamBrief's guard
+  // would report that as a failure to a rep whose queue is already clean.
+  assert.doesNotMatch(fn, /if \(!data\)/);
+  const sql = read("db/migration-team-briefs-redesign.sql");
+  assert.match(sql, /on conflict \(brief_id, rep_id\) do nothing/);
+  assert.match(
+    sql,
+    /create or replace function public\.acknowledge_team_briefs_bulk\([\s\S]{0,80}?\)\s*\nreturns integer/,
+    "the wrapper coerces the return with Number() — it must be a count",
+  );
+  assert.match(source, /^\s*acknowledgeTeamBriefsBulk,$/m, "must be exported on window");
+});
+
+test("swept is terminal, or the sweep clears nothing", () => {
+  const dataModel = read("src/data-model.js");
+  const start = dataModel.indexOf("function teamBriefRung");
+  const fn = dataModel.slice(start, dataModel.indexOf("\n}", start) + 2);
+  // The RPC writes read_at + swept and never done_at. A rung that only honours
+  // done_at sends every swept brief straight back to rung 2 (overdue-and-read),
+  // so the button would appear to do nothing at all.
+  assert.match(fn, /r\.done_at \|\| r\.swept/);
+  assert.match(
+    read("db/migration-team-briefs-redesign.sql"),
+    /select[\s\S]{0,200}now\(\), true[\s\S]{0,80}from/,
+    "the bulk insert must still be writing swept = true",
+  );
+});
+
+test("the sweep renders the missed pile, never the live queue", () => {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function useBriefSurface");
+  const hook = source.slice(start, source.indexOf("\n}", start) + 2);
+
+  // teamBriefCatchup and teamBriefOutstanding have identical membership — both
+  // are just rung > 0 — so handing the raw list to both would render every live
+  // brief twice, once as a card and once as a sweep line. The partition is the
+  // caller's job and this is the caller.
+  assert.match(hook, /teamBriefCatchup\(\s*all\.filter\(brief => missedIds\.has\(brief\.id\)\)/);
+  assert.match(hook, /all\.filter\(brief => !missedIds\.has\(brief\.id\)\)/);
+  // Missed means no receipt at all: `on conflict do nothing` makes the RPC skip
+  // any brief the rep already has a row for, so offering one in the sweep would
+  // promise a write the database refuses.
+  assert.match(hook, /if \(receipts\[brief\.id\]\) return;/);
+  assert.match(hook, /teamBriefRepSection\(brief, false, now\) === "history"/);
+});
+
+test("an empty queue with a missed pile does not claim the rep is caught up", () => {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function TeamBriefsTodayPanel");
+  const panel = source.slice(start, source.indexOf("\n}", start) + 2);
+  const shapeBail = panel.indexOf("if (shape !== \"hero\"");
+  // Without this the slice below would silently become the whole component and
+  // the ordering assertion could pass on the main branch's copy instead.
+  assert.ok(shapeBail > 0, "the hero's shape bail-out must still follow the quiet branch");
+  const quiet = panel.slice(0, shapeBail);
+
+  // D10's stated failure mode is defect #5 relocated: a rep back from PTO with
+  // an empty live queue being told they are caught up while fifteen missed
+  // briefs sit underneath. The quiet branch must test the pile, not just the
+  // queue, and must still render the sweep.
+  const conditionAt = quiet.indexOf("catchup.items.length");
+  const claimAt = quiet.indexOf("caught up on Team Briefs");
+  assert.ok(
+    conditionAt >= 0 && claimAt >= 0 && conditionAt < claimAt,
+    `the caught-up copy must sit behind a catchup test (test at ${conditionAt}, claim at ${claimAt})`,
+  );
+  assert.match(quiet, /\{sweep\}/, "the sweep card must render on the quiet branch too");
+});
+
+test("the older-briefs link lands on History and the request cannot go stale", () => {
+  const source = read("src/team-briefs.jsx");
+  assert.match(source, /requestTeamBriefTab\("history"\);\s*onOpen\(\);/);
+
+  // Read-and-clear is what makes a module-scoped handoff safe: consume must
+  // null the slot so a request that never got used cannot hijack a later visit.
+  const consumeAt = source.indexOf("function consumeTeamBriefTab");
+  const consume = source.slice(consumeAt, source.indexOf("\n}", consumeAt) + 2);
+  assert.match(consume, /teamBriefRequestedTab = null;/);
+
+  const managerAt = source.indexOf("function TeamBriefsManager");
+  const init = source.slice(managerAt, managerAt + 700);
+  assert.match(init, /consumeTeamBriefTab\(\)/);
+  // A manager has no History tab; handing them one would render an empty page.
+  assert.match(init, /!managerial && requested/);
+});

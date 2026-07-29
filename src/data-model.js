@@ -1080,7 +1080,14 @@ function teamBriefRepSection(brief, acknowledged, now) {
 function teamBriefRung(brief, receipt, now) {
   if (!brief) return 0;
   const r = receipt == null ? null : receipt;
-  if (r && r.done_at) return 0;
+  // Both terminal states, for different reasons. done_at is the rep finishing
+  // the ask. swept is the rep clearing a pile they missed — and it has to
+  // retire the brief here or the sweep accomplishes nothing: the bulk RPC
+  // writes read_at, and an overdue-and-read brief lands on rung 2, so every
+  // swept brief would come straight back and the button would look broken.
+  // The distinguishable receipt (D10) is what lets the rep surface honour the
+  // sweep while §4.4's manager read count still excludes it.
+  if (r && (r.done_at || r.swept)) return 0;
 
   const isRead = !!(r && r.read_at);
   // Informational briefs never escalate past rung 1; read → 0.

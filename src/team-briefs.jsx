@@ -93,6 +93,19 @@ const TEAM_BRIEF_STYLES = `
 .tb-today__head span{font-size:11px;color:var(--muted)}
 .tb-today--quiet{padding:12px 15px}
 .tb-today--lead{margin-top:0;border-color:#fca5a5;background:linear-gradient(135deg,#fff,#fff5f5)}
+/* RFC-164 D10 — the catch-up sweep. Deliberately quieter than a brief card:
+   this is a pile to clear, not an ask to answer, and it must never out-shout
+   the live briefs sitting above it. */
+.tb-sweep{border:1px solid var(--line);border-radius:12px;background:#fbfbfe;padding:13px 15px;display:grid;gap:9px}
+.tb-sweep__head h3{margin:0;font-size:13px}
+.tb-sweep__head span{font-size:11px;color:var(--muted)}
+.tb-sweep__list{margin:0;padding:0;list-style:none;display:grid;gap:4px}
+.tb-sweep__item{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--ink-70)}
+.tb-sweep__date{flex:none;font-size:10px;color:var(--muted);min-width:96px}
+.tb-sweep__title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tb-sweep__actions{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+.tb-sweep__older{border:0;background:none;padding:0;font:inherit;font-size:11px;font-weight:600;color:var(--ink-70);text-decoration:underline;cursor:pointer}
+.tb-sweep__error{font-size:11px;color:#b91c1c}
 .tb-loading{color:var(--muted);font-size:12px}
 /* RFC-164 §4.2c — sticky, never in normal flow once pinned, and exactly
    TEAM_BRIEF_STRIP_HEIGHT tall so the sentinel's rootMargin can cancel the
@@ -256,6 +269,25 @@ function teamBriefHistoryGroups(briefs) {
   return Array.from(groups.values()).sort((a, b) => a.key.localeCompare(b.key) * -1);
 }
 
+// RFC-164 §6 Phase 6 — the sweep card's "see History" link has to open the full
+// page ON the History tab, and there is no prop path for that. `onOpen` is
+// `() => setView("team-briefs")` at index.html:2300 and :3161 and takes no
+// argument, and `TeamBriefsManager` is mounted through the manager registry by
+// global name (manager.jsx:26), not as a JSX child — so threading an
+// `initialTab` prop would mean editing the registry for one link.
+//
+// A module-scoped handoff instead: the link sets it, the page reads it once at
+// mount and clears it. Read-and-clear is what makes it safe — a stale value can
+// never hijack a later visit. This is idiomatic here; the codebase has no module
+// system and already couples across script tags through globals.
+let teamBriefRequestedTab = null;
+function requestTeamBriefTab(tab) { teamBriefRequestedTab = tab; }
+function consumeTeamBriefTab() {
+  const requested = teamBriefRequestedTab;
+  teamBriefRequestedTab = null;
+  return requested;
+}
+
 // RFC-164 §4.1 — one load cycle, one channel, one clock.
 //
 // `useTeamBriefs` used to do a full `loadTeamBriefs` plus a realtime subscribe
@@ -396,22 +428,59 @@ function useBriefSurface({ view, heroMounted, authedUser }) {
     () => teamBriefReceiptsFor(briefs, authedUser),
     [briefs, authedUser],
   );
-  const outstanding = React.useMemo(
+  const all = React.useMemo(
     () => window.teamBriefOutstanding(briefs, receipts, now),
     [briefs, receipts, now],
   );
+
+  // D10 — split the outstanding set into the queue and the pile.
+  //
+  // `teamBriefCatchup` returns the same membership as `teamBriefOutstanding`
+  // (both are just rung > 0); only the ordering and the cap differ. Handing it
+  // the whole set would render every live brief twice — once as a card, once as
+  // a sweep line — so the caller owns the partition, exactly as both functions'
+  // comments say ("caller filters").
+  //
+  // Missed means: no receipt of any kind, and the display window has closed.
+  // Both halves are load-bearing. Requiring *no receipt* matches what the RPC
+  // can actually do — `on conflict (brief_id, rep_id) do nothing` skips any
+  // brief the rep already has a row for, so including one would promise a sweep
+  // the database silently refuses. Requiring *window closed* keeps everything
+  // the rep can still act on in the queue: a brief that is read-but-not-done, or
+  // one whose `for_days` window lapsed while a due date is still ahead, belongs
+  // above as a card, not in a pile labelled "missed while you were away".
+  const missedIds = React.useMemo(() => {
+    const ids = new Set();
+    all.forEach(brief => {
+      if (receipts[brief.id]) return;
+      if (window.teamBriefRepSection(brief, false, now) === "history") ids.add(brief.id);
+    });
+    return ids;
+  }, [all, receipts, now]);
+  const outstanding = React.useMemo(
+    () => (missedIds.size ? all.filter(brief => !missedIds.has(brief.id)) : all),
+    [all, missedIds],
+  );
+  const catchup = React.useMemo(
+    () => window.teamBriefCatchup(all.filter(brief => missedIds.has(brief.id)), receipts, now),
+    [all, missedIds, receipts, now],
+  );
+
   // teamBriefOutstanding sorts rung desc, so the head of the list is the rung
   // that decides whether Home gets taken over.
   const topRung = outstanding.length
     ? window.teamBriefRung(outstanding[0], receipts[outstanding[0].id], now)
     : 0;
+  // Missed briefs deliberately do not count here. The strip is the persistent
+  // nag for work the rep still owes; pinning a black bar to every page over a
+  // pile of expired messages is the wall of cards D10 exists to prevent.
   const shape = window.briefSurfaceShape({
     view,
     heroMounted,
     heroOnScreen,
     outstandingCount: outstanding.length,
   });
-  return { briefs, loading, error, refresh, now, receipts, outstanding, topRung, shape };
+  return { briefs, loading, error, refresh, now, receipts, outstanding, catchup, topRung, shape };
 }
 
 // §4.2a — the sentinel. Always mounted, zero height, sitting at the hero's flow
@@ -739,26 +808,109 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
   );
 }
 
+// D10 — the catch-up sweep. One list, one button, one write.
+//
+// The list is shown rather than summarised on purpose: "clear 10 things you
+// never read" is only an honest button if the rep can see what the ten are.
+function TeamBriefCatchupCard({ items, olderCount, onSwept, onOpen }) {
+  const [busy, setBusy] = React.useState(false);
+  const [failure, setFailure] = React.useState("");
+  if (!items.length) return null;
+
+  // State the bound explicitly (§6 Phase 6). "10 most recent" is only true when
+  // something was actually held back — saying it over a complete list of four
+  // would invent an older pile that does not exist.
+  const bound = olderCount > 0
+    ? `${items.length} most recent`
+    : `${items.length} brief${items.length === 1 ? "" : "s"}`;
+
+  async function sweep() {
+    setBusy(true);
+    setFailure("");
+    try {
+      await window.acknowledgeTeamBriefsBulk(items.map(brief => brief.id));
+      await onSwept();
+    } catch (err) {
+      setFailure(err.message || "Those briefs could not be cleared.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="tb-sweep">
+      <div className="tb-sweep__head">
+        <h3>Missed while you were away</h3>
+        <span>{bound} — clearing these marks them seen, not done.</span>
+      </div>
+      <ul className="tb-sweep__list">
+        {items.map(brief => (
+          <li key={brief.id} className="tb-sweep__item">
+            <span className="tb-sweep__date">{teamBriefHistoryDateKey(brief).label}</span>
+            <span className="tb-sweep__title">{brief.title}</span>
+          </li>
+        ))}
+      </ul>
+      {failure && <div className="tb-sweep__error">{failure}</div>}
+      <div className="tb-sweep__actions">
+        {olderCount > 0 ? (
+          <button
+            className="tb-sweep__older"
+            onClick={() => { requestTeamBriefTab("history"); onOpen(); }}
+          >
+            and {olderCount} older — see History
+          </button>
+        ) : <span />}
+        <button className="tb-btn tb-btn--primary" disabled={busy} onClick={sweep}>
+          {busy ? "Clearing…" : `Got it — clear these ${items.length}`}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // The Home hero. Renders inside `TeamBriefHeroSlot`, which owns the observed
 // element — this component must never be the thing that unmounts the sentinel.
 //
 // The old version filtered with `teamBriefIsVisible` and ordered with
-// `teamBriefSort`. Both are gone from this surface: §4.3 says the rung ordering
+// `teamBriefSort`. The ordering is gone for good: §4.3 says the rung ordering
 // *replaces* `teamBriefSort` for rep-facing surfaces and that two orderings must
-// not coexist, and `teamBriefOutstanding` already applies visibility.
+// not coexist. Visibility came back in Phase 6, but only as the queue/pile split
+// in `useBriefSurface` — `teamBriefOutstanding` itself never filtered on it, and
+// an earlier version of this comment claimed otherwise.
 function TeamBriefsTodayPanel({ view, heroMounted, authedUser, onOpen }) {
-  const { loading, error, refresh, outstanding, topRung, shape } =
+  const { loading, error, refresh, outstanding, catchup, topRung, shape } =
     useBriefSurface({ view, heroMounted, authedUser });
   const active = outstanding;
+  const sweep = (
+    <TeamBriefCatchupCard
+      items={catchup.items}
+      olderCount={catchup.olderCount}
+      onSwept={refresh}
+      onOpen={onOpen}
+    />
+  );
 
+  // Nothing live to do. That is NOT the same as caught up: a rep back from PTO
+  // can have an empty queue and fifteen missed briefs, and telling them they are
+  // caught up while the pile sits underneath is defect #5 relocated. The sweep
+  // card renders here too, and the headline follows whichever is true.
   if (!loading && !error && active.length === 0) {
     return (
       <>
         <style>{TEAM_BRIEF_STYLES}</style>
         <section className="tb-today tb-today--quiet">
           <div className="tb-today__head">
-            <div><h2>Today</h2><span>You’re caught up on Team Briefs.</span></div>
+            <div>
+              <h2>Today</h2>
+              <span>
+                {catchup.items.length
+                  ? "Nothing new today — but you missed some while you were away."
+                  : "You’re caught up on Team Briefs."}
+              </span>
+            </div>
           </div>
+          {sweep}
         </section>
       </>
     );
@@ -790,6 +942,7 @@ function TeamBriefsTodayPanel({ view, heroMounted, authedUser, onOpen }) {
           />
         ))}
       </div>
+      {sweep}
     </section>
   );
 }
@@ -797,7 +950,14 @@ function TeamBriefsTodayPanel({ view, heroMounted, authedUser, onOpen }) {
 function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const managerial = canManageAny(authedUser);
   const { briefs, loading, error, refresh, now } = useTeamBriefs(true);
-  const [tab, setTab] = React.useState(managerial ? "active" : "current");
+  // Read-and-clear the sweep card's requested tab exactly once, at mount. A
+  // manager never gets it — "history" is not one of their tabs — and the request
+  // is consumed either way so it cannot survive to hijack a later visit.
+  const [tab, setTab] = React.useState(() => {
+    const requested = consumeTeamBriefTab();
+    if (!managerial && requested) return requested;
+    return managerial ? "active" : "current";
+  });
   const [historyQuery, setHistoryQuery] = React.useState("");
   const [publishError, setPublishError] = React.useState("");
   const [publishing, setPublishing] = React.useState(false);
