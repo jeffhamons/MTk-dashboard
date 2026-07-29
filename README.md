@@ -310,6 +310,17 @@ Supabase tables:
 - `db/test-team-briefs-rls.sql` is the rollback-only verification suite for
   audience expansion, publisher denial, frozen audiences, read idempotency,
   comment visibility, and archive behavior.
+- `db/migration-team-briefs-redesign.sql` adds the RFC-164 done state, the
+  expiry-agnostic catch-up predicate, and the bulk-acknowledge RPC.
+- `db/migration-team-briefs-publish-skips.sql` records reps a publish could not
+  reach, in `team_brief_audience_skips`. `db/test-team-briefs-publish-skips.sql`
+  is its rollback-only verification suite.
+- `db/audit-team-briefs-reachability.sql` answers "which reps can a brief
+  actually reach" — read-only; run it before any broad publish.
+- `db/audit-mike-cawood-identities.sql` documents the supported multi-identity
+  case and why it needs no reconciliation.
+- `db/migration-team-briefs-redesign.sql` adds the RFC-164 done state, the
+  expiry-agnostic catch-up predicate, and the bulk-acknowledge RPC.
 
 ### Team Briefs security and lifecycle
 
@@ -329,6 +340,38 @@ Supabase tables:
   Acknowledging from either identity acknowledges the brief for that rep.
 - Audience rows never re-expand when roster or seating changes. Reads and
   comments key eligibility to that frozen audience.
+
+#### A rep who sees no briefs: check these three, in order
+
+The audience row gates the `team_briefs` SELECT policy, so an unreached rep sees
+"You're caught up on Team Briefs." — identical to a genuinely quiet week. Three
+different causes produce that same screen.
+
+1. **Is anything visible to anyone?** Brief lifetimes are shorter than they look:
+   `today_only` truncates to midnight in the *brief's own* timezone, so an
+   afternoon EMEA brief can expire the same evening. If every brief is expired,
+   the empty panel is correct. Check `expires_at <= now()` first.
+2. **Can the rep receive briefs at all?** Publish expansion requires
+   `users.role = 'rep'`, a non-null `users.auth_id`, and `reps.active`, and the
+   RPC raises only when the audience is empty *entirely* — a partial miss
+   publishes green. Run `db/audit-team-briefs-reachability.sql` query 1.
+   Note that **being on the roster does not mean being a brief recipient**: reps
+   with no `public.users` row are not dashboard users, which is the normal state
+   for CS outside the US, not a gap. Since
+   `db/migration-team-briefs-publish-skips.sql` the composer names skipped reps
+   after publish, but deliberately only those who *have* an account and were
+   skipped anyway — otherwise the warning would fire every time and mean
+   nothing.
+3. **Was the rep provisioned after the brief went out?** The audience is frozen
+   at publish and has no backfill — `publish_team_brief` is its only writer. A
+   rep who gains an identity later is permanently unreachable by every earlier
+   brief. This is latent, not a known outage, but it is real; there is
+   deliberately no refresh RPC.
+
+Multiple login identities for one rep are supported, not a bug: receipts are
+keyed `(brief_id, rep_id)` and `teamBriefAudienceByRep` collapses seats by rep,
+so neither the denominator nor the read state double-counts.
+
 - Acknowledgement is an explicit check mark, not completion. The
   `action_required` default uses manual clear so acknowledged overdue work
   remains visible until archive.
