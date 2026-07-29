@@ -186,6 +186,31 @@ function teamBriefReceiptsFor(briefs, authedUser) {
   return map;
 }
 
+// Is this brief addressed to me? The rep-facing surfaces need to ask, and
+// nothing upstream asks for them: `loadTeamBriefs` selects under a member-OR-
+// MANAGER policy (migration-team-briefs.sql:683), and `teamBriefRung` only
+// looks at dates and a receipt. So a manager receives every brief they manage,
+// scores rung > 0 on each one — no receipt means unread — and gets their own
+// asks nagged back at them, permanently: they cannot clear what they cannot
+// acknowledge, because `mark_team_brief_read` writes nothing for a non-member.
+//
+// Matches `teamBriefReceiptFor`'s identity rules on purpose; the two answer
+// "which row is mine" about different tables and must not disagree.
+//
+// Not a no-op for reps. Their audience rows are RLS-filtered to their own, so
+// the list they match against is a single row — themselves — and every brief
+// they can see passes. The filter only ever removes something for a manager,
+// which is exactly the case it exists for.
+function teamBriefAddressesUser(brief, authedUser) {
+  if (!brief) return false;
+  const repId = authedUser && typeof authedUser === "object" ? authedUser.rep_id : null;
+  const authId = authedUser && typeof authedUser === "object" ? authedUser.auth_id : authedUser;
+  return (brief.audience || []).some(member =>
+    (repId && member.rep_id === repId)
+    || (authId && member.auth_id === authId)
+  );
+}
+
 function teamBriefAudienceByRep(brief) {
   const seats = new Map();
   (brief.audience || []).forEach(member => {
@@ -479,7 +504,15 @@ function useTeamBriefs(includeArchived) {
 // decision. Both mounts call this, so they cannot disagree: same briefs, same
 // receipts, same clock, same React commit.
 function useBriefSurface({ view, heroMounted, authedUser }) {
-  const { briefs, loading, error, refresh, now, heroOnScreen } = useTeamBriefs(false);
+  const { briefs: received, loading, error, refresh, now, heroOnScreen } = useTeamBriefs(false);
+  // Everything below this line is the rep's own queue, so the audience filter
+  // belongs above all of it — the hero, the strip, and the catch-up pile all
+  // read from `outstanding`, and gating them separately would leave whichever
+  // one got missed nagging a manager on its own.
+  const briefs = React.useMemo(
+    () => (received || []).filter(brief => teamBriefAddressesUser(brief, authedUser)),
+    [received, authedUser],
+  );
   const receipts = React.useMemo(
     () => teamBriefReceiptsFor(briefs, authedUser),
     [briefs, authedUser],

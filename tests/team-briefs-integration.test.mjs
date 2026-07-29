@@ -420,8 +420,59 @@ function loadAudienceState() {
   return factory();
 }
 
+function loadAddressesUser() {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function teamBriefAddressesUser");
+  const end = source.indexOf("\n}", start);
+  assert.ok(start >= 0 && end > start, "teamBriefAddressesUser must still be extractable");
+  const slice = source.slice(start, end + 2);
+  assert.doesNotMatch(slice, /<\/?[A-Za-z]/, "extraction only works while this block is JSX-free");
+  return vm.runInThisContext(
+    `(function () {\n${slice}\nreturn teamBriefAddressesUser;\n})`,
+    { filename: "team-briefs-addresses.js" })();
+}
+
 const audienceOf = ids => ids.map(id => ({ rep_id: id, auth_id: `auth-${id}` }));
 const ids = members => members.map(m => m.rep_id).sort();
+
+// The manager-nag defect, found in the browser during Phase 7: the rep-facing
+// surfaces read a list selected under a member-OR-manager policy, so every
+// brief a manager published came back scored as one they personally owed.
+test("the rep surface only counts briefs addressed to the viewer", () => {
+  const addresses = loadAddressesUser();
+  const mine = { id: "b1", audience: audienceOf(["ann", "bob"]) };
+  const theirs = { id: "b2", audience: audienceOf(["cam", "dee"]) };
+  const manager = { rep_id: "mgr", auth_id: "auth-mgr" };
+
+  assert.equal(addresses(mine, { rep_id: "ann", auth_id: "auth-ann" }), true);
+  assert.equal(addresses(theirs, manager), false,
+    "a manager is not in this brief's audience and must not be nagged by it");
+  assert.equal(addresses({ ...theirs, audience: audienceOf(["cam", "mgr"]) }, manager), true,
+    "a manager who IS addressed still gets the brief");
+
+  // Identity falls back to auth_id, the way teamBriefReceiptFor does — a rep
+  // with no rep_id on the row must still match.
+  assert.equal(addresses({ id: "b3", audience: [{ auth_id: "auth-ann" }] },
+    { rep_id: null, auth_id: "auth-ann" }), true);
+  // ...and must not match on a null/undefined id colliding with a bare row.
+  assert.equal(addresses({ id: "b4", audience: [{}] },
+    { rep_id: null, auth_id: null }), false);
+  assert.equal(addresses({ id: "b5" }, manager), false, "no audience means not addressed");
+  assert.equal(addresses(null, manager), false);
+});
+
+test("useBriefSurface applies the audience filter above every rep surface", () => {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function useBriefSurface");
+  const body = source.slice(start, source.indexOf("\nfunction ", start + 10));
+  // The filter has to sit on the list the receipts and the rung list are both
+  // derived from. Pinning the wiring, not the wording: if someone reintroduces
+  // the raw hook result as `briefs`, this goes red.
+  assert.match(body, /briefs:\s*received/, "the raw hook result must not be named `briefs`");
+  assert.match(body, /received\s*\|\|\s*\[\]\)\.filter\(brief => teamBriefAddressesUser\(brief, authedUser\)\)/);
+  assert.doesNotMatch(body.slice(body.indexOf("const receipts")), /\breceived\b/,
+    "nothing downstream of the filter may read the unfiltered list");
+});
 
 test("a swept receipt never moves the manager read count (RFC-164 D10)", () => {
   const teamBriefAudienceState = loadAudienceState();
