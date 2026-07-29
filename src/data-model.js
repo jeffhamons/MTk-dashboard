@@ -861,6 +861,9 @@ const TEAM_BRIEF_DISPLAY_RULES = [
 ];
 const TEAM_BRIEF_COMMENT_MAX_LENGTH = 2000;
 const TEAM_BRIEF_SOON_DAYS = 3;
+const TEAM_BRIEF_RUNG_WARN_DAYS = 2;   // rung 1 -> 2 threshold, before due
+const TEAM_BRIEF_STALE_DAYS     = 14;  // rung 3 -> 2 decay
+const TEAM_BRIEF_CATCHUP_LIMIT  = 10;  // catch-up sweep cap
 
 function teamBriefAudiencePairs(audienceOrMode, teamId, regionId) {
   const spec = typeof audienceOrMode === "object" && audienceOrMode
@@ -1071,6 +1074,139 @@ function teamBriefRepSection(brief, acknowledged, now) {
   return teamBriefIsVisible(brief, acknowledged, now) ? "current" : "history";
 }
 
+// receipt is { read_at, done_at, swept } or null
+// Returns 0 | 1 | 2 | 3. Day-math anchors on brief.timezone (see teamBriefUrgency).
+// never calls Date.now() — callers pass an explicit `now`.
+function teamBriefRung(brief, receipt, now) {
+  if (!brief) return 0;
+  const r = receipt == null ? null : receipt;
+  // Both terminal states, for different reasons. done_at is the rep finishing
+  // the ask. swept is the rep clearing a pile they missed — and it has to
+  // retire the brief here or the sweep accomplishes nothing: the bulk RPC
+  // writes read_at, and an overdue-and-read brief lands on rung 2, so every
+  // swept brief would come straight back and the button would look broken.
+  // The distinguishable receipt (D10) is what lets the rep surface honour the
+  // sweep while §4.4's manager read count still excludes it.
+  if (r && (r.done_at || r.swept)) return 0;
+
+  const isRead = !!(r && r.read_at);
+  // Informational briefs never escalate past rung 1; read → 0.
+  if (brief.require_ack === false) return isRead ? 0 : 1;
+
+  // Null due_at must not be treated as the epoch (new Date(null) === 1970).
+  if (brief.due_at == null || brief.due_at === "") return 1;
+  const due = new Date(brief.due_at);
+  if (!Number.isFinite(due.getTime())) return 1;
+
+  const current = new Date(now);
+  const timeZone = brief.timezone || REGIONS[0].timezone;
+  let daysUntilDue;
+  try {
+    daysUntilDue = _teamBriefLocalDayNumber(due, timeZone)
+      - _teamBriefLocalDayNumber(current, timeZone);
+  } catch {
+    daysUntilDue = Math.ceil((due.getTime() - current.getTime()) / 86400000);
+  }
+
+  // Overdue: local calendar day past due.
+  if (daysUntilDue < 0) {
+    const daysPastDue = -daysUntilDue;
+    // Rung 3: never-read and still within STALE_DAYS (inclusive at the boundary).
+    if (!isRead && daysPastDue <= TEAM_BRIEF_STALE_DAYS) return 3;
+    // Overdue-and-read, or decayed past STALE_DAYS → rung 2.
+    return 2;
+  }
+
+  // Due today or within RUNG_WARN_DAYS → rung 2; farther out → rung 1.
+  if (daysUntilDue <= TEAM_BRIEF_RUNG_WARN_DAYS) return 2;
+  return 1;
+}
+
+// D9 — the manager's "stale ask" predicate (§4.4). Deliberately NOT what §4.4
+// literally says ("rung-3 briefs past STALE_DAYS"): teamBriefRung decays a
+// never-read overdue brief OUT of rung 3 at exactly that boundary, so that set
+// is empty by construction. §2.2 describes the brief this actually names — an
+// ask overdue long enough that it has stopped escalating, which is the moment
+// it goes quiet and starts suppressing everything published after it.
+//
+// Complementary to the rung-3 window with no gap and no overlap: rung 3 holds
+// while daysPastDue <= STALE_DAYS, stale begins at daysPastDue > STALE_DAYS.
+//
+// Says nothing about who has read it — that is audience state, which lives in
+// team-briefs.jsx. This answers only "has this ask aged out".
+function teamBriefIsStaleAsk(brief, now) {
+  if (!brief || brief.require_ack === false) return false;
+  if (brief.status !== "published" || brief.archived_at) return false;
+  if (brief.due_at == null || brief.due_at === "") return false;
+  const due = new Date(brief.due_at);
+  if (!Number.isFinite(due.getTime())) return false;
+
+  const current = new Date(now);
+  const timeZone = brief.timezone || REGIONS[0].timezone;
+  let daysPastDue;
+  try {
+    daysPastDue = _teamBriefLocalDayNumber(current, timeZone)
+      - _teamBriefLocalDayNumber(due, timeZone);
+  } catch {
+    // Mirrors teamBriefRung's fallback exactly: it computes
+    // ceil((due - current)/DAY) and negates, which is this floor().
+    daysPastDue = Math.floor((current.getTime() - due.getTime()) / 86400000);
+  }
+  return daysPastDue > TEAM_BRIEF_STALE_DAYS;
+}
+
+// Decides hero vs strip. Order is load-bearing: view must beat heroOnScreen
+// so non-home routes never claim "hero" when no hero is mounted (regression).
+function briefSurfaceShape({ view, heroMounted, heroOnScreen, outstandingCount }) {
+  if (outstandingCount <= 0) return null;
+  if (view !== "home") return "strip";      // MUST be checked before heroOnScreen
+  if (!heroMounted) return "strip";
+  return heroOnScreen ? "hero" : "strip";
+}
+
+// The one rep-facing ordering (§4.3): rung desc, due_at asc, publish_at desc.
+// Returned as a comparator so every rep surface — hero, strip, and the Current
+// tab on the full page — sorts through this and only this. Two orderings over
+// the same briefs is the failure the RFC forbids.
+function teamBriefRungOrder(receipts, now) {
+  const rec = receipts || {};
+  return (a, b) => {
+    const ra = teamBriefRung(a, rec[a.id], now);
+    const rb = teamBriefRung(b, rec[b.id], now);
+    if (rb !== ra) return rb - ra;
+    const da = a.due_at != null ? new Date(a.due_at).getTime() : Number.POSITIVE_INFINITY;
+    const db = b.due_at != null ? new Date(b.due_at).getTime() : Number.POSITIVE_INFINITY;
+    const daN = Number.isFinite(da) ? da : Number.POSITIVE_INFINITY;
+    const dbN = Number.isFinite(db) ? db : Number.POSITIVE_INFINITY;
+    if (daN !== dbN) return daN - dbN;
+    const pa = new Date(a.publish_at).getTime();
+    const pb = new Date(b.publish_at).getTime();
+    return (Number.isFinite(pb) ? pb : 0) - (Number.isFinite(pa) ? pa : 0);
+  };
+}
+
+// Outstanding = rung > 0. Does not call teamBriefIsVisible — caller filters.
+function teamBriefOutstanding(briefs, receipts, now) {
+  const rec = receipts || {};
+  const list = (briefs || []).filter(b => teamBriefRung(b, rec[b.id], now) > 0);
+  return list.slice().sort(teamBriefRungOrder(rec, now));
+}
+
+// Catch-up sweep: outstanding newest-first by publish_at, capped.
+// Does not call teamBriefIsVisible — deliberately includes expired briefs.
+function teamBriefCatchup(briefs, receipts, now) {
+  const outstanding = (briefs || []).filter(
+    b => teamBriefRung(b, (receipts || {})[b.id], now) > 0
+  );
+  const sorted = outstanding.slice().sort((a, b) => {
+    const pa = new Date(a.publish_at).getTime();
+    const pb = new Date(b.publish_at).getTime();
+    return (Number.isFinite(pb) ? pb : 0) - (Number.isFinite(pa) ? pa : 0);
+  });
+  const items = sorted.slice(0, TEAM_BRIEF_CATCHUP_LIMIT);
+  return { items, olderCount: Math.max(0, sorted.length - items.length) };
+}
+
 function normalizeTeamBriefComment(body) {
   const value = String(body == null ? "" : body).trim();
   if (!value) return { ok: false, value: "", error: "Comment cannot be empty." };
@@ -1146,10 +1282,13 @@ Object.assign(window, {
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,
   TEAM_BRIEF_TYPES, TEAM_BRIEF_AUDIENCE_MODES, TEAM_BRIEF_DISPLAY_RULES,
   TEAM_BRIEF_COMMENT_MAX_LENGTH, TEAM_BRIEF_SOON_DAYS,
+  TEAM_BRIEF_RUNG_WARN_DAYS, TEAM_BRIEF_STALE_DAYS, TEAM_BRIEF_CATCHUP_LIMIT,
   teamBriefAudiencePairs, canPublishTeamBrief, teamBriefAudienceMatches,
   expandTeamBriefAudience, teamBriefAudienceLabel,
   teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
   teamBriefUrgency, teamBriefIsVisible, teamBriefRepSection,
+  teamBriefRung, briefSurfaceShape, teamBriefRungOrder, teamBriefOutstanding,
+  teamBriefCatchup, teamBriefIsStaleAsk,
   normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,

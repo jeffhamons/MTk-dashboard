@@ -458,6 +458,41 @@ async function acknowledgeTeamBrief(id) {
   return data;
 }
 
+// RFC-164 D6/Phase 5 — the second half of the two-step. Deliberately does NOT
+// carry acknowledgeTeamBrief's `if (!data)` guard: `complete_team_brief`
+// returns void, so `data` is null on success and that guard would turn every
+// successful completion into an error. The RPC raises 42501 rather than
+// returning quietly when the caller is unauthenticated or off the audience.
+async function completeTeamBrief(id) {
+  const briefId = requireTeamBriefId(id, "completion");
+  const { error } = await client().rpc("complete_team_brief", {
+    p_brief_id: briefId,
+  });
+  if (error) throw teamBriefFailure("completion", error);
+}
+
+// RFC-164 D10/Phase 6 — the catch-up sweep's one write. Returns the number of
+// receipt rows actually inserted, which is NOT the number of ids passed: the
+// RPC's `on conflict do nothing` skips briefs the rep already has a row for,
+// and `team_brief_accepts_catchup` skips archived or unpublished ones. Zero is
+// therefore a legitimate success (everything was already receipted), so this
+// must not carry a `if (!data)` guard the way acknowledgeTeamBrief does.
+//
+// The RPC does not check expiry — that is the whole point of the catch-up
+// predicate — so it will happily write a swept receipt for a brief that is
+// still live. Only ever hand it ids the caller has already partitioned as
+// missed; see the sweep card in team-briefs.jsx.
+async function acknowledgeTeamBriefsBulk(briefIds) {
+  const ids = (Array.isArray(briefIds) ? briefIds : [])
+    .map(id => requireTeamBriefId(id, "catch-up"));
+  if (!ids.length) return 0;
+  const { data, error } = await client().rpc("acknowledge_team_briefs_bulk", {
+    p_brief_ids: ids,
+  });
+  if (error) throw teamBriefFailure("catch-up", error);
+  return Number(data) || 0;
+}
+
 async function addTeamBriefComment(id, body) {
   const briefId = requireTeamBriefId(id, "comment");
   const normalized = window.normalizeTeamBriefComment
@@ -964,6 +999,8 @@ Object.assign(window, {
   loadTeamBriefs,
   publishTeamBrief,
   acknowledgeTeamBrief,
+  completeTeamBrief,
+  acknowledgeTeamBriefsBulk,
   addTeamBriefComment,
   archiveTeamBrief,
   softDeleteTeamBriefComment,
