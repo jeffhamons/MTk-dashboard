@@ -50,7 +50,11 @@ test("required acknowledgement is a prominent, explicit action band", () => {
   assert.match(source, /className="tb-ack-callout"/);
   assert.match(source, /Acknowledgement required/);
   assert.match(source, /Confirm I've read this/);
-  assert.match(source, /This does not mark the action complete/);
+  // RFC-164 Phase 5 replaced the "this does not mark the action complete"
+  // disclaimer with an actual second button. The property under test is
+  // unchanged — the band must still say that confirming isn't finishing — but
+  // it now says it by pointing at the control that does finish it.
+  assert.match(source, /Confirming is not the same as finishing/);
   assert.match(source, /\.tb-ack\{min-height:44px/);
 });
 
@@ -219,4 +223,71 @@ test("history authorization is frozen-audience RLS, not a client roster or audie
   assert.match(sql, /from public\.team_brief_audience_members am[\s\S]{0,180}am\.auth_id = \(select auth\.uid\(\)\)/);
   assert.doesNotMatch(load, /audience_(team_id|region)|\.in\([^)]*(team|region)|roster|REPS/);
   assert.match(load, /includeArchived[\s\S]{0,240}query = query\.eq\("status", "published"\)/);
+});
+
+// ── RFC-164 Phase 5 — two-step acknowledgement ──────────────────────────────
+
+test("completeTeamBrief must not inherit the ack wrapper's no-data guard", () => {
+  const source = read("src/supabase-client.js");
+  const start = source.indexOf("async function completeTeamBrief");
+  assert.notStrictEqual(start, -1, "completeTeamBrief must exist");
+  const fn = source.slice(start, source.indexOf("\n}", start) + 2);
+
+  assert.match(fn, /rpc\("complete_team_brief",\s*\{/);
+  assert.match(fn, /p_brief_id/);
+  assert.match(fn, /teamBriefFailure\("completion"/);
+  // The sibling wrapper throws when the RPC hands back no timestamp, which is
+  // right for acknowledge_team_brief and fatal here: complete_team_brief
+  // returns VOID, so `data` is null on every SUCCESS. Copying that guard would
+  // make each completion report as an error while the row was already written.
+  assert.doesNotMatch(fn, /if \(!data\)/);
+  const sql = read("db/migration-team-briefs-redesign.sql");
+  assert.match(
+    sql,
+    /create or replace function public\.complete_team_brief\(p_brief_id uuid\)\s*\nreturns void/,
+    "if the RPC ever returns a value, revisit the missing guard above",
+  );
+  assert.match(source, /^\s*completeTeamBrief,$/m, "must be exported on window");
+});
+
+test("the strip can mark done, but only a brief the rep has already read", () => {
+  const source = read("src/team-briefs.jsx");
+  const start = source.indexOf("function TeamBriefsStrip");
+  assert.notStrictEqual(start, -1, "TeamBriefsStrip must exist");
+  const strip = source.slice(start, source.indexOf("function TeamBriefCard", start));
+
+  // §6 exit criterion: "a rep can read then later mark done from the strip alone".
+  assert.match(strip, /window\.completeTeamBrief\(/);
+  // ...but the strip renders a title, not the ask. Offering "done" on a brief
+  // the rep never opened would let the loudest signal in the product be cleared
+  // by someone who never saw what it was about.
+  assert.match(
+    strip,
+    /receipt\.read_at\s*&&\s*!receipt\.done_at/,
+    "the strip's done affordance must be gated on read_at",
+  );
+
+  // The strip mounts and unmounts on every scroll handoff. State declared
+  // after the shape bail-out would be a conditional hook and would throw on
+  // the first crossing, which is a runtime failure no source grep would catch
+  // later.
+  const hookAt = strip.indexOf("React.useState");
+  const bailAt = strip.indexOf('if (shape !== "strip") return null');
+  assert.ok(
+    hookAt >= 0 && bailAt >= 0 && hookAt < bailAt,
+    `hooks must precede the shape bail-out (useState at ${hookAt}, bail at ${bailAt})`,
+  );
+});
+
+test("the done tint keys off done_at, not read_at", () => {
+  const source = read("src/team-briefs.jsx");
+  assert.match(source, /\.tb-ack-callout\[data-done="1"\]\{border-color:var\(--done-light\)/);
+  // A read-but-not-done brief is still an open ask and still holds its rung.
+  // Painting it finished-green is precisely the collapse D6 exists to end.
+  assert.doesNotMatch(
+    source,
+    /\.tb-ack-callout\[data-read="1"\]\{/,
+    "read must not paint the callout as done",
+  );
+  assert.match(source, /data-done=\{done \? "1" : "0"\}/);
 });

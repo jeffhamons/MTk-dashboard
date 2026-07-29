@@ -458,6 +458,19 @@ async function acknowledgeTeamBrief(id) {
   return data;
 }
 
+// RFC-164 D6/Phase 5 — the second half of the two-step. Deliberately does NOT
+// carry acknowledgeTeamBrief's `if (!data)` guard: `complete_team_brief`
+// returns void, so `data` is null on success and that guard would turn every
+// successful completion into an error. The RPC raises 42501 rather than
+// returning quietly when the caller is unauthenticated or off the audience.
+async function completeTeamBrief(id) {
+  const briefId = requireTeamBriefId(id, "completion");
+  const { error } = await client().rpc("complete_team_brief", {
+    p_brief_id: briefId,
+  });
+  if (error) throw teamBriefFailure("completion", error);
+}
+
 async function addTeamBriefComment(id, body) {
   const briefId = requireTeamBriefId(id, "comment");
   const normalized = window.normalizeTeamBriefComment
@@ -964,6 +977,7 @@ Object.assign(window, {
   loadTeamBriefs,
   publishTeamBrief,
   acknowledgeTeamBrief,
+  completeTeamBrief,
   addTeamBriefComment,
   archiveTeamBrief,
   softDeleteTeamBriefComment,

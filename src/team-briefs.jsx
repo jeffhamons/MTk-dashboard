@@ -59,16 +59,22 @@ const TEAM_BRIEF_STYLES = `
 .tb-card__sub{font-size:11px;color:var(--muted)}
 .tb-card__actions{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
 .tb-ack-callout{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 13px;border:1px solid var(--brand-light);background:var(--brand-tint);border-radius:10px}
-.tb-ack-callout[data-read="1"]{border-color:var(--done-light);background:var(--done-tint)}
+/* The done tint keys off data-done, NOT data-read: after Phase 5 a read brief
+   is still an open ask, and painting it "finished" green was the exact
+   misreading the two-step exists to end. */
+.tb-ack-callout[data-done="1"]{border-color:var(--done-light);background:var(--done-tint)}
 .tb-ack-callout__copy{display:grid;gap:3px}
 .tb-ack-callout__label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--brand-deep)}
-.tb-ack-callout[data-read="1"] .tb-ack-callout__label{color:var(--done-deep)}
+.tb-ack-callout[data-done="1"] .tb-ack-callout__label{color:var(--done-deep)}
 .tb-ack-callout__help{font-size:11px;line-height:1.4;color:var(--ink-70)}
+.tb-ack-callout__actions{display:flex;align-items:center;gap:8px;flex:none}
 .tb-ack{min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px;flex:none;border:1px solid var(--brand-deep);background:var(--brand-deep);color:white;border-radius:9px;padding:10px 17px;font:inherit;font-size:13px;font-weight:800;cursor:pointer;box-shadow:0 2px 7px rgba(25,20,55,.14);transition:transform 140ms,box-shadow 140ms,background 140ms}
 .tb-ack:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 10px rgba(25,20,55,.2)}
 .tb-ack:focus-visible{outline:3px solid var(--brand-light);outline-offset:2px}
-.tb-ack:disabled:not([data-read="1"]){opacity:.6;cursor:wait}
-.tb-ack[data-read="1"]{color:var(--done-deep);background:white;border-color:var(--done-light);box-shadow:none;cursor:default}
+.tb-ack:disabled:not([data-read="1"]):not([data-done="1"]){opacity:.6;cursor:wait}
+.tb-ack[data-read="1"],.tb-ack[data-done="1"]{color:var(--done-deep);background:white;border-color:var(--done-light);box-shadow:none;cursor:default}
+.tb-ack--done{border-color:var(--done-deep);background:var(--done-deep)}
+.tb-ack--done:focus-visible{outline-color:var(--done-light)}
 .tb-track{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 .tb-track__cell{border-radius:8px;background:#f6f5f9;padding:9px}
 .tb-track__cell strong{display:block;font-size:16px}
@@ -98,10 +104,18 @@ const TEAM_BRIEF_STYLES = `
 .tb-strip__open{flex:none;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .tb-strip__open:hover{background:rgba(255,255,255,.12)}
 .tb-strip__open:focus-visible{outline:3px solid rgba(255,255,255,.6);outline-offset:2px}
+/* The strip is height-locked at TEAM_BRIEF_STRIP_HEIGHT because the hero/strip
+   handoff measures against it — nothing added here may grow the row. That is
+   why a failed completion reuses the label slot instead of adding a line. */
+.tb-strip__done{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.14);color:#fff;border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.tb-strip__done:hover:not(:disabled){background:rgba(255,255,255,.24)}
+.tb-strip__done:disabled{opacity:.6;cursor:wait}
+.tb-strip__done:focus-visible{outline:3px solid rgba(255,255,255,.6);outline-offset:2px}
+.tb-strip__label[data-error="1"]{color:#fecaca}
 .tb-strip[data-rung="3"]{background:#7f1d1d}
 @media(prefers-reduced-motion:no-preference){.tb-strip{animation:tb-strip-in 140ms ease-out}}
 @keyframes tb-strip-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
-@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}.tb-ack-callout{align-items:stretch;flex-direction:column}.tb-ack{width:100%}.tb-strip{padding:0 16px;gap:8px}.tb-strip__title{display:none}}
+@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}.tb-ack-callout{align-items:stretch;flex-direction:column}.tb-ack-callout__actions{align-items:stretch;flex-direction:column}.tb-ack{width:100%}.tb-strip{padding:0 16px;gap:8px}.tb-strip__title{display:none}}
 `;
 
 // RFC-164 §4.2c — the strip's height in CSS and the observer's rootMargin are
@@ -466,18 +480,61 @@ function TeamBriefHeroSlot({ children }) {
 // §4.2c — the chrome strip. Mounted once, in `App`, immediately below the tab
 // bar; `briefSurfaceShape` decides whether it renders anything.
 function TeamBriefsStrip({ view, heroMounted, authedUser, onOpen }) {
-  const { outstanding, topRung, shape } = useBriefSurface({ view, heroMounted, authedUser });
+  const { outstanding, topRung, shape, receipts, refresh } =
+    useBriefSurface({ view, heroMounted, authedUser });
+  // Both hooks stay above the early return — the strip mounts and unmounts on
+  // every scroll handoff, and a conditional hook would break on the first one.
+  const [busy, setBusy] = React.useState(false);
+  const [failure, setFailure] = React.useState("");
+
   if (shape !== "strip") return null;
   const count = outstanding.length;
+  const top = outstanding[0];
+  const receipt = receipts[top.id];
+
+  // §6 Phase 5 exit criterion — "mark done from the strip alone". Gated on
+  // read_at, and only here: the strip shows a title, not the ask, so offering
+  // "done" on a brief the rep never opened would let the loudest signal in the
+  // product be cleared by someone who never saw what it was about. The card
+  // (where the body is visible) has no such gate.
+  const canComplete = !!(top.require_ack && receipt && receipt.read_at && !receipt.done_at);
+
+  async function complete() {
+    setBusy(true);
+    setFailure("");
+    try {
+      await window.completeTeamBrief(top.id);
+      await refresh();
+    } catch (err) {
+      setFailure(err.message || "Couldn't mark that done.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <style>{TEAM_BRIEF_STYLES}</style>
       <div className="tb-strip" data-rung={String(topRung)} role="region" aria-label="Team briefs">
         <span className="tb-strip__badge" aria-hidden="true">{count}</span>
-        <span className="tb-strip__label" aria-live="polite">
-          {count} brief{count === 1 ? "" : "s"} waiting
+        {/* One row, height-locked: a failure replaces the count rather than
+            adding a line, because growing the strip would move the handoff
+            threshold the hero slot is measured against. */}
+        <span className="tb-strip__label" aria-live="polite" data-error={failure ? "1" : "0"}>
+          {failure || `${count} brief${count === 1 ? "" : "s"} waiting`}
         </span>
-        <span className="tb-strip__title">{outstanding[0].title}</span>
+        <span className="tb-strip__title">{top.title}</span>
+        {canComplete && (
+          <button
+            type="button"
+            className="tb-strip__done"
+            disabled={busy}
+            aria-label={`Mark "${top.title}" done`}
+            onClick={complete}
+          >
+            <Icon name="check" size={13} /> Mark done
+          </button>
+        )}
         <button type="button" className="tb-strip__open" onClick={onOpen}>Open</button>
       </div>
     </>
@@ -485,7 +542,14 @@ function TeamBriefsStrip({ view, heroMounted, authedUser, onOpen }) {
 }
 
 function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, readOnly = false }) {
-  const read = teamBriefReadBy(brief, authedUser);
+  // Read the same receipt the rung ladder reads (§4.3). The older
+  // `teamBriefReadBy` answered "is there a row", which agreed with `read_at`
+  // only by luck; now that `complete_team_brief` writes rows too, the card and
+  // the rung have to be looking at the same two timestamps or the card will
+  // claim "acknowledged" about a brief the ladder still counts as unread.
+  const receipt = teamBriefReceiptFor(brief, authedUser);
+  const read = !!(receipt && receipt.read_at);
+  const done = !!(receipt && receipt.done_at);
   const urgency = teamBriefUrgency(brief);
   const historical = readOnly;
   const [commentOpen, setCommentOpen] = React.useState(() =>
@@ -569,29 +633,51 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
             : "Acknowledgement not required"}
         </div>
       )}
+      {/* D6 — read and done are separate states, so they get separate buttons.
+          The old single button called itself "Acknowledged" and left the brief
+          outstanding forever, which is the confusion this phase removes: only
+          `done_at` retires a brief (rung 0), and the copy now says so. */}
       {!managerial && !historical && active && brief.require_ack && (
-        <div className="tb-ack-callout" data-read={read ? "1" : "0"}>
+        <div className="tb-ack-callout" data-read={read ? "1" : "0"} data-done={done ? "1" : "0"}>
           <div className="tb-ack-callout__copy">
             <div className="tb-ack-callout__label">
-              {read ? "Acknowledged" : "Acknowledgement required"}
+              {done ? "Done" : read ? "Read — not done yet" : "Acknowledgement required"}
             </div>
             <div className="tb-ack-callout__help">
-              {read
-                ? "You confirmed that you read this brief."
-                : brief.brief_type === "action_required"
-                  ? "Read the brief, then click to confirm. This does not mark the action complete."
-                  : "Read the brief, then click to confirm that you've seen it."}
+              {done
+                ? "You marked this done. It won't come back."
+                : read
+                  ? "You confirmed you read this. Mark it done once the ask is finished — until then it keeps its place in the queue."
+                  : brief.brief_type === "action_required"
+                    ? "Read the brief, then confirm. Confirming is not the same as finishing — there's a separate “Mark done”."
+                    : "Read the brief, then confirm that you've seen it. Mark it done when you've handled it."}
             </div>
           </div>
-          <button
-            className="tb-ack"
-            data-read={read ? "1" : "0"}
-            aria-label={read ? "Brief acknowledged" : "Acknowledge this brief"}
-            disabled={read || busy}
-            onClick={() => act(() => window.acknowledgeTeamBrief(brief.id))}
-          >
-            <Icon name="check" size={16} /> {read ? "Acknowledged" : "Confirm I've read this"}
-          </button>
+          <div className="tb-ack-callout__actions">
+            <button
+              className="tb-ack"
+              data-read={read ? "1" : "0"}
+              aria-label={read ? "Brief already confirmed as read" : "Confirm you read this brief"}
+              disabled={read || busy}
+              onClick={() => act(() => window.acknowledgeTeamBrief(brief.id))}
+            >
+              <Icon name="check" size={16} /> {read ? "Read" : "Confirm I've read this"}
+            </button>
+            {/* Enabled before "read" on purpose: the body is right there on the
+                card, and the RPC stamps `read_at` alongside `done_at`, so a rep
+                who finished the ask can say so in one click without the state
+                going incoherent. The strip is where "done" needs a read gate —
+                it shows a title, not the ask. */}
+            <button
+              className="tb-ack tb-ack--done"
+              data-done={done ? "1" : "0"}
+              aria-label={done ? "Brief already marked done" : "Mark this brief done"}
+              disabled={done || busy}
+              onClick={() => act(() => window.completeTeamBrief(brief.id))}
+            >
+              <Icon name="check" size={16} /> {done ? "Done" : "Mark done"}
+            </button>
+          </div>
         </div>
       )}
       <div className="tb-card__actions">
