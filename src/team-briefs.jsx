@@ -32,6 +32,11 @@ const TEAM_BRIEF_STYLES = `
 .tb-tab[data-active="1"],.tb-btn--primary{background:var(--ink);border-color:var(--ink);color:white}
 .tb-btn:disabled{opacity:.45;cursor:not-allowed}
 .tb-error{padding:10px 12px;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;border-radius:9px;font-size:12px}
+.tb-warn{padding:10px 12px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;border-radius:9px;font-size:12px}
+.tb-warn strong{display:block;margin-bottom:4px}
+.tb-warn ul{margin:0;padding-left:18px}
+.tb-warn li{margin-top:2px}
+.tb-warn__why{margin:6px 0 0;opacity:.85}
 .tb-compose{border:1px solid var(--line);background:var(--paper);border-radius:14px;padding:18px;display:grid;gap:14px}
 .tb-compose h2{margin:0;font-size:17px}
 .tb-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
@@ -1141,6 +1146,10 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const [historyQuery, setHistoryQuery] = React.useState("");
   const [publishError, setPublishError] = React.useState("");
   const [publishing, setPublishing] = React.useState(false);
+  // Reps the publish could not reach. Not an error — the brief did publish —
+  // so it survives the form reset and sits alongside the success, not in place
+  // of it. Cleared when the next publish starts.
+  const [publishSkips, setPublishSkips] = React.useState([]);
   const allowedAudiences = TEAM_BRIEF_AUDIENCES.filter(spec => canPublishTeamBrief(authedUser, spec));
   const preferred = allowedAudiences.find(spec =>
     spec.audience_mode === "team_region"
@@ -1191,6 +1200,7 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   async function publish(event) {
     event.preventDefault();
     setPublishError("");
+    setPublishSkips([]);
     if (!canPublishTeamBrief(authedUser, form)) {
       setPublishError("Your current team-admin scope does not fully cover this audience.");
       return;
@@ -1210,13 +1220,17 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
     }
     setPublishing(true);
     try {
-      await window.publishTeamBrief({
+      const briefId = await window.publishTeamBrief({
         ...form,
         timezone,
         display_days: form.display_rule === "for_days" ? Number(form.display_days) : null,
         expires_at: expiresAt,
         due_at: dueAt,
       });
+      // The RPC only raises when the audience is empty *entirely*, so a brief
+      // that reached 2 of 12 reps looks identical to one that reached all 12.
+      // Ask what it dropped. Never throws; see loadTeamBriefSkips.
+      setPublishSkips(await window.loadTeamBriefSkips(briefId));
       patch({ title: "", body: "", due_local: "", expires_local: "" });
       await refresh();
       setTab("active");
@@ -1339,6 +1353,27 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
             <label><input type="checkbox" checked={form.auto_escalate} onChange={event => patch({ auto_escalate: event.target.checked })} /> Auto-escalate toward due date</label>
           </div>
           {publishError && <div className="tb-error">{publishError}</div>}
+          {publishSkips.length > 0 && (
+            <div className="tb-warn" role="status">
+              <strong>
+                Published, but {publishSkips.length === 1 ? "1 rep" : `${publishSkips.length} reps`} could not be reached.
+              </strong>
+              <ul>
+                {publishSkips.map(skip => (
+                  <li key={skip.rep_id}>
+                    {skip.name} ({skip.region} {skip.team_id === "newbiz" ? "BD" : "CS"}) — {skip.reason}
+                  </li>
+                ))}
+              </ul>
+              <p className="tb-warn__why">
+                They have dashboard accounts and are on the roster for this audience, but
+                the account was not usable at publish. The brief is invisible to them and
+                always will be — the audience is frozen at publish. Fix the account, then
+                republish if it matters. Reps with no dashboard account at all are not
+                listed here; that is expected and not a gap.
+              </p>
+            </div>
+          )}
           <div><button className="tb-btn tb-btn--primary" disabled={publishing || allowedAudiences.length === 0} type="submit">{publishing ? "Publishing…" : "Publish now"}</button></div>
         </form>
       )}

@@ -574,3 +574,79 @@ test("§4.4 manager surface names people and offers the stale-ask archive", () =
   assert.match(stale, /window\.archiveTeamBrief\(brief\.id\)/);
   assert.match(source, /<TeamBriefStaleAsks[\s\S]{0,160}onChanged=\{refresh\}/);
 });
+
+// ── Publish-time skip visibility ────────────────────────────────────────────
+//
+// publish_team_brief raises only when the audience is empty ENTIRELY, so a
+// partial miss reports success to the manager and shows the unreached rep the
+// same "You're caught up" as a quiet week.
+//
+// Scope is narrow on purpose: only reps who HAVE an account and were skipped
+// anyway. Reps with no account are the normal state for roster members who do
+// not use the dashboard, and warning about them every publish would make the
+// warning worthless.
+
+test("publish surfaces the reps it could not reach", () => {
+  const client = read("src/supabase-client.js");
+  const page = read("src/team-briefs.jsx");
+
+  assert.match(client, /async function loadTeamBriefSkips/);
+  assert.match(client, /\bloadTeamBriefSkips,/, "must be exported on window");
+  assert.match(client, /from\("team_brief_audience_skips"\)/);
+
+  // The brief has already published by the time this runs, so a lookup failure
+  // must not be reported as a publish failure. Degrading to [] is deliberate.
+  const skipStart = client.indexOf("async function loadTeamBriefSkips");
+  const skip = client.slice(skipStart, client.indexOf("async function acknowledgeTeamBrief", skipStart));
+  assert.match(skip, /catch[\s\S]{0,160}return \[\]/);
+
+  // The composer must ask, and must render names rather than a bare count.
+  assert.match(page, /const briefId = await window\.publishTeamBrief\(/);
+  assert.match(page, /setPublishSkips\(await window\.loadTeamBriefSkips\(briefId\)\)/);
+  assert.match(page, /publishSkips\.length > 0[\s\S]{0,700}skip\.name/);
+  assert.match(page, /publishSkips\.map/);
+
+  // It is not an error — the brief published. Distinct affordance from tb-error.
+  assert.match(page, /publishSkips\.length > 0[\s\S]{0,120}className="tb-warn"/);
+  assert.match(page, /\.tb-warn\{/, "tb-warn needs a style, the panel inlines its own CSS");
+
+  // A new publish must not inherit the previous one's warning.
+  assert.match(page, /setPublishError\(""\);\s*\n\s*setPublishSkips\(\[\]\);/);
+});
+
+test("the skip record follows the audience target and excludes the seated", () => {
+  const sql = read("db/migration-team-briefs-publish-skips.sql");
+  const insertStart = sql.indexOf("insert into public.team_brief_audience_skips");
+  const insert = sql.slice(insertStart, sql.indexOf("return v_brief_id;", insertStart));
+  assert.ok(insertStart >= 0, "the migration must record skips inside publish");
+
+  // Same four audience predicates as the seat expansion, so a BD-EMEA brief
+  // never records a US CS rep as skipped.
+  for (const mode of ["sales_all", "region", "team", "team_region"]) {
+    assert.match(insert, new RegExp(`p_audience_mode = '${mode}'`));
+  }
+  // Only active reps, and only those the expansion did not already seat.
+  assert.match(insert, /where r\.active/);
+  assert.match(insert, /not exists \([\s\S]{0,200}team_brief_audience_members am[\s\S]{0,120}am\.rep_id = r\.rep_id/);
+  assert.match(insert, /on conflict \(brief_id, rep_id\) do nothing/);
+
+  // A rep with no public.users row is NOT a finding — that is how a roster
+  // member who does not use the dashboard looks, and it is expected. An inner
+  // join is what enforces it; a left join would resurrect the noise.
+  assert.match(insert, /\n\s*join public\.users u on u\.rep_id = r\.rep_id/);
+  assert.doesNotMatch(insert, /left join public\.users/);
+  assert.doesNotMatch(insert, /no dashboard login/);
+  assert.match(insert, /invited but never signed in/);
+  assert.match(insert, /account role is/);
+
+  // Recording happens after the empty-audience guard, so a total miss still
+  // raises rather than publishing with a full skip list.
+  assert.ok(
+    sql.indexOf("audience has no active seated reps") < insertStart,
+    "the empty-audience raise must still come first",
+  );
+
+  // Reps never read who else missed out.
+  assert.match(sql, /create policy "manager reads team brief audience skips"[\s\S]{0,200}current_user_can_manage_team_brief/);
+  assert.doesNotMatch(sql, /grant (insert|update|delete) on table public\.team_brief_audience_skips/);
+});

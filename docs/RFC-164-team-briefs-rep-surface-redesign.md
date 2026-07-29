@@ -223,7 +223,9 @@ justified by the parked-tab scenario fails in exactly that scenario. See §7.
 
 Three findings from the architecture review would have surfaced only after code
 was written. They are recorded here because the implementation plan is shaped
-around them.
+around them. F4–F6 were added later, from live data rather than from review, and
+none of them turned out to be the outage the investigation went looking for. F4 was added later, from a live symptom rather than from review; it
+is not resolved by this RFC, and it undercuts every rung the RFC builds.
 
 ### F1 — CRITICAL: the catch-up sweep cannot write
 
@@ -253,6 +255,116 @@ See D13 / §2.6. Resolved by descoping.
 ### F3 — HIGH: no clock
 
 See D14 / §2.7. Resolved by the provider tick.
+
+### F4 — MED: a partial publish miss is silent at both ends
+
+*Added 2026-07-28 from live data, after Phase 7 merged.*
+
+`publish_team_brief` expands the audience with
+`where u.role = 'rep' and u.auth_id is not null and r.active`, then raises
+**only** on a total miss:
+
+```sql
+get diagnostics v_audience_size = row_count;
+if v_audience_size = 0 then
+  raise exception 'audience has no active seated reps' using errcode = '22023';
+```
+
+A partial miss returns a brief id and nothing else. Nobody learns: the manager
+sees a successful publish, and the unreached rep sees "You're caught up on Team
+Briefs." — the same thing a quiet week looks like, because the audience row
+gates the `team_briefs` SELECT policy and the brief is invisible to them in
+Postgres before any client logic runs.
+
+Fixed by `db/migration-team-briefs-publish-skips.sql`, which records
+targeted-but-unseated reps in `team_brief_audience_skips` inside the publish
+transaction; the composer names them after a successful publish. The RPC
+signature is unchanged, so the client contract is untouched.
+
+**Scope is narrow on purpose.** Only reps who *hold a dashboard account* and
+were skipped anyway — a non-`rep` role, or an invited account that never
+completed a sign-in. Reps with no `public.users` row are **not** recorded.
+
+That last point is the whole calibration of this finding, and it was initially
+got wrong here. The live numbers looked alarming — ten of twenty-two active
+reps have no account, being every CS rep outside the US (`aaron`, `angela`,
+`cindy`, `sarah`, `suzanne`, `alex`, `james`, `laura`, `owen`, `rowan`) — and
+were first written up as a critical outage in which a `team = cs` publish
+reaches 2 of 12 people. **It is not an outage.** Those reps are on the roster
+for the weekly-review surfaces but are not Team Briefs recipients, and an
+absent account is the normal way that looks. Recording them would fire the
+warning on every publish and train the reader to ignore it, which is precisely
+what this finding exists to prevent.
+
+If the absent-account case ever does need surfacing, the honest mechanism is an
+explicit roster flag for "should receive briefs" — not inferring intent from a
+missing row. Not proposed here.
+
+### F5 — HIGH: brief lifetimes are far shorter than anyone intends
+
+*Added 2026-07-28 from live data. This is the RFC's own thesis, confirmed with
+numbers.*
+
+The whole published corpus is two briefs, and **zero are visible to anyone**:
+
+| title | rule | published | expired after |
+|---|---|---|---|
+| July 27th — Morning Message | `today_only` | 2026-07-27 14:09 UTC | **under 9 hours** |
+| Standup habit — one week in | `for_days` | 2026-07-24 00:4x UTC | ~28 hours |
+
+`today_only` computes `date_trunc('day', publish_at at tz) + 1 day`
+(`db/migration-team-briefs.sql:421-426`). For an EMEA brief that truncates in
+Europe/London, so a brief published at 14:09 died at 23:00 UTC the same day.
+
+Two consequences worth stating plainly:
+
+1. **"You're caught up" was the correct render.** The live symptom that started
+   this investigation — a rep seeing an empty Home panel against a corpus of
+   published briefs — was expiry working as specified, not an RLS or audience
+   defect. Every rep saw the same thing.
+2. Already addressed by Phase 0.5 / D11, which changed the `morning_message`
+   default from `today_only` to `for_days`/3 and is deployed. No further change
+   proposed; recorded so the next person reading a "no briefs visible" report
+   checks expiry before suspecting the audience.
+
+### F6 — the frozen audience has no backfill *(latent, not observed)*
+
+`publish_team_brief` is the only writer to `team_brief_audience_members`
+(`db/migration-team-briefs.sql:478`). There is no trigger, no backfill, no
+re-materialization: **an audience is frozen at publish and can never gain a
+member.** A rep who gains an auth identity afterwards is permanently unreachable
+by every brief published before that moment.
+
+The freeze is deliberate and worth keeping — it is what makes the acknowledgement
+denominator stable, and D10's sweep and §4.4's three manager numbers all count
+against it.
+
+**This is latent, not the cause of any observed outage.** The live check
+confirmed the machinery works: Don Hazelwood is correctly seated on the
+all-`newbiz` brief and correctly excluded from the EMEA-only one, and audience
+size matched the reachable population exactly on both. Recorded because F4's ten
+unprovisioned reps make it live ammunition — the moment they are provisioned,
+every brief published before then stays invisible to them, and nothing anywhere
+says so.
+
+No audience-refresh RPC is proposed. Re-expansion is a real design question
+(it trades the stable denominator for reachability) and it should not be
+answered speculatively against a symptom that turned out to be correct behaviour.
+Revisit if provisioning-then-backfill becomes a recurring need.
+
+### Not a finding — Mike Cawood's two identities
+
+Flagged during the same sweep as an inflated denominator and a split read
+receipt. **Neither holds; the schema was built for this.** Receipts are
+rep-grained (`team_brief_reads` is `primary key (brief_id, rep_id)`), so
+acknowledging from either address writes the same row. The denominator is
+rep-grained too — `teamBriefAudienceByRep` (`src/team-briefs.jsx:214`) collapses
+seats by `rep_id`, and every Phase 7 counter reads that collapsed list. The raw
+row count is higher; nothing user-facing reads it.
+
+Retiring the `m.cawood@mindtools.com` identity would remove the only address
+whose magic links are not quarantined by the corporate domain. Evidence and a
+gated, reversible option are in `db/audit-mike-cawood-identities.sql`.
 
 ### Remaining findings folded into the plan
 
@@ -677,6 +789,12 @@ per Phase 2. Baseline is 111 green.
    number in this RFC. It is now the decay threshold rather than a sweep window,
    and it is a policy call about how long a forgotten ask should shout.
 4. **Confirm D13 descope** — team admins do not receive briefs in this RFC.
+5. **Apply `db/migration-team-briefs-publish-skips.sql`**, then run
+   `db/test-team-briefs-publish-skips.sql` as a privileged operator. Until it is
+   applied, the composer's warning has nothing to read and stays silent — which
+   is the current behaviour, so nothing regresses in the meantime.
+6. **Decide on Mike Cawood's second identity** — no action needed for Team
+   Briefs; see `db/audit-mike-cawood-identities.sql` before changing anything.
 
 ---
 

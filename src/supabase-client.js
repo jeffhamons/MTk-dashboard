@@ -448,6 +448,34 @@ async function publishTeamBrief(payload) {
   return data;
 }
 
+// Reps the publish expansion targeted and could not seat, recorded by
+// `publish_team_brief` in the publish transaction. Manager-scoped by RLS, so a
+// rep calling this gets an empty list rather than a leak of who else missed out.
+//
+// Returns [] instead of throwing on any failure. This is deliberate and narrow:
+// the brief has already published by the time it is called, and the caller uses
+// it to decorate that success. `db/migration-team-briefs-publish-skips.sql` is
+// applied by hand (README, "Schema and Supabase authority"), so a dashboard
+// running ahead of the migration hits a missing relation here — turning that
+// into a publish error would report a failure that did not happen. The console
+// warning is the tell for a real problem.
+async function loadTeamBriefSkips(id) {
+  const briefId = requireTeamBriefId(id, "skip lookup");
+  try {
+    const { data, error } = await client()
+      .from("team_brief_audience_skips")
+      .select("rep_id, name, team_id, region, reason")
+      .eq("brief_id", briefId)
+      .order("region")
+      .order("rep_id");
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    console.warn("Team Briefs: could not load publish skips", err);
+    return [];
+  }
+}
+
 async function acknowledgeTeamBrief(id) {
   const briefId = requireTeamBriefId(id, "acknowledgement");
   const { data, error } = await client().rpc("acknowledge_team_brief", {
@@ -998,6 +1026,7 @@ Object.assign(window, {
   subscribeRealtime,
   loadTeamBriefs,
   publishTeamBrief,
+  loadTeamBriefSkips,
   acknowledgeTeamBrief,
   completeTeamBrief,
   acknowledgeTeamBriefsBulk,
