@@ -86,9 +86,30 @@ const TEAM_BRIEF_STYLES = `
 .tb-today__head h2{margin:0;font-size:17px}
 .tb-today__head span{font-size:11px;color:var(--muted)}
 .tb-today--quiet{padding:12px 15px}
+.tb-today--lead{margin-top:0;border-color:#fca5a5;background:linear-gradient(135deg,#fff,#fff5f5)}
 .tb-loading{color:var(--muted);font-size:12px}
-@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}.tb-ack-callout{align-items:stretch;flex-direction:column}.tb-ack{width:100%}}
+/* RFC-164 §4.2c — sticky, never in normal flow once pinned, and exactly
+   TEAM_BRIEF_STRIP_HEIGHT tall so the sentinel's rootMargin can cancel the
+   layout shift that mounting it causes. Keep the two in sync. */
+.tb-strip{position:sticky;top:0;z-index:40;box-sizing:border-box;height:44px;display:flex;align-items:center;gap:12px;padding:0 36px;background:var(--ink);color:#fff;border-bottom:1px solid rgba(255,255,255,.12)}
+.tb-strip__badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;background:var(--orange-bright,#d04a1a);color:#fff;border-radius:999px;font-size:11px;font-weight:600;flex:none}
+.tb-strip__label{font-size:13px;font-weight:600;flex:none}
+.tb-strip__title{font-size:12px;color:rgba(255,255,255,.72);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.tb-strip__open{flex:none;border:1px solid rgba(255,255,255,.35);background:transparent;color:#fff;border-radius:8px;padding:5px 11px;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.tb-strip__open:hover{background:rgba(255,255,255,.12)}
+.tb-strip__open:focus-visible{outline:3px solid rgba(255,255,255,.6);outline-offset:2px}
+.tb-strip[data-rung="3"]{background:#7f1d1d}
+@media(prefers-reduced-motion:no-preference){.tb-strip{animation:tb-strip-in 140ms ease-out}}
+@keyframes tb-strip-in{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+@media(max-width:720px){.tb-grid{grid-template-columns:1fr}.tb-field--full{grid-column:auto}.tb-head{align-items:flex-start;flex-direction:column}.tb-track{grid-template-columns:repeat(2,1fr)}.tb-ack-callout{align-items:stretch;flex-direction:column}.tb-ack{width:100%}.tb-strip{padding:0 16px;gap:8px}.tb-strip__title{display:none}}
 `;
+
+// RFC-164 §4.2c — the strip's height in CSS and the observer's rootMargin are
+// one number. Mounting the strip shifts content down by exactly this much; the
+// negative rootMargin requires the sentinel to be this much further down before
+// it counts as visible, so the shift cannot re-trigger the observer. Split them
+// and you get the oscillation loop the RFC describes.
+const TEAM_BRIEF_STRIP_HEIGHT = 44;
 
 function teamBriefReadBy(brief, authedUser) {
   const repId = authedUser && typeof authedUser === "object" ? authedUser.rep_id : null;
@@ -97,6 +118,27 @@ function teamBriefReadBy(brief, authedUser) {
     (repId && read.rep_id === repId)
     || (authId && read.auth_id === authId)
   );
+}
+
+// RFC-164 §4.3 — the pure rung helpers in data-model.js take a receipt map
+// keyed by brief id, because they run under a `vm` context that has no notion
+// of who is logged in. This is the only place that knows. A viewer with no row
+// gets `null`, which the helpers read as "never opened".
+function teamBriefReceiptFor(brief, authedUser) {
+  const repId = authedUser && typeof authedUser === "object" ? authedUser.rep_id : null;
+  const authId = authedUser && typeof authedUser === "object" ? authedUser.auth_id : authedUser;
+  const row = (brief.reads || []).find(read =>
+    (repId && read.rep_id === repId)
+    || (authId && read.auth_id === authId)
+  );
+  if (!row) return null;
+  return { read_at: row.read_at || null, done_at: row.done_at || null, swept: row.swept === true };
+}
+
+function teamBriefReceiptsFor(briefs, authedUser) {
+  const map = {};
+  (briefs || []).forEach(brief => { map[brief.id] = teamBriefReceiptFor(brief, authedUser); });
+  return map;
 }
 
 function teamBriefAudienceByRep(brief) {
@@ -239,7 +281,15 @@ function TeamBriefsProvider({ children }) {
   // never conditionally rendered. `BriefSurface` reads this; it must not own the
   // observed element, or hiding the hero kills the observer that would bring it
   // back.
-  const [heroOnScreen, setHeroOnScreen] = React.useState(false);
+  //
+  // Starts true, not false. An IntersectionObserver does not report until after
+  // the first paint, so a false start renders the strip for one frame on every
+  // single Home load — a black bar that flashes and vanishes. True is also the
+  // right answer in the overwhelmingly common case (Home opens scrolled to the
+  // top). If the browser restores a deep scroll position instead, the observer's
+  // initial callback corrects it within that same frame, and on every non-Home
+  // route `view` short-circuits before this value is ever read.
+  const [heroOnScreen, setHeroOnScreen] = React.useState(true);
 
   // Stable identity on purpose: nothing downstream re-subscribes, re-fires an
   // effect, or re-memoises because the tier changed.
@@ -316,11 +366,122 @@ function useTeamBriefs(includeArchived) {
     error: "Team Briefs did not load — TeamBriefsProvider is not mounted.",
     refresh: async () => {},
     now: Date.now(),
-    heroOnScreen: false,
+    heroOnScreen: true,
     setHeroOnScreen: () => {},
     archivedLoaded: false,
     requestArchived: () => {},
   };
+}
+
+// RFC-164 §4.2/§4.3 — the one place that turns provider state into the surface
+// decision. Both mounts call this, so they cannot disagree: same briefs, same
+// receipts, same clock, same React commit.
+function useBriefSurface({ view, heroMounted, authedUser }) {
+  const { briefs, loading, error, refresh, now, heroOnScreen } = useTeamBriefs(false);
+  const receipts = React.useMemo(
+    () => teamBriefReceiptsFor(briefs, authedUser),
+    [briefs, authedUser],
+  );
+  const outstanding = React.useMemo(
+    () => window.teamBriefOutstanding(briefs, receipts, now),
+    [briefs, receipts, now],
+  );
+  // teamBriefOutstanding sorts rung desc, so the head of the list is the rung
+  // that decides whether Home gets taken over.
+  const topRung = outstanding.length
+    ? window.teamBriefRung(outstanding[0], receipts[outstanding[0].id], now)
+    : 0;
+  const shape = window.briefSurfaceShape({
+    view,
+    heroMounted,
+    heroOnScreen,
+    outstandingCount: outstanding.length,
+  });
+  return { briefs, loading, error, refresh, now, receipts, outstanding, topRung, shape };
+}
+
+// §4.2a — the sentinel. Always mounted, zero height, sitting at the hero's flow
+// position, with the hero rendered inside it. That is the whole trick: when the
+// hero is hidden the wrapper collapses but stays observed exactly where the
+// hero's top edge was, so scrolling back up brings it into view and the hero
+// returns. An observer that lived on the hero itself would disconnect the
+// moment the hero hid and `heroOnScreen` would latch false forever.
+function TeamBriefHeroSlot({ children }) {
+  const { setHeroOnScreen } = useTeamBriefs(false);
+  const ref = React.useRef(null);
+  const reservedRef = React.useRef(0);
+
+  // The slot holds the height the hero vacated, less the strip that replaced
+  // it. Both halves were measured in headless Chrome and both are load-bearing.
+  //
+  // Reserving nothing (the obvious version) deletes the hero's ~485px from the
+  // document ABOVE the viewport at the crossing; scroll anchoring does not
+  // absorb it, and everything below jumps 470px under the reader.
+  //
+  // Reserving the full height instead makes the strip's own 44px of flow —
+  // it sits above this slot — push the slot down by exactly the `rootMargin`
+  // that was supposed to account for the strip. The two double-count, and the
+  // re-entry threshold lands ABOVE the exit threshold: a 44px band where both
+  // transitions want to fire, stable only because Chrome's scroll anchoring
+  // happens to nudge out of it.
+  //
+  // Subtracting the strip makes the document exactly as long in both states
+  // and pins the slot's bottom edge to the same document coordinate either
+  // way. The observed edge cannot move when the shape changes, so exit and
+  // re-entry are one threshold and the handoff cannot feed back into itself.
+  React.useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    // Measure the child, not the slot: once the slot is reserving a height,
+    // reading the slot would just read back its own reservation.
+    const content = node.firstElementChild;
+    if (content) {
+      const h = content.getBoundingClientRect().height;
+      if (h > 0) reservedRef.current = h;
+      node.style.minHeight = "";
+    } else if (reservedRef.current > 0) {
+      node.style.minHeight = `${Math.max(0, reservedRef.current - TEAM_BRIEF_STRIP_HEIGHT)}px`;
+    }
+  });
+
+  React.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") {
+      // No observer (old browser, jsdom) means no handoff signal. Report the
+      // hero as on screen so the rep sees the full card rather than nothing.
+      setHeroOnScreen(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      entries => { entries.forEach(entry => setHeroOnScreen(entry.isIntersecting)); },
+      { rootMargin: `-${TEAM_BRIEF_STRIP_HEIGHT}px 0px 0px 0px`, threshold: 0 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [setHeroOnScreen]);
+
+  return <div ref={ref} className="tb-hero-slot">{children}</div>;
+}
+
+// §4.2c — the chrome strip. Mounted once, in `App`, immediately below the tab
+// bar; `briefSurfaceShape` decides whether it renders anything.
+function TeamBriefsStrip({ view, heroMounted, authedUser, onOpen }) {
+  const { outstanding, topRung, shape } = useBriefSurface({ view, heroMounted, authedUser });
+  if (shape !== "strip") return null;
+  const count = outstanding.length;
+  return (
+    <>
+      <style>{TEAM_BRIEF_STYLES}</style>
+      <div className="tb-strip" data-rung={String(topRung)} role="region" aria-label="Team briefs">
+        <span className="tb-strip__badge" aria-hidden="true">{count}</span>
+        <span className="tb-strip__label" aria-live="polite">
+          {count} brief{count === 1 ? "" : "s"} waiting
+        </span>
+        <span className="tb-strip__title">{outstanding[0].title}</span>
+        <button type="button" className="tb-strip__open" onClick={onOpen}>Open</button>
+      </div>
+    </>
+  );
 }
 
 function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, readOnly = false }) {
@@ -492,11 +653,17 @@ function TeamBriefCard({ brief, authedUser, managerial, onChanged, compact, read
   );
 }
 
-function TeamBriefsTodayPanel({ authedUser, onOpen }) {
-  const { briefs, loading, error, refresh } = useTeamBriefs(false);
-  const active = briefs
-    .filter(brief => teamBriefIsVisible(brief, teamBriefReadBy(brief, authedUser)))
-    .sort((a, b) => teamBriefSort(a, b, authedUser));
+// The Home hero. Renders inside `TeamBriefHeroSlot`, which owns the observed
+// element — this component must never be the thing that unmounts the sentinel.
+//
+// The old version filtered with `teamBriefIsVisible` and ordered with
+// `teamBriefSort`. Both are gone from this surface: §4.3 says the rung ordering
+// *replaces* `teamBriefSort` for rep-facing surfaces and that two orderings must
+// not coexist, and `teamBriefOutstanding` already applies visibility.
+function TeamBriefsTodayPanel({ view, heroMounted, authedUser, onOpen }) {
+  const { loading, error, refresh, outstanding, topRung, shape } =
+    useBriefSurface({ view, heroMounted, authedUser });
+  const active = outstanding;
 
   if (!loading && !error && active.length === 0) {
     return (
@@ -511,8 +678,13 @@ function TeamBriefsTodayPanel({ authedUser, onOpen }) {
     );
   }
 
+  // Outstanding briefs live on exactly one surface at a time. When the shape is
+  // `strip` the hero renders nothing — but the slot around it stays mounted, so
+  // scrolling back up brings this straight back.
+  if (shape !== "hero" && !loading && !error) return null;
+
   return (
-    <section className="tb-today">
+    <section className={topRung === 3 ? "tb-today tb-today--lead" : "tb-today"}>
       <style>{TEAM_BRIEF_STYLES}</style>
       <div className="tb-today__head">
         <div><h2>Today · Morning Brief</h2><span>{active.length} active message{active.length === 1 ? "" : "s"}</span></div>
@@ -632,6 +804,8 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
   const currentOrHistory = !managerial ? briefs.filter(brief =>
     teamBriefRepSection(brief, teamBriefReadBy(brief, authedUser), now) === tab
   ) : [];
+  const rungOrder = window.teamBriefRungOrder(
+    teamBriefReceiptsFor(currentOrHistory, authedUser), now);
   const normalizedHistoryQuery = historyQuery.trim().toLowerCase();
   const historyMatches = brief => !normalizedHistoryQuery
     || `${brief.title || ""}\n${brief.body || ""}`.toLowerCase().includes(normalizedHistoryQuery);
@@ -641,9 +815,12 @@ function TeamBriefsManager({ authedUser, activeTeam, regionPill }) {
       .sort((a, b) => teamBriefSort(a, b, authedUser))
     : currentOrHistory
       .filter(brief => tab !== "history" || historyMatches(brief))
-      .sort((a, b) => tab === "history"
-        ? String(b.publish_at || "").localeCompare(String(a.publish_at || ""))
-        : teamBriefSort(a, b, authedUser));
+      // Current is a rep-facing surface, so it sorts by rung like the hero and
+      // the strip (§4.3) — "Open all" must not reshuffle the list the rep just
+      // read. History stays newest-first; it is a log, not a queue.
+      .sort(tab === "history"
+        ? (a, b) => String(b.publish_at || "").localeCompare(String(a.publish_at || ""))
+        : rungOrder);
   const historyGroups = !managerial && tab === "history" ? teamBriefHistoryGroups(filtered) : [];
 
   return (
@@ -798,4 +975,9 @@ Object.assign(window, {
   TeamBriefsProvider,
   TeamBriefsManager,
   TeamBriefsTodayPanel,
+  TeamBriefHeroSlot,
+  TeamBriefsStrip,
+  // Exported so `HomeView` (which lives in index.html) can read `topRung` to
+  // place the greeting. Hook, not data — call it at the top level of a render.
+  useBriefSurface,
 });

@@ -2250,33 +2250,60 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
+  // RFC-164 §4.2 — a manager has no rep-facing hero, so the hero slot renders
+  // empty for them and `briefSurfaceShape` sends outstanding briefs to the strip.
+  const briefHeroMounted = !isManager && !!myRepId;
+  // Read only to decide where the greeting goes. This is a context read plus two
+  // memos — no query, no subscription — and it is the same computation the hero
+  // and the strip run, in the same commit, so the three cannot disagree.
+  const briefSurface = window.useBriefSurface
+    ? window.useBriefSurface({ view: "home", heroMounted: briefHeroMounted, authedUser })
+    : null;
+  // Rung 3 owns the first screen (§4.2, D7): the hero renders above the greeting
+  // instead of below it. The hero's own DOM position never moves — the greeting
+  // is what relocates — because the hero sits inside the observed slot and
+  // shuffling that slot around would strand the sentinel mid-scroll.
+  const briefLead = !!briefSurface && briefSurface.shape === "hero" && briefSurface.topRung === 3;
+
+  const greetingBlock = (
+    <div className="home__greeting">
+      <div className="eyebrow">
+        <span className="eyebrow__dot" />
+        {teamObj.eyebrow}
+      </div>
+      <h1 className="home__title">{greeting}, {firstName}.</h1>
+      <p className="home__sub">
+        {isManager
+          ? `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${cleanCount} of ${repRows.length} reps closed clean`
+          : `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${fmtRange(week.monday, week.friday)}`}
+      </p>
+    </div>
+  );
+
   return (
     <div className="home">
-      <div className="home__greeting">
-        <div className="eyebrow">
-          <span className="eyebrow__dot" />
-          {teamObj.eyebrow}
-        </div>
-        <h1 className="home__title">{greeting}, {firstName}.</h1>
-        <p className="home__sub">
-          {isManager
-            ? `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${cleanCount} of ${repRows.length} reps closed clean`
-            : `${quarterForWeek(week).label} · Week ${week.qIndex} of ${weeksForQuarter(week.quarter).length} · ${fmtRange(week.monday, week.friday)}`}
-        </p>
-      </div>
+      {!briefLead && greetingBlock}
 
-      {/* RFC-163 — rep-facing active Team Briefs. Own load/realtime cycle.
-          RFC-164 Phase 0.4 — hoisted above the quote: the quote is decoration
-          and the briefs are the day's asks; asks come before decoration. */}
-      {!isManager && myRepId && typeof TeamBriefsTodayPanel !== "undefined" && (
-        <TeamBriefsTodayPanel
-          authedUser={authedUser}
-          activeTeam={activeTeam}
-          viewerScope={viewerScope}
-          regionPill={regionPill}
-          onOpen={() => setView("team-briefs")}
-        />
+      {/* RFC-163 — rep-facing active Team Briefs. RFC-164 Phase 0.4 put them
+          above the quote: the quote is decoration, the briefs are the day's
+          asks. Phase 4 wraps them in the observed slot (§4.2a) — the slot is
+          ALWAYS mounted, including for managers and when the hero is hidden,
+          because it is the element that reports whether the hero is on screen.
+          Make this conditional and `heroOnScreen` latches false forever. */}
+      {typeof TeamBriefHeroSlot !== "undefined" && (
+        <TeamBriefHeroSlot>
+          {briefHeroMounted && (
+            <TeamBriefsTodayPanel
+              view="home"
+              heroMounted={briefHeroMounted}
+              authedUser={authedUser}
+              onOpen={() => setView("team-briefs")}
+            />
+          )}
+        </TeamBriefHeroSlot>
       )}
+
+      {briefLead && greetingBlock}
 
       {(() => { const q = todayQuote(); return (
         <div className="home__quote">
@@ -2931,6 +2958,13 @@ function App({ authedUser, preloadedState }) {
   const todayStr = `${DAYS[TODAY.getDay()]} · ${fmtLong(TODAY)}`;
 
   const activeRep = REPS.find(r => r.id === view) || null;
+  // RFC-164 §4.2b — the strip's `view` must be what is actually on screen, not
+  // what `view` holds. A rep id that falls outside the current region/team scope
+  // renders HomeView while `view` still says "rep": read `view` literally and
+  // the strip would mount on top of a visible hero. Mirrors the last-but-one
+  // branch of the view switch below — the two must change together.
+  const homeIsRendered = view === "home"
+    || (!!activeRep && !(allowedRegionsApp.includes(activeRep.region) && activeRep.team === activeTeam));
 
   return (
     // RFC-164 §4.1 — the provider wraps both the tab bar and the view switch so
@@ -3114,6 +3148,19 @@ function App({ authedUser, preloadedState }) {
           ))}
         </>)}
       </div>
+
+      {/* RFC-164 §4.2c — the chrome strip. Sticky, immediately below the tab
+          bar, never inside `.tabs` itself (that row is `overflow-x: auto`, so a
+          child would scroll sideways out of reach). One mount for the session;
+          `briefSurfaceShape` decides whether it draws anything. */}
+      {typeof TeamBriefsStrip !== "undefined" && (
+        <TeamBriefsStrip
+          view={homeIsRendered ? "home" : view}
+          heroMounted={!isManager && !!myRepId}
+          authedUser={effectiveUser}
+          onOpen={() => setView("team-briefs")}
+        />
+      )}
 
       <main className="app__main">
         <div className="app__inner">

@@ -544,6 +544,50 @@ test("teamBriefOutstanding filters done, read informational, and keeps read asks
   assert.ok(ids.indexOf("read-ask") > ids.indexOf("unread"));
 });
 
+// §4.3 says the rung ordering replaces teamBriefSort for rep-facing surfaces
+// and that two orderings must not coexist. The comparator is exported so the
+// Current tab on the full page can sort identically to the hero without a
+// second copy of the tie-break chain — this test pins that it IS the one used.
+test("teamBriefRungOrder is the ordering teamBriefOutstanding sorts by", () => {
+  const rung3 = {
+    ...askBase, id: "r3",
+    due_at: "2026-07-20T22:00:00Z",       // overdue, unread → 3
+    publish_at: "2026-07-10T12:00:00Z",
+  };
+  const rung2Soon = {
+    ...askBase, id: "r2",
+    due_at: "2026-07-24T22:00:00Z",       // within WARN_DAYS → 2
+    publish_at: "2026-07-11T12:00:00Z",
+  };
+  const rung1Far = {
+    ...askBase, id: "r1-far",
+    due_at: "2026-08-30T22:00:00Z",
+    publish_at: "2026-07-12T12:00:00Z",
+  };
+  const rung1NoDue = {
+    ...askBase, id: "r1-nodue",
+    due_at: null,                          // no due date sorts after any dated peer
+    publish_at: "2026-07-13T12:00:00Z",
+  };
+  const rung1NoDueOlder = {
+    ...askBase, id: "r1-nodue-old",
+    due_at: null,
+    publish_at: "2026-07-09T12:00:00Z",    // same rung, same due → newer first
+  };
+  const briefs = [rung1NoDueOlder, rung1NoDue, rung1Far, rung2Soon, rung3];
+
+  const direct = briefs.slice().sort(dm.teamBriefRungOrder({}, nowFixed)).map(b => b.id);
+  assert.deepEqual(direct, ["r3", "r2", "r1-far", "r1-nodue", "r1-nodue-old"]);
+
+  const viaOutstanding = dm.teamBriefOutstanding(briefs, {}, nowFixed).map(b => b.id);
+  assert.deepEqual(viaOutstanding, direct,
+    "teamBriefOutstanding must sort through the exported comparator");
+
+  // A null/absent receipts map must not throw — the Current tab passes a map
+  // built from whatever `brief.reads` happened to load.
+  assert.doesNotThrow(() => briefs.slice().sort(dm.teamBriefRungOrder(null, nowFixed)));
+});
+
 // Catch-up is deliberately NOT visibility-filtered: an expired brief the rep
 // never answered is exactly what the sweep exists to surface. If either
 // collection function starts routing through teamBriefIsVisible, this goes red.

@@ -1124,12 +1124,13 @@ function briefSurfaceShape({ view, heroMounted, heroOnScreen, outstandingCount }
   return heroOnScreen ? "hero" : "strip";
 }
 
-// Outstanding = rung > 0. Does not call teamBriefIsVisible — caller filters.
-// Sort: rung desc, due_at asc, publish_at desc.
-function teamBriefOutstanding(briefs, receipts, now) {
+// The one rep-facing ordering (§4.3): rung desc, due_at asc, publish_at desc.
+// Returned as a comparator so every rep surface — hero, strip, and the Current
+// tab on the full page — sorts through this and only this. Two orderings over
+// the same briefs is the failure the RFC forbids.
+function teamBriefRungOrder(receipts, now) {
   const rec = receipts || {};
-  const list = (briefs || []).filter(b => teamBriefRung(b, rec[b.id], now) > 0);
-  return list.slice().sort((a, b) => {
+  return (a, b) => {
     const ra = teamBriefRung(a, rec[a.id], now);
     const rb = teamBriefRung(b, rec[b.id], now);
     if (rb !== ra) return rb - ra;
@@ -1141,7 +1142,14 @@ function teamBriefOutstanding(briefs, receipts, now) {
     const pa = new Date(a.publish_at).getTime();
     const pb = new Date(b.publish_at).getTime();
     return (Number.isFinite(pb) ? pb : 0) - (Number.isFinite(pa) ? pa : 0);
-  });
+  };
+}
+
+// Outstanding = rung > 0. Does not call teamBriefIsVisible — caller filters.
+function teamBriefOutstanding(briefs, receipts, now) {
+  const rec = receipts || {};
+  const list = (briefs || []).filter(b => teamBriefRung(b, rec[b.id], now) > 0);
+  return list.slice().sort(teamBriefRungOrder(rec, now));
 }
 
 // Catch-up sweep: outstanding newest-first by publish_at, capped.
@@ -1239,7 +1247,8 @@ Object.assign(window, {
   expandTeamBriefAudience, teamBriefAudienceLabel,
   teamBriefTimezoneForAudience, zonedLocalDateTimeToIso,
   teamBriefUrgency, teamBriefIsVisible, teamBriefRepSection,
-  teamBriefRung, briefSurfaceShape, teamBriefOutstanding, teamBriefCatchup,
+  teamBriefRung, briefSurfaceShape, teamBriefRungOrder, teamBriefOutstanding,
+  teamBriefCatchup,
   normalizeTeamBriefComment,
   parseUrlState, serializeUrlState,
   FX_RATES, DISPLAY_CURRENCIES,

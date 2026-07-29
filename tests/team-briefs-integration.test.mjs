@@ -115,12 +115,45 @@ test("rep Team Briefs separates Current and History while Today remains current-
   const today = source.slice(todayStart, pageStart);
   const page = source.slice(pageStart, source.indexOf("Object.assign(window", pageStart));
 
-  assert.match(today, /useTeamBriefs\(false\)/);
+  // RFC-164 Phase 4 moved the Today panel's context read behind `useBriefSurface`,
+  // which is what now declares the tier. The invariant is unchanged — Today must
+  // never upgrade the provider to the archived superset — so assert it where it
+  // actually lives rather than deleting it.
+  const surfaceStart = source.indexOf("function useBriefSurface");
+  assert.notStrictEqual(surfaceStart, -1, "useBriefSurface must exist");
+  const surface = source.slice(surfaceStart, source.indexOf("function ", surfaceStart + 1));
+  assert.match(today, /useBriefSurface\(\{[^}]*view[^}]*\}\)/);
+  assert.doesNotMatch(today, /useTeamBriefs\(true\)/, "Today must not request archived rows");
+  assert.match(surface, /useTeamBriefs\(false\)/);
   assert.match(page, /useTeamBriefs\(true\)/, "the rep page needs archived history from its own load");
   assert.match(page, /managerial \? "active" : "current"/);
   assert.match(page, />Current<\/button>/);
   assert.match(page, />History<\/button>/);
   assert.match(page, /teamBriefRepSection\(brief,\s*teamBriefReadBy\(brief, authedUser\),\s*now\)/);
+});
+
+// There is no DOM harness in this repo, so this is a source assertion — but
+// the property it guards was measured, not guessed. In headless Chrome the
+// hero/strip handoff moved 470px of content under the reader until the slot
+// held the vacated height, and reserving the FULL height instead pushed the
+// re-entry threshold above the exit threshold (the strip's own flow height
+// double-counting the observer's rootMargin). Subtracting the strip is what
+// makes the document one length and the observed edge one document coordinate
+// in both states. Drop the subtraction and the boundary goes bistable again.
+test("the hero slot reserves the height it vacated, less the strip that replaced it", () => {
+  const source = read("src/team-briefs.jsx");
+  const slotStart = source.indexOf("function TeamBriefHeroSlot");
+  assert.notStrictEqual(slotStart, -1, "TeamBriefHeroSlot must exist");
+  const slot = source.slice(slotStart, source.indexOf("function TeamBriefsStrip", slotStart));
+
+  assert.match(slot, /useLayoutEffect/, "the reservation must land before paint");
+  assert.match(slot, /firstElementChild/, "measure the child, not the slot's own reservation");
+  assert.match(slot, /minHeight/);
+  assert.match(
+    slot,
+    /minHeight\s*=\s*`\$\{Math\.max\(0,[^}]*-\s*TEAM_BRIEF_STRIP_HEIGHT\)\}px`/,
+    "the reserved height must subtract the strip, or exit and re-entry disagree",
+  );
 });
 
 test("rep History search is case-insensitive, restores on an empty query, and groups newest calendar dates first", () => {
