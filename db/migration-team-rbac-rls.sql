@@ -642,7 +642,11 @@ insert into public.reps (rep_id, name, team_id, region, active) values
   ('stuart',  'Stuart Chadwick',          'newbiz', 'EMEA', false),
   -- APAC BD — activated 2026-07-10.
   ('dourlay', 'Paul Dourlay',             'newbiz', 'APAC', true),
-  ('andrew',  'Andrew Bennett',           'newbiz', 'APAC', true),
+  -- Departed 2026-06-30 (config/departed-reps.json, jeff-os). active=false
+  -- mirrors emit:false in sales_targets.yaml; the attainment sync already
+  -- excludes him via the departed-owner gate. Row retained so the RFC-151
+  -- roster-parity guard stays satisfied against REPS[].
+  ('andrew',  'Andrew Bennett',           'newbiz', 'APAC', false),
   ('annum',   'Annum Sikander',           'newbiz', 'APAC', true),
   -- APAC CS — activated 2026-07-10.
   ('angela',  'Angela Beck',              'cs',     'APAC', true),
