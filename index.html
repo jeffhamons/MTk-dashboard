@@ -1455,7 +1455,10 @@ button { font: inherit; color: inherit; }
 .flagq__row-cta:hover { background: var(--brand); }
 .flagq__row-actions { display: inline-flex; align-items: center; gap: 8px; }
 .flagq__row-close { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; background: transparent; color: var(--ink-60); border: 1px solid var(--ink-15); border-radius: 999px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
-.flagq__row-close:hover { color: var(--brand-deep); border-color: var(--brand); background: var(--brand-tint); }
+.flagq__row-close:hover:not(:disabled) { color: var(--brand-deep); border-color: var(--brand); background: var(--brand-tint); }
+.flagq__row-close:disabled { opacity: 0.5; cursor: default; }
+.flagq__await-tag { display: inline-block; margin-left: 8px; padding: 1px 6px; font-size: 10px; background: var(--flag-tint); color: var(--flag-deep); border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+.ask__await { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--flag); font-size: 12px; color: var(--flag-deep); }
 .flagq__empty { display: flex; align-items: center; gap: 18px; padding: 32px; background: var(--paper); border: 1px dashed var(--ink-15); border-radius: 12px; }
 .flagq__empty-mark { width: 56px; height: 56px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-deep); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .flagq__empty-text { font-size: 14px; color: var(--ink-60); line-height: 1.5; }
@@ -2901,49 +2904,70 @@ function App({ authedUser, preloadedState }) {
     onAsk("don", weekId, delId, body);
   };
 
-  // Close (soft-resolve) an open flag from the manager's Flag Queue. Reuses the
-  // existing ask-resolve path — setAskSupabase with empty text stamps
-  // resolved_at + resolved_by_* on the row rather than deleting it, so the flag
-  // moves into the Resolved log with attribution and stays closed across
-  // reloads. Authority is canCloseFlag, NOT canManageRep: the rep who raised
-  // the flag must not be able to clear their own escalation.
-  const onCloseFlag = (repId, weekId, delId) => {
-    if (!canCloseFlag(effectiveUser, repId)) return;
-    // Attribution comes from the real signed-in identity (authedUser), not from
-    // a dev "view as" impersonation, so the Resolved log never credits a close
-    // to someone who didn't perform it.
-    const closeStamp = () => {
-      const who = authedUser || effectiveUser;
-      if (!who || !who.authEmail) return null;
-      return {
-        email: who.authEmail,
-        name: who.authEmail.split("@")[0],
-        role: who.role || "manager",
-      };
+  // Two-key flag close. A flag closes only when BOTH the rep who raised it and
+  // the manager (or a covering team_admin) have marked it resolved, in either
+  // order — so this one handler serves both surfaces: the rep's "Resolved"
+  // button on their week view and the manager's "Close" button in the Flag
+  // Queue. Which signature you cast is decided by who you are, never by which
+  // button you pressed.
+  //
+  // A close is always SOFT: the completing signature stamps resolved_at +
+  // resolved_by_*, so the row moves into the Resolved log with both
+  // signatures on it and is never deleted. Onboarding access notes are exempt
+  // from the two-key rule (flagNeedsBothKeys) and close on one signature.
+  const onResolveFlag = (repId, weekId, delId) => {
+    const side = flagCloseSide(effectiveUser, repId);
+    if (!side) return; // no standing to sign this flag
+    // Attribution comes from the real signed-in identity, not from a dev
+    // "view as" impersonation, so a signature is never credited to someone
+    // who didn't cast it.
+    const who = authedUser || effectiveUser;
+    if (!who || !who.authEmail) return;
+    const stamp = {
+      email: who.authEmail,
+      name: who.authEmail.split("@")[0],
+      role: side === "rep" ? "rep" : (who.role || "manager"),
     };
     const k = `${repId}|${weekId}|${delId}`;
+    const existing = (state.asks || {})[k];
+    if (!existing) return; // already closed
+    const completes = flagCloseCompletes(existing, delId, side);
     const rollback = askSnapshot(k);
-    let closed = false;
+    const now = new Date().toISOString();
+    const vote = { at: now, email: stamp.email, name: stamp.name, role: stamp.role };
+
     setState(s => {
       const asks = { ...(s.asks || {}) };
       const resolvedAsks = { ...(s.resolvedAsks || {}) };
       const prev = asks[k];
-      if (!prev) return s; // already closed — nothing to do
-      resolvedAsks[k] = {
-        text: prev.text,
-        raisedAt: prev.at,
-        resolvedAt: new Date().toISOString(),
-        resolvedBy: closeStamp(),
-        response: prev.response,
-      };
-      delete asks[k];
-      closed = true;
+      if (!prev) return s;
+      const closeVotes = { ...(prev.closeVotes || {}), [side]: vote };
+      if (completes) {
+        resolvedAsks[k] = {
+          text: prev.text,
+          raisedAt: prev.at,
+          resolvedAt: now,
+          resolvedBy: stamp,
+          closeVotes,
+          response: prev.response,
+        };
+        delete asks[k];
+      } else {
+        asks[k] = { ...prev, closeVotes };
+      }
       return { ...s, asks, resolvedAsks };
     });
-    if (closed && useCloud) {
-      writeThrough("flag not closed",
-        () => window.setAskSupabase(repId, weekId, delId, "", closeStamp()),
-        rollback);
+
+    if (useCloud) {
+      if (!flagNeedsBothKeys(delId)) {
+        writeThrough("flag not closed",
+          () => window.setAskSupabase(repId, weekId, delId, "", stamp),
+          rollback);
+      } else {
+        writeThrough("flag not closed",
+          () => window.castFlagCloseVoteSupabase(repId, weekId, delId, side, stamp, completes),
+          rollback);
+      }
     }
   };
 
@@ -3330,7 +3354,7 @@ function App({ authedUser, preloadedState }) {
                 setView(repId);
               }}
               onReopenAsk={onReopenAsk}
-              onCloseFlag={onCloseFlag}
+              onResolveFlag={onResolveFlag}
               canCloseFlag={repId => canCloseFlag(effectiveUser, repId)}
             />
           ) : view === "don:onboarding" ? (
@@ -3357,6 +3381,7 @@ function App({ authedUser, preloadedState }) {
                 setWeekIdx={setWeekIdx}
                 onCheck={onCheck}
                 onAsk={onAsk}
+                onResolveFlag={onResolveFlag}
                 onAskResponse={onAskResponse}
                 onSaveNote={onSaveNote}
                 onBack={() => setView("home")}

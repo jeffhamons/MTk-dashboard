@@ -706,6 +706,48 @@ function canCloseFlag(user, repId) {
   return user.adminScopes.some(s => s.team_id === rep.team && s.region === rep.region);
 }
 
+// ── Two-key flag close ──────────────────────────────────────────────────────
+// A flag closes only when BOTH the rep who raised it and the manager (or a
+// covering team_admin) have marked it resolved, in either order. These four
+// helpers are the client mirror of the trigger in
+// db/migration-two-key-flag-close.sql — keep them in lockstep with it.
+
+// Onboarding access notes (deliverable id "onboarding:<item>") are a rep's own
+// login/access checklist, not an escalation at anyone, so they keep the
+// one-signature close. Everything else takes both keys.
+function flagNeedsBothKeys(delId) {
+  return !String(delId || "").startsWith("onboarding:");
+}
+
+// Which signature does `user` cast on a flag raised on `repId`? A manager (or
+// covering team_admin) signs the manager side; the rep who raised it signs the
+// rep side; anyone else signs nothing. Manager authority is checked first, so
+// a manager never accidentally casts a rep's signature for them.
+function flagCloseSide(user, repId) {
+  if (canCloseFlag(user, repId)) return "manager";
+  if (user && user.rep_id && user.rep_id === repId) return "rep";
+  return null;
+}
+
+// Would casting `side` finish the close? True when the other signature is
+// already on the row — or when this flag only needs one.
+function flagCloseCompletes(ask, delId, side) {
+  if (!flagNeedsBothKeys(delId)) return true;
+  const votes = (ask && ask.closeVotes) || {};
+  return side === "rep" ? !!votes.manager : !!votes.rep;
+}
+
+// Who is this open flag still waiting on? null once nobody is (which means the
+// next signature closes it).
+function flagCloseWaitingOn(ask, delId) {
+  if (!flagNeedsBothKeys(delId)) return null;
+  const votes = (ask && ask.closeVotes) || {};
+  if (!votes.rep && !votes.manager) return null;
+  if (!votes.rep) return "rep";
+  if (!votes.manager) return "manager";
+  return null;
+}
+
 // Does `user` have manager-parity capability over ANYONE (gates manager-only
 // UI like the flag queue, rep pickers, standup edit-any)?
 function canManageAny(user) {
@@ -1291,6 +1333,7 @@ Object.assign(window, {
   REGIONS, regionForRep, repsByRegion,
   regionCurrency, regionCurrencyLong, REGION_ORDER,
   TEAMS, repById, isManagerialRole, canManageRep, canManageAny, canCloseFlag,
+  flagNeedsBothKeys, flagCloseSide, flagCloseCompletes, flagCloseWaitingOn,
   teamsForUser, defaultTeamForUser,
   viewerScopeForUser, regionsUnderScope, repsUnderScope,
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,

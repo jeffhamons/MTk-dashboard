@@ -21,6 +21,17 @@ weekly-review-dashboard/db/migration-resolved-flags.sql
 ```
 This adds `resolved_by_email / name / role` columns to the `asks` table + an index.
 
+Then, for the two-key flag close (a flag closes only once both the rep and the
+manager have marked it resolved), run:
+```
+db/migration-two-key-flag-close.sql
+```
+This adds the `rep_closed_*` / `mgr_closed_*` signature columns to `asks` and
+the trigger that enforces the rule server-side. It depends on
+`db/migration-team-rbac-schema.sql`. Verify with `db/test-two-key-flag-close.sql`,
+which runs in one transaction and rolls back — expect
+`TWO-KEY FLAG CLOSE: ALL ASSERTIONS PASSED`.
+
 ### 2. Supabase credentials
 The URL and anon key are already set in `src/supabase-client.js` (lines 10–11). They're correct for the existing project — no change needed unless you're deploying to a new Supabase project.
 

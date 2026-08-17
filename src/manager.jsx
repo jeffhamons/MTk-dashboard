@@ -98,7 +98,7 @@ function missingAppPageGlobals(pages) {
 // FlagQueue — landing list of every open ask across the team, oldest first.
 // The manager's "what needs attention right now" view.
 // =====================================================================
-function FlagQueue({ state, onPickRep, onReopenAsk, onCloseFlag, canCloseFlag, activeTeam, viewerScope, regionPill }) {
+function FlagQueue({ state, onPickRep, onReopenAsk, onResolveFlag, canCloseFlag, activeTeam, viewerScope, regionPill }) {
   // RFC-152: region scoping. viewerScope undefined => no region filtering.
   const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
   const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
@@ -121,7 +121,11 @@ function FlagQueue({ state, onPickRep, onReopenAsk, onCloseFlag, canCloseFlag, a
       // Skip if the deliverable was since marked done (issue resolved itself)
       const checkKey = `${repId}|${weekId}|${delId}`;
       const done = !!state.checks[checkKey];
-      out.push({ key: k, repId, weekId, delId, rep, week, del, ask, done });
+      // Two-key close: whose signature is already on this flag. Both present
+      // means it is closed and would not be in state.asks at all.
+      const votes = (ask.closeVotes) || {};
+      out.push({ key: k, repId, weekId, delId, rep, week, del, ask, done,
+                 repSigned: !!votes.rep, mgrSigned: !!votes.manager });
     }
     // Open ones first, then by ask age (oldest first)
     out.sort((a, b) => {
@@ -174,18 +178,28 @@ function FlagQueue({ state, onPickRep, onReopenAsk, onCloseFlag, canCloseFlag, a
                 <div className="flagq__row-meta">
                   Week {f.week.index} · {f.del.title}
                   {f.done && <span className="flagq__resolved-tag">Resolved (marked done)</span>}
+                  {f.repSigned && !f.mgrSigned &&
+                    <span className="flagq__await-tag">{f.rep.name.split(" ")[0]} marked resolved · needs you</span>}
+                  {f.mgrSigned && !f.repSigned &&
+                    <span className="flagq__await-tag">You marked resolved · waiting on {f.rep.name.split(" ")[0]}</span>}
                 </div>
               </div>
             </div>
             <div className="flagq__row-text">"{f.ask.text}"</div>
             <div className="flagq__row-actions">
-              {onCloseFlag && (!canCloseFlag || canCloseFlag(f.repId)) && (
+              {onResolveFlag && (!canCloseFlag || canCloseFlag(f.repId)) && (
                 <button
                   className="flagq__row-close"
-                  title="Close this flag — it moves to the Resolved log, it is not deleted"
-                  onClick={() => onCloseFlag(f.repId, f.weekId, f.delId)}
+                  disabled={f.mgrSigned}
+                  title={f.mgrSigned
+                    ? `You marked this resolved — it closes once ${f.rep.name.split(" ")[0]} does too`
+                    : f.repSigned
+                      ? `${f.rep.name.split(" ")[0]} marked this resolved — your click closes it`
+                      : `Mark resolved — the flag closes once ${f.rep.name.split(" ")[0]} does too. It moves to the Resolved log, it is not deleted`}
+                  onClick={() => onResolveFlag(f.repId, f.weekId, f.delId)}
                 >
-                  <Icon name="check" size={14} stroke={2.4} /> Close
+                  <Icon name="check" size={14} stroke={2.4} />
+                  {f.mgrSigned ? "Marked" : f.repSigned ? "Close" : "Mark resolved"}
                 </button>
               )}
               <button
@@ -318,6 +332,10 @@ function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam, viewerScop
                 const hours = durHours(f.entry.raisedAt, f.entry.resolvedAt);
                 const role = f.entry.resolvedBy && f.entry.resolvedBy.role;
                 const byName = f.entry.resolvedBy && (f.entry.resolvedBy.name || (f.entry.resolvedBy.email || "").split("@")[0]);
+                // Two-key closes carry both signatures. Flags closed before the
+                // two-key rule carry only resolvedBy, and still read as before.
+                const votes = f.entry.closeVotes || {};
+                const voteName = v => v && (v.name || (v.email || "").split("@")[0]);
                 return (
                   <div key={f.key} className="resolved__row">
                     <div className="resolved__row-id">
@@ -332,9 +350,11 @@ function ResolvedSection({ state, onPickRep, onReopenAsk, activeTeam, viewerScop
                     <div className="resolved__row-stamp">
                       <strong>{fmtDate(f.entry.resolvedAt)}</strong>
                       <span className="resolved__row-stamp-who">
-                        {isManagerialRole(role)
-                          ? <>by {byName || "manager"}</>
-                          : <>self-resolved</>}
+                        {votes.rep && votes.manager
+                          ? <>by {f.rep.name.split(" ")[0]} + {voteName(votes.manager) || "manager"}</>
+                          : isManagerialRole(role)
+                            ? <>by {byName || "manager"}</>
+                            : <>self-resolved</>}
                         {f.hadNote && (
                           <span style={{ color: "var(--brand)", opacity: 0.65 }} title="Manager note on file">
                             <Icon name="lock" size={10} stroke={2} />
