@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pytest
-      - run: python -m pytest tests/test_rfc151_reps_parity.py tests/test_issue_3781_currency_toggle.py -q
+      - run: python -m pytest tests/test_rfc151_reps_parity.py tests/test_issue_3781_currency_toggle.py tests/test_bundle_reproducible.py -q
 
   node-test:
     runs-on: ubuntu-latest
