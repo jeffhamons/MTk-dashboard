@@ -80,7 +80,8 @@ RLS is the real data boundary; the client only mirrors it. Roles:
 - `assets/` - `mindtools-logo.png` and Inter font subsets.
 - `vendor/` - pinned browser dependencies; there is no npm install flow.
 - `db/` - Supabase schema, RLS, seed, and verification SQL.
-- `build/` - bundler tooling, especially `bundle.py`.
+- `build/` - bundler tooling: `bundle.py`, plus `verify_deploy.py` for
+  checking a deployed bundle against a local rebuild.
 - `tests/` - Node built-in `.mjs` tests for the browser app source plus the
   two relocated Python parity tests.
 - `dist/` - generated deploy output; never hand-edit.
@@ -432,14 +433,26 @@ so neither the denominator nor the read state double-counts.
 - `python3 build/bundle.py --check` prints a build summary.
 - The bundle inlines source, vendor files, fonts, and logo assets.
 - The generated output is one self-contained HTML file.
-- The build is reproducible for a given Python version: identical sources
-  produce an identical `dist/index.html`, so a deployed bundle can be verified
-  by rebuilding and comparing hashes. This relies on gzip `mtime=0` and asset
+- The build is reproducible on a given machine: identical sources produce an
+  identical `dist/index.html`. This relies on gzip `mtime=0` and asset
   placeholder ids derived from each asset's path via
   `uuid5(ASSET_NAMESPACE, rel_path)`. Never regenerate `ASSET_NAMESPACE`, and
   do not reintroduce `uuid4()` — either one rewrites every placeholder and
-  makes each build unique. Compression internals differ across major Python
-  versions, so compare rebuilds using the version that produced the artifact.
+  makes each build unique.
+- Hash comparison does NOT work across machines. zlib's compressed output is
+  not standardized, so Netlify's Linux build and a local macOS rebuild of the
+  same commit differ byte-for-byte even though the content is identical. Every
+  compressed payload differs; nothing else does. Comparing `md5` of
+  `dist/index.html` against the deployed file will mislead you.
+- To verify a deploy from a different machine, use `build/verify_deploy.py`.
+  It compares the decompressed payloads and the `uuid5` placeholders, both of
+  which are platform-independent, and exits non-zero on a mismatch:
+
+```bash
+python3 build/bundle.py && python3 build/verify_deploy.py
+```
+
+  Pass `--url` to check a deploy preview instead of production.
 
 - `netlify.toml` runs `python3 build/bundle.py`, publishes `dist`, and
   redirects all routes to `index.html`.

@@ -8,10 +8,14 @@ different bytes, so a deployed bundle could not be verified by rebuilding
 and comparing hashes -- the only check available for a single-file artifact
 with no lockfile and no build id.
 
-Scope: reproducible for a given Python version. Compression internals differ
-across major versions, so a 3.12 build and a 3.14 build of the same tree are
-not byte-identical -- compare rebuilds using the version that produced the
-artifact. Note also that Python 3.14 zeroes the gzip mtime by default while
+Scope: reproducible on a given machine, not across machines. zlib's compressed
+output is not standardized, so the same commit built on Netlify's Linux image
+and on a local macOS box differs byte-for-byte -- every compressed payload
+differs, while the decompressed content and the uuid5 placeholders are
+identical. Compression internals also differ across major Python versions.
+Hash-comparing a deployed bundle against a rebuild from a different machine
+will mislead you; see the README build section for the check that does work.
+Note also that Python 3.14 zeroes the gzip mtime by default while
 3.11-3.13 stamp the clock, so the byte-level assertion below is only load
 bearing on the older versions; test_gzip_call_pins_mtime_and_level is the
 check that holds everywhere.
