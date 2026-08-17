@@ -34,8 +34,9 @@ live in `DEPLOY.md`.
   - `node --test tests/*.mjs` — the Node built-in test runner over the
     `.mjs` suite. Use the glob form; the bare directory form
     (`node --test tests/`) is known to flake and is not supported here.
-  - `python3 -m pytest tests/test_rfc151_reps_parity.py tests/test_issue_3781_currency_toggle.py -q`
-    — the two relocated parity tests (see "Roster changes" and CI).
+  - `python3 -m pytest tests/test_rfc151_reps_parity.py tests/test_issue_3781_currency_toggle.py tests/test_bundle_reproducible.py -q`
+    — the two relocated parity tests (see "Roster changes" and CI) plus the
+    bundle reproducibility guard.
 
 ## Deploys
 
@@ -425,6 +426,14 @@ so neither the denominator nor the read state double-counts.
 - `python3 build/bundle.py --check` prints a build summary.
 - The bundle inlines source, vendor files, fonts, and logo assets.
 - The generated output is one self-contained HTML file.
+- The build is reproducible for a given Python version: identical sources
+  produce an identical `dist/index.html`, so a deployed bundle can be verified
+  by rebuilding and comparing hashes. This relies on gzip `mtime=0` and asset
+  placeholder ids derived from each asset's path via
+  `uuid5(ASSET_NAMESPACE, rel_path)`. Never regenerate `ASSET_NAMESPACE`, and
+  do not reintroduce `uuid4()` — either one rewrites every placeholder and
+  makes each build unique. Compression internals differ across major Python
+  versions, so compare rebuilds using the version that produced the artifact.
 
 - `netlify.toml` runs `python3 build/bundle.py`, publishes `dist`, and
   redirects all routes to `index.html`.
@@ -463,6 +472,9 @@ so neither the denominator nor the read state double-counts.
     `db/migration-team-rbac-rls.sql`. CI fails when the two drift.
   - `tests/test_issue_3781_currency_toggle.py` guards the currency-toggle
     infrastructure in `src/data-model.js`.
+  - `tests/test_bundle_reproducible.py` guards `build/bundle.py`
+    determinism: pinned gzip `mtime=0`/`compresslevel`, path-derived asset
+    ids, and identical `collect_assets()` output across builds.
 
 ## Roster changes
 

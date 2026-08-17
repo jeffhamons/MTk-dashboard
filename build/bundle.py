@@ -48,7 +48,14 @@ def encode_asset(path: Path) -> dict:
     raw = path.read_bytes()
     mime = mime_for(path)
     compressed = mime in GZIP_MIMES
-    payload = gzip.compress(raw) if compressed else raw
+    # mtime=0 keeps the gzip header out of the build's identity. On Python
+    # 3.11-3.13 the default stamps the current clock into every payload, so two
+    # builds of identical sources produced different bytes and the deployed
+    # bundle could not be compared against a local rebuild. (3.14 zeroes it by
+    # default; the explicit argument is what makes the build reproducible on the
+    # versions CI and Netlify actually run.) compresslevel is pinned so the
+    # output survives a Python upgrade changing the default.
+    payload = gzip.compress(raw, compresslevel=9, mtime=0) if compressed else raw
     return {
         "mime": mime,
         "compressed": compressed,
@@ -203,9 +210,21 @@ def splash_logo_data_uri() -> str:
     return f"data:image/png;base64,{b64}"
 
 
+# Fixed namespace for asset placeholder ids. uuid5 derives each id from the
+# asset's repo-relative path, so a given source tree always yields the same
+# placeholders. uuid4 was random per build, which made every bundle unique
+# regardless of whether anything changed. Never regenerate this constant:
+# doing so rewrites every placeholder and churns the whole output.
+ASSET_NAMESPACE = uuid.UUID("6f3b2c14-8a5d-5f7e-9c21-4d8e0b1a7f36")
+
+
 def collect_assets() -> tuple[dict, str]:
     """Read index.html, find every src=/href= path under src/, vendor/, assets/,
-    replace each with a fresh UUID, and return (manifest, rewritten_template).
+    replace each with a path-derived UUID, and return (manifest, rewritten_template).
+
+    The build is byte-for-byte reproducible: identical sources produce an
+    identical dist/index.html, so a deployed bundle can be verified by
+    rebuilding and comparing hashes.
     """
     html = INDEX_HTML.read_text()
     manifest = {}
@@ -223,7 +242,7 @@ def collect_assets() -> tuple[dict, str]:
         abs_path = REPO_ROOT / rel_path
         if not abs_path.is_file():
             raise SystemExit(f"missing referenced file: {rel_path}")
-        uid = str(uuid.uuid4())
+        uid = str(uuid.uuid5(ASSET_NAMESPACE, rel_path))
         manifest[uid] = encode_asset(abs_path)
         path_to_uuid[rel_path] = uid
         return uid
