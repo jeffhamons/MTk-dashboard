@@ -2198,8 +2198,10 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
 
   // Compute rep's own progress for current week
   const rep = REPS.find(r => r.id === myRepId);
-  const skips = rep ? (rep.skips || []) : [];
-  const activeDels = DELIVERABLES.filter(d => !skips.includes(d.id));
+  // Week-aware: a deliverable retired via activeThrough must not stay in the
+  // denominator for later weeks, or Home reads "3/5" for a rep the rep view
+  // and the rollup both show closed clean.
+  const activeDels = activeDeliverablesFor(rep, week.index);
   const checks = activeDels.map(d => delComplete(myRepId, week, d.id, state));
   const done = checks.filter(Boolean).length;
   const total = activeDels.length;
@@ -2231,8 +2233,7 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
       }).length
     : 0;
   const repRows = REPS.map(r => {
-    const rSkips = r.skips || [];
-    const rDels = DELIVERABLES.filter(d => !rSkips.includes(d.id));
+    const rDels = activeDeliverablesFor(r, week.index);
     const rDone = rDels.filter(d => delComplete(r.id, week, d.id, state)).length;
     return { rep: r, done: rDone, total: rDels.length, clean: rDels.length > 0 && rDone === rDels.length };
   }).filter(r => r.rep.name !== "TBD" && r.rep.team === activeTeam && repVisibleInWeek(r.rep, week.index) && repInScope(r.rep));
@@ -2699,8 +2700,11 @@ function App({ authedUser, preloadedState }) {
     document.documentElement.dataset.accent  = tweaks.accent;
     document.documentElement.dataset.density = tweaks.density;
     document.documentElement.dataset.layout  = tweaks.layout;
-    document.documentElement.style.setProperty("--deliv-count", DELIVERABLES.length);
-  }, [tweaks]);
+    document.documentElement.style.setProperty(
+      "--deliv-count",
+      deliverablesForWeek(WEEKS[weekIdx].index).length,
+    );
+  }, [tweaks, weekIdx]);
 
   // ── Optimistic write-through with rollback (issue #26) ────────────────────
   // The adapters in supabase-client.js now throw on a Supabase error instead of
