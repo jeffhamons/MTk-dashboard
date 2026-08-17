@@ -182,8 +182,10 @@ test("repsUnderScope: APAC CS five + APAC BD three; stuart (EMEA newbiz) appears
   assert.deepEqual(apacCs, ["aaron", "angela", "cindy", "sarah", "suzanne"]);
 
   const full = { regions: ["US", "EMEA", "APAC"], locked: false };
+  // andrew departed 2026-06-30 (activeThrough: 10, hidden from week 11/Q3
+  // onward) — excluded from the current-week roster from Q3 forward.
   const apacBd = Array.from(dm.repsUnderScope(wk, "newbiz", full, "APAC").map(r => r.id)).sort();
-  assert.deepEqual(apacBd, ["andrew", "annum", "dourlay"]);
+  assert.deepEqual(apacBd, ["annum", "dourlay"]);
 
   // stuart activated 2026-07-12 (EMEA newbiz, 7/13 start) — now appears under
   // EMEA newbiz + full scope, but never under APAC (he's EMEA) or CS (newbiz).

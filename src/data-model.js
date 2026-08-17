@@ -12,9 +12,11 @@ const REPS = [
     } },
   { id: "brenda",  name: "Brenda Bravener-Greville", role: "Senior AE",          initials: "BB", hue: 18, region: "US", team: "newbiz",
     skips: [],
-    // Departed mid-cycle — visible through week 5 (her history), hidden from
-    // week 6 (Jun 1) onward. See repVisibleInWeek().
-    activeThrough: 5,
+    // Departed 2026-06-02 (role eliminated), which falls in week 6
+    // (Jun 1-7) — visible through week 6 (her history), hidden from week 7
+    // onward. Was activeThrough: 5 (cut her off a week early); corrected
+    // per RFC-164 departed-reps follow-up. See repVisibleInWeek().
+    activeThrough: 6,
     links: {
       wins: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQBq1QCblu_vR7UurBDtei4uATcZNDT5XW_uoZOYYUzNJEw?e=ZnLAD9&nav=MTVfezAwMDAwMDAwLTAwMDEtMDAwMC0wMjAwLTAwMDAwMDAwMDAwMH0",
       commitments: "https://mindtoolsltd-my.sharepoint.com/:x:/g/personal/jhamons_mindtools_com/IQDr0IFSv9s5R5_APq-I1sj9AXDUOQ2y_UlVlpZviyNTRlk?e=fx78m5",
@@ -88,6 +90,10 @@ const REPS = [
     skips: [], links: {} },
   { id: "andrew",   name: "Andrew Bennett",          role: "Account Executive",  initials: "AB", hue: 30,  region: "APAC", team: "newbiz",
     email: "andrew.bennett@kineo.com.au",
+    // Departed 2026-06-30, which falls in week 10 (Jun 29-Jul 5) — visible
+    // through week 10 (his history), hidden from week 11 (Q3 w1) onward.
+    // See repVisibleInWeek().
+    activeThrough: 10,
     skips: [], links: {} },
   { id: "annum",    name: "Annum Sikander",          role: "Account Executive",  initials: "AS", hue: 290, region: "APAC", team: "newbiz",
     email: "annum.sikander@kineo.com.au",
