@@ -692,6 +692,20 @@ function canManageRep(user, repId) {
   return user.adminScopes.some(s => s.team_id === rep.team && s.region === rep.region);
 }
 
+// Can `user` CLOSE (soft-resolve) a flag raised on `repId`'s row?
+// This is canManageRep minus the self-edit branch, on purpose: a flag is an
+// escalation, so the rep who raised it must not be able to clear it — only the
+// global manager, or a team_admin whose adminScopes cover that rep's team AND
+// region (the same scope RLS already grants on asks UPDATE).
+function canCloseFlag(user, repId) {
+  if (!user) return false;
+  if (user.role === "manager") return true;
+  if (user.role !== "team_admin") return false;
+  const rep = repById(repId);
+  if (!rep || !Array.isArray(user.adminScopes)) return false;
+  return user.adminScopes.some(s => s.team_id === rep.team && s.region === rep.region);
+}
+
 // Does `user` have manager-parity capability over ANYONE (gates manager-only
 // UI like the flag queue, rep pickers, standup edit-any)?
 function canManageAny(user) {
@@ -1276,7 +1290,7 @@ Object.assign(window, {
   REPS, DELIVERABLES, WEEKS, TODAY, QUARTERS,
   REGIONS, regionForRep, repsByRegion,
   regionCurrency, regionCurrencyLong, REGION_ORDER,
-  TEAMS, repById, isManagerialRole, canManageRep, canManageAny,
+  TEAMS, repById, isManagerialRole, canManageRep, canManageAny, canCloseFlag,
   teamsForUser, defaultTeamForUser,
   viewerScopeForUser, regionsUnderScope, repsUnderScope,
   regionShortLabel, zoneAbbrev, dueInstantForRegion, dueLabelForRegion,

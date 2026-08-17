@@ -95,7 +95,11 @@ RLS is the real data boundary; the client only mirrors it. Roles:
   the Home Today/Morning Brief panel remains Current-only. The route owns its
   own Team Briefs load/realtime cycle.
 - `src/manager.jsx` - `APP_PAGES` nav registry plus `FlagQueue`,
-  `ResolvedSection`, `ManagerNote`, `MarkedByStamp`.
+  `ResolvedSection`, `ManagerNote`, `MarkedByStamp`. Each open `FlagQueue` row
+  carries a Close button, shown only to viewers `canCloseFlag` allows (manager,
+  or a team_admin scoped to that rep). Closing soft-resolves through the
+  existing ask path, so the flag lands in `ResolvedSection` with attribution
+  rather than being deleted.
 - `src/rep-view.jsx` - `RepView`, one rep's selected-week view.
 - `src/team-rollup.jsx` - `TeamRollup`, the reps by deliverables scan grid,
   sectioned by region.
@@ -437,6 +441,9 @@ so neither the denominator nor the read state double-counts.
     `isManagerialRole`, `teamsForUser`, and inert scope guard behavior.
   - `tests/rbac-matrix-lockstep.test.mjs` encodes the SQL truth table and
     asserts `canManageRep` by persona.
+  - `tests/flag-close.test.mjs` checks `canCloseFlag` authority by persona and
+    the `setAskSupabase` soft-close write path (UPDATE with `resolved_*`
+    stamps, never a DELETE).
   - `tests/url-state.test.mjs` checks `parseUrlState` and `serializeUrlState`.
   - `tests/viewerscope.test.mjs` checks `viewerScopeForUser`,
     `regionsUnderScope`, and `repsUnderScope`.

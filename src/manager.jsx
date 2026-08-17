@@ -98,7 +98,7 @@ function missingAppPageGlobals(pages) {
 // FlagQueue — landing list of every open ask across the team, oldest first.
 // The manager's "what needs attention right now" view.
 // =====================================================================
-function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam, viewerScope, regionPill }) {
+function FlagQueue({ state, onPickRep, onReopenAsk, onCloseFlag, canCloseFlag, activeTeam, viewerScope, regionPill }) {
   // RFC-152: region scoping. viewerScope undefined => no region filtering.
   const allowedRegions = viewerScope ? window.regionsUnderScope(viewerScope, regionPill) : null;
   const inRegion = rep => !allowedRegions || (rep && allowedRegions.includes(rep.region));
@@ -178,12 +178,23 @@ function FlagQueue({ state, onPickRep, onReopenAsk, activeTeam, viewerScope, reg
               </div>
             </div>
             <div className="flagq__row-text">"{f.ask.text}"</div>
-            <button
-              className="flagq__row-cta"
-              onClick={() => onPickRep(f.repId, f.weekId)}
-            >
-              Open <Icon name="arrow-right" size={14} />
-            </button>
+            <div className="flagq__row-actions">
+              {onCloseFlag && (!canCloseFlag || canCloseFlag(f.repId)) && (
+                <button
+                  className="flagq__row-close"
+                  title="Close this flag — it moves to the Resolved log, it is not deleted"
+                  onClick={() => onCloseFlag(f.repId, f.weekId, f.delId)}
+                >
+                  <Icon name="check" size={14} stroke={2.4} /> Close
+                </button>
+              )}
+              <button
+                className="flagq__row-cta"
+                onClick={() => onPickRep(f.repId, f.weekId)}
+              >
+                Open <Icon name="arrow-right" size={14} />
+              </button>
+            </div>
           </div>
         ))}
       </div>

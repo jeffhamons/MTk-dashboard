@@ -1453,6 +1453,9 @@ button { font: inherit; color: inherit; }
 .flagq__row-text { font-size: 14px; color: var(--ink-80); font-style: italic; line-height: 1.45; }
 .flagq__row-cta { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: var(--ink); color: var(--paper); border: none; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
 .flagq__row-cta:hover { background: var(--brand); }
+.flagq__row-actions { display: inline-flex; align-items: center; gap: 8px; }
+.flagq__row-close { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; background: transparent; color: var(--ink-60); border: 1px solid var(--ink-15); border-radius: 999px; font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+.flagq__row-close:hover { color: var(--brand-deep); border-color: var(--brand); background: var(--brand-tint); }
 .flagq__empty { display: flex; align-items: center; gap: 18px; padding: 32px; background: var(--paper); border: 1px dashed var(--ink-15); border-radius: 12px; }
 .flagq__empty-mark { width: 56px; height: 56px; border-radius: 50%; background: var(--brand-tint); color: var(--brand-deep); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .flagq__empty-text { font-size: 14px; color: var(--ink-60); line-height: 1.5; }
@@ -2898,6 +2901,52 @@ function App({ authedUser, preloadedState }) {
     onAsk("don", weekId, delId, body);
   };
 
+  // Close (soft-resolve) an open flag from the manager's Flag Queue. Reuses the
+  // existing ask-resolve path — setAskSupabase with empty text stamps
+  // resolved_at + resolved_by_* on the row rather than deleting it, so the flag
+  // moves into the Resolved log with attribution and stays closed across
+  // reloads. Authority is canCloseFlag, NOT canManageRep: the rep who raised
+  // the flag must not be able to clear their own escalation.
+  const onCloseFlag = (repId, weekId, delId) => {
+    if (!canCloseFlag(effectiveUser, repId)) return;
+    // Attribution comes from the real signed-in identity (authedUser), not from
+    // a dev "view as" impersonation, so the Resolved log never credits a close
+    // to someone who didn't perform it.
+    const closeStamp = () => {
+      const who = authedUser || effectiveUser;
+      if (!who || !who.authEmail) return null;
+      return {
+        email: who.authEmail,
+        name: who.authEmail.split("@")[0],
+        role: who.role || "manager",
+      };
+    };
+    const k = `${repId}|${weekId}|${delId}`;
+    const rollback = askSnapshot(k);
+    let closed = false;
+    setState(s => {
+      const asks = { ...(s.asks || {}) };
+      const resolvedAsks = { ...(s.resolvedAsks || {}) };
+      const prev = asks[k];
+      if (!prev) return s; // already closed — nothing to do
+      resolvedAsks[k] = {
+        text: prev.text,
+        raisedAt: prev.at,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: closeStamp(),
+        response: prev.response,
+      };
+      delete asks[k];
+      closed = true;
+      return { ...s, asks, resolvedAsks };
+    });
+    if (closed && useCloud) {
+      writeThrough("flag not closed",
+        () => window.setAskSupabase(repId, weekId, delId, "", closeStamp()),
+        rollback);
+    }
+  };
+
   const onReopenAsk = (repId, weekId, delId) => {
     if (!isManager) return; // manager-only action
     const k = `${repId}|${weekId}|${delId}`;
@@ -3281,6 +3330,8 @@ function App({ authedUser, preloadedState }) {
                 setView(repId);
               }}
               onReopenAsk={onReopenAsk}
+              onCloseFlag={onCloseFlag}
+              canCloseFlag={repId => canCloseFlag(effectiveUser, repId)}
             />
           ) : view === "don:onboarding" ? (
             typeof DonOnboarding !== "undefined"
