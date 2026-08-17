@@ -2,11 +2,18 @@
 -- asks — TWO-KEY FLAG CLOSE
 -- Run in Supabase → SQL Editor → New query → Run (idempotent).
 --
--- DEPENDS ON db/migration-team-rbac-schema.sql (defines
--- public.rbac_caller_role() and public.rbac_caller_covers_rep()) and
--- db/migration-resolved-flags.sql (defines resolved_by_*). Apply those first.
--- Per README "Schema and Supabase authority", merging this file does NOT
--- apply it — running it against Supabase is a manual step.
+-- DEPENDS ON db/migration-resolved-flags.sql (defines resolved_by_*) and the
+-- asks RLS policies in db/migration-team-rbac-rls.sql. Per README "Schema and
+-- Supabase authority", merging this file does NOT apply it — running it
+-- against Supabase is a manual step.
+--
+-- The caller predicates below are INLINED rather than calling
+-- public.rbac_caller_role() / rbac_caller_covers_rep(). Those helpers are
+-- defined in db/migration-team-rbac-schema.sql but are NOT present in the
+-- live database (checked 2026-08-16): the applied asks policies in
+-- db/migration-team-rbac-rls.sql inline the same predicates, and this file
+-- matches them branch for branch. Keeping it self-contained means applying
+-- the two-key rule does not require applying that schema file first.
 --
 -- ── What changes ─────────────────────────────────────────────────────────
 -- A flag used to close on one signature: whoever clicked "Resolved" stamped
@@ -75,9 +82,21 @@ begin
     return new;
   end if;
 
-  v_privileged :=
-    public.rbac_caller_role() = 'manager'
-    or public.rbac_caller_covers_rep(new.rep_id);
+  -- Manager-parity: the global manager, or a team_admin whose seat covers
+  -- this rep's team AND region. Mirrors the "owner manager or admin update
+  -- asks" policy branches 1 and 3.
+  v_privileged := exists (
+      select 1 from public.users u
+      where u.auth_id = auth.uid() and u.role = 'manager'
+    ) or exists (
+      select 1
+      from public.team_admins ta
+      join public.users u3 on u3.auth_id = ta.auth_id and u3.role = 'team_admin'
+      join public.reps  r3 on r3.rep_id  = new.rep_id
+      where ta.auth_id = auth.uid()
+        and ta.team_id = r3.team_id
+        and ta.region  = r3.region
+    );
 
   v_is_owner := exists (
     select 1 from public.users u
