@@ -66,6 +66,17 @@ const weekIdToIdx  = (wid) => parseInt(String(wid).replace(/\D/g, ""), 10);
 const idxToWeekId  = (idx) => `w${idx}`;
 const checkKeyOf   = (rep, weekId, del) => `${rep}|${weekId}|${del}`;
 
+// Two-key close: the rep's and the manager's signatures as stored on an asks
+// row. Either side may be null (not signed yet).
+const closeVotesOf = (r) => ({
+  rep: r.rep_closed_at
+    ? { at: r.rep_closed_at, email: r.rep_closed_by_email || null, name: r.rep_closed_by_name || null, role: "rep" }
+    : null,
+  manager: r.mgr_closed_at
+    ? { at: r.mgr_closed_at, email: r.mgr_closed_by_email || null, name: r.mgr_closed_by_name || null, role: r.mgr_closed_by_role || "manager" }
+    : null,
+});
+
 // ============================================================
 // LOAD — initial fetch
 // Returns { checks: {key: {at, markedBy?}}, asks: {key: {text, at}}, managerNotes: {key: {note, updated_by, updated_at}} }
@@ -103,7 +114,7 @@ async function loadStateFromSupabase() {
   }
   for (const r of (asks || [])) {
     const wid = idxToWeekId(r.week_index);
-    const ask = { text: r.body, at: r.created_at };
+    const ask = { text: r.body, at: r.created_at, closeVotes: closeVotesOf(r) };
     if (r.response) {
       ask.response = {
         text: r.response,
@@ -127,6 +138,9 @@ async function loadStateFromSupabase() {
             role:  r.resolved_by_role || "rep",
           }
         : null,
+      // Both signatures, so the Resolved log can name who signed on each side.
+      // Rows closed before the two-key migration have neither.
+      closeVotes: closeVotesOf(r),
     };
     if (r.response) {
       entry.response = {
@@ -244,11 +258,60 @@ async function setAskSupabase(rep, weekId, del, text, resolvedBy) {
         resolved_by_email: null,
         resolved_by_name:  null,
         resolved_by_role:  null,
+        // Re-raising withdraws both close signatures — the flag is open again
+        // and each side has to sign afresh.
+        rep_closed_at: null, rep_closed_by_email: null, rep_closed_by_name: null,
+        mgr_closed_at: null, mgr_closed_by_email: null, mgr_closed_by_name: null,
+        mgr_closed_by_role: null,
       },
       { onConflict: "rep_id,week_index,deliverable_id" }
     );
     throwWriteError("ask set error", error);
   }
+}
+
+// ============================================================
+// WRITE — cast one signature on a two-key flag close.
+//
+// `side` is "rep" or "manager"; each may only write its own stamp columns
+// (the trigger in db/migration-two-key-flag-close.sql enforces that, and that
+// a flag only reaches resolved_at once both are present).
+//
+// `completes` says the caller believes the other side has already signed, so
+// this vote finishes the close. It is deliberately NOT re-checked with a
+// not-null filter here: if the local mirror is stale and the other signature
+// is missing, the trigger rejects the write and the caller's write-through
+// rolls back with a visible error, which beats silently doing nothing.
+// ============================================================
+async function castFlagCloseVoteSupabase(rep, weekId, del, side, who, completes) {
+  const sb = client();
+  const week_index = weekIdToIdx(weekId);
+  const match = { rep_id: rep, week_index, deliverable_id: del };
+  const now = new Date().toISOString();
+  const email = (who && who.email) || null;
+  const name  = (who && who.name)  || null;
+  const role  = side === "rep" ? "rep" : ((who && who.role) || "manager");
+
+  const patch = side === "rep"
+    ? { rep_closed_at: now, rep_closed_by_email: email, rep_closed_by_name: name }
+    : { mgr_closed_at: now, mgr_closed_by_email: email, mgr_closed_by_name: name,
+        mgr_closed_by_role: role };
+
+  // Only an open row takes a signature, so a second click can't re-sign a
+  // flag that already closed.
+  const { error } = await sb.from("asks").update(patch).match(match)
+    .is("resolved_at", null);
+  throwWriteError("flag close vote error", error);
+
+  if (!completes) return;
+
+  const { error: e2 } = await sb.from("asks").update({
+    resolved_at: now,
+    resolved_by_email: email,
+    resolved_by_name:  name,
+    resolved_by_role:  role,
+  }).match(match).is("resolved_at", null);
+  throwWriteError("flag close error", e2);
 }
 
 // ============================================================
@@ -263,6 +326,11 @@ async function reopenAskSupabase(rep, weekId, del) {
     resolved_by_email: null,
     resolved_by_name:  null,
     resolved_by_role:  null,
+    // Both signatures come off too: reopening means neither side has agreed
+    // this is done, so the next close needs two fresh signatures.
+    rep_closed_at: null, rep_closed_by_email: null, rep_closed_by_name: null,
+    mgr_closed_at: null, mgr_closed_by_email: null, mgr_closed_by_name: null,
+    mgr_closed_by_role: null,
   }).match({ rep_id: rep, week_index, deliverable_id: del });
   throwWriteError("ask reopen error", error);
 }
@@ -1020,6 +1088,7 @@ Object.assign(window, {
   loadStateFromSupabase,
   toggleCheckSupabase,
   setAskSupabase,
+  castFlagCloseVoteSupabase,
   reopenAskSupabase,
   setAskResponseSupabase,
   setManagerNoteSupabase,

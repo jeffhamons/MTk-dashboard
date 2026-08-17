@@ -95,7 +95,9 @@ RLS is the real data boundary; the client only mirrors it. Roles:
   the Home Today/Morning Brief panel remains Current-only. The route owns its
   own Team Briefs load/realtime cycle.
 - `src/manager.jsx` - `APP_PAGES` nav registry plus `FlagQueue`,
-  `ResolvedSection`, `ManagerNote`, `MarkedByStamp`.
+  `ResolvedSection`, `ManagerNote`, `MarkedByStamp`. Each open `FlagQueue` row
+  carries a resolve button, shown only to viewers `canCloseFlag` allows
+  (manager, or a team_admin scoped to that rep).
 - `src/rep-view.jsx` - `RepView`, one rep's selected-week view.
 - `src/team-rollup.jsx` - `TeamRollup`, the reps by deliverables scan grid,
   sectioned by region.
@@ -299,6 +301,10 @@ Supabase tables:
   membership.
 - `db/0002_ask_responses.sql` adds ask responses.
 - `db/migration-resolved-flags.sql` adds resolved flag storage.
+- `db/migration-two-key-flag-close.sql` adds the `rep_closed_*` / `mgr_closed_*`
+  close signatures on `asks` plus the trigger enforcing that a flag closes only
+  when both the rep and the manager have signed. `db/test-two-key-flag-close.sql`
+  is its transaction-scoped test.
 - `db/migration-attainment.sql`, `db/migration-attainment-v2.sql`,
   `db/migration-attainment-detail-rls.sql`, and
   `db/migration-attainment-quarter-final.sql` support attainment.
@@ -437,6 +443,9 @@ so neither the denominator nor the read state double-counts.
     `isManagerialRole`, `teamsForUser`, and inert scope guard behavior.
   - `tests/rbac-matrix-lockstep.test.mjs` encodes the SQL truth table and
     asserts `canManageRep` by persona.
+  - `tests/flag-close.test.mjs` checks two-key close: signature authority by
+    persona (`canCloseFlag` / `flagCloseSide`), when a signature completes a
+    close, and the `castFlagCloseVoteSupabase` write path.
   - `tests/url-state.test.mjs` checks `parseUrlState` and `serializeUrlState`.
   - `tests/viewerscope.test.mjs` checks `viewerScopeForUser`,
     `regionsUnderScope`, and `repsUnderScope`.

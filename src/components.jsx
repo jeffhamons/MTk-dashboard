@@ -170,7 +170,7 @@ function StatusDot({ checked, size = 14, label }) {
 // Two-way: when a manager is viewing a raised flag they can write a short
 // response inline. The response is stored on the same row and is visible
 // to the rep (closing the loop without scheduling a separate conversation).
-function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager, disabled, resolveDisabled }) {
+function AskForHelp({ rep, weekId, delId, state, onAsk, onResolveFlag, onAskResponse, isManager, disabled, resolveDisabled }) {
   const askKey = `${rep.id}|${weekId}|${delId}`;
   const existing = state.asks && state.asks[askKey];
   const response = existing && existing.response;
@@ -196,6 +196,38 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager
   // Callers that don't pass resolveDisabled fall back to `disabled` so
   // existing call sites keep their prior behavior.
   const resolvedBtnDisabled = resolveDisabled !== undefined ? resolveDisabled : disabled;
+
+  // Two-key close: marking a flag resolved casts ONE signature. The flag stays
+  // open — and stays in the manager's queue — until the other side signs too.
+  // `waitingOn` is null when nobody has signed yet (so the copy stays quiet on
+  // an untouched flag) and null again once both have, at which point the row
+  // has already moved to the resolved log and this component isn't rendering.
+  const twoKey = window.flagNeedsBothKeys ? window.flagNeedsBothKeys(delId) : false;
+  const waitingOn = twoKey && window.flagCloseWaitingOn
+    ? window.flagCloseWaitingOn(existing, delId)
+    : null;
+  const iSigned = twoKey && waitingOn === (isManager ? "rep" : "manager");
+  const resolveLabel = !twoKey ? "Resolved" : iSigned ? "Marked resolved" : "Mark resolved";
+  const resolveTitle = !twoKey
+    ? "Clear flag — issue is resolved"
+    : iSigned
+      ? (isManager ? "You marked this resolved — waiting on " + rep.name.split(" ")[0]
+                   : "You marked this resolved — waiting on your manager")
+      : "Mark resolved — the flag closes once both you and " +
+        (isManager ? rep.name.split(" ")[0] : "your manager") + " have";
+  // onResolveFlag decides which signature the viewer casts from who they are.
+  // Falling back to onAsk("") keeps call sites that don't pass it working.
+  const castResolve = () => {
+    if (onResolveFlag) onResolveFlag(rep.id, weekId, delId);
+    else onAsk(rep.id, weekId, delId, "");
+  };
+  const waitingNote = waitingOn && (
+    <div className="ask__await">
+      {waitingOn === "rep"
+        ? <>Manager marked this resolved · waiting on {rep.name.split(" ")[0]}</>
+        : <>{rep.name.split(" ")[0]} marked this resolved · waiting on the manager</>}
+    </div>
+  );
 
   if (disabled && !hasFlag) return null;
 
@@ -322,12 +354,13 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager
             <button
               type="button"
               className="ask__btn ask__btn--ghost"
-              onClick={() => { onAsk(rep.id, weekId, delId, ""); setDraft(""); }}
-              disabled={resolvedBtnDisabled}
-              title="Clear flag — issue is resolved"
-            >Resolved</button>
+              onClick={() => { castResolve(); setDraft(""); }}
+              disabled={resolvedBtnDisabled || iSigned}
+              title={resolveTitle}
+            >{resolveLabel}</button>
           </div>
         </div>
+        {waitingNote}
         {responseBlock}
         {responseComposer}
       </div>
@@ -350,9 +383,10 @@ function AskForHelp({ rep, weekId, delId, state, onAsk, onAskResponse, isManager
           <button
             type="button"
             className="ask__clear"
-            onClick={() => { onAsk(rep.id, weekId, delId, ""); setOpen(false); setDraft(""); }}
-            title="Clear flag"
-          >Clear</button>
+            onClick={() => { castResolve(); setOpen(false); setDraft(""); }}
+            disabled={iSigned}
+            title={resolveTitle}
+          >{twoKey ? resolveLabel : "Clear"}</button>
         )}
       </div>
       <textarea
