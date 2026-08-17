@@ -468,6 +468,8 @@ python3 build/bundle.py && python3 build/verify_deploy.py
   - `tests/flag-close.test.mjs` checks two-key close: signature authority by
     persona (`canCloseFlag` / `flagCloseSide`), when a signature completes a
     close, and the `castFlagCloseVoteSupabase` write path.
+  - `tests/home-my-flags.test.mjs` checks the rep-facing "Your open flags"
+    Home panel: deep-link wiring, rep-only gating, and the reply/waiting copy.
   - `tests/url-state.test.mjs` checks `parseUrlState` and `serializeUrlState`.
   - `tests/viewerscope.test.mjs` checks `viewerScopeForUser`,
     `regionsUnderScope`, and `repsUnderScope`.
