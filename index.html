@@ -1437,6 +1437,24 @@ button { font: inherit; color: inherit; }
 .tabs__divider { width: 1px; align-self: stretch; margin: 12px 6px; background: var(--ink-10); flex: 0 0 auto; }
 .tabs__badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; background: var(--orange-bright, #d04a1a); color: #fff; border-radius: 999px; font-size: 11px; font-weight: 600; }
 
+/* My open flags (rep-facing Home panel) */
+.myflags { margin: 0 0 28px; background: var(--paper); border: 1px solid var(--ink-15); border-left: 3px solid var(--flag); border-radius: 12px; padding: 14px 16px; }
+.myflags__head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--flag-deep); }
+.myflags__head-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
+.myflags__head-count { margin-left: auto; font-size: 11px; font-weight: 700; color: var(--flag-deep); background: var(--flag-tint); border-radius: 999px; padding: 1px 8px; }
+.myflag { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; background: transparent; border: none; border-top: 1px dashed var(--ink-15); padding: 12px 0 4px; font: inherit; cursor: pointer; }
+.myflags .myflag:first-of-type { border-top: none; padding-top: 0; }
+.myflag__body { flex: 1; min-width: 0; }
+.myflag__meta { font-size: 12px; color: var(--ink-60); margin-bottom: 4px; }
+.myflag__wait { margin-left: 8px; padding: 1px 6px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--ink-10); color: var(--ink-60); border-radius: 4px; }
+.myflag__wait--you { background: var(--flag-tint); color: var(--flag-deep); }
+.myflag__text { font-size: 14px; color: var(--ink-80); font-style: italic; line-height: 1.45; }
+.myflag__reply { display: block; margin-top: 8px; padding: 8px 10px; background: var(--brand-tint); border-radius: 8px; }
+.myflag__reply-label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--brand-deep); margin-bottom: 2px; }
+.myflag__reply-text { font-size: 13px; color: var(--ink-80); line-height: 1.45; }
+.myflag__go { display: inline-flex; align-items: center; gap: 5px; flex: none; font-size: 13px; font-weight: 500; color: var(--ink-60); }
+.myflag:hover .myflag__go { color: var(--brand); }
+
 /* Flag Queue (manager) */
 .flagq { padding: 12px 0 48px; }
 .flagq__head { margin-bottom: 24px; }
@@ -2176,7 +2194,7 @@ function AttainmentStrip({ repId, isManager, allowedRegions }) {
 // Reps: Weekly Review + Standup.
 // Manager: Team Rollup + Open Flags. Standup accessible via tab.
 // ─────────────────────────────────────────────────────────────────────────────
-function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, activeTeam, viewerScope, regionPill }) {
+function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, onOpenMyFlag, activeTeam, viewerScope, regionPill }) {
   const week = WEEKS[weekIdx];
   const today = TODAY;
   const teamObj = TEAMS.find(t => t.id === activeTeam) || TEAMS[0];
@@ -2238,6 +2256,31 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
         return r && r.team === activeTeam && repInScope(r);
       }).length
     : 0;
+  // A rep's OWN open flags. Without this a rep only ever meets their flag —
+  // and the manager's reply to it — on the week view of the week they raised
+  // it in, which is usually not the week they land on. Onboarding access notes
+  // are excluded for the same reason the Flag Queue excludes them: they have
+  // no deliverable to open, so the row would deep-link nowhere.
+  const myFlags = (!isManager && myRepId && state.asks)
+    ? Object.entries(state.asks)
+        .filter(([k, a]) => {
+          if (!a || !a.text || !a.text.trim()) return false;
+          const [repId, , delId] = k.split("|");
+          return repId === myRepId && !String(delId).startsWith("onboarding:");
+        })
+        .map(([k, ask]) => {
+          const [repId, weekId, delId] = k.split("|");
+          return {
+            key: k, repId, weekId, delId, ask,
+            week: WEEKS.find(w => w.id === weekId),
+            del: DELIVERABLES.find(d => d.id === delId),
+            waitingOn: window.flagCloseWaitingOn ? window.flagCloseWaitingOn(ask, delId) : null,
+          };
+        })
+        .filter(f => f.week && f.del)
+        .sort((a, b) => (a.ask.at || "").localeCompare(b.ask.at || ""))
+    : [];
+
   const repRows = REPS.map(r => {
     const rDels = activeDeliverablesFor(r, week.index);
     const rDone = rDels.filter(d => delComplete(r.id, week, d.id, state)).length;
@@ -2321,6 +2364,52 @@ function HomeView({ state, weekIdx, isManager, myRepId, authedUser, setView, act
           </div>
         </div>
       ); })()}
+
+      {/* A rep's own open flags. The manager has an Open Flags hero; this is
+          the rep-side counterpart, and the only place a rep meets the
+          manager's reply without first navigating to the right week. Renders
+          nothing when they have no open flags. */}
+      {myFlags.length > 0 && (
+        <div className="myflags">
+          <div className="myflags__head">
+            <Icon name="flag" size={15} stroke={2.2} />
+            <span className="myflags__head-label">
+              Your open flag{myFlags.length > 1 ? "s" : ""}
+            </span>
+            <span className="myflags__head-count">{myFlags.length}</span>
+          </div>
+          {myFlags.map(f => {
+            const reply = f.ask.response;
+            return (
+              <button
+                key={f.key}
+                className={"myflag" + (reply ? " has-reply" : "")}
+                onClick={() => onOpenMyFlag && onOpenMyFlag(f.repId, f.weekId)}
+              >
+                <div className="myflag__body">
+                  <div className="myflag__meta">
+                    Week {f.week.index} · {f.del.title}
+                    {f.waitingOn === "manager" && <span className="myflag__wait">you marked resolved · waiting on your manager</span>}
+                    {f.waitingOn === "rep" && <span className="myflag__wait myflag__wait--you">your manager marked resolved · your turn</span>}
+                  </div>
+                  <div className="myflag__text">"{f.ask.text}"</div>
+                  {reply && (
+                    <div className="myflag__reply">
+                      <span className="myflag__reply-label">
+                        Manager replied{reply.byName ? ` · ${reply.byName}` : ""}
+                      </span>
+                      <span className="myflag__reply-text">{reply.text}</span>
+                    </div>
+                  )}
+                </div>
+                <span className="myflag__go">
+                  Open <Icon name="arrow-right" size={13} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="home__cards">
         {isManager ? (
@@ -3263,6 +3352,11 @@ function App({ authedUser, preloadedState }) {
           {view === "home" ? (
             <div data-screen-label="00 Home">
               <HomeView
+                onOpenMyFlag={(repId, weekId) => {
+                  const idx = WEEKS.findIndex(w => w.id === weekId);
+                  if (idx >= 0) setWeekIdx(idx);
+                  setView(repId);
+                }}
                 state={stateForViews}
                 weekIdx={weekIdx}
                 isManager={isManager}
@@ -3400,6 +3494,11 @@ function App({ authedUser, preloadedState }) {
             // stale view id) — render home rather than the out-of-scope rep page.
             <div data-screen-label="00 Home">
               <HomeView
+                onOpenMyFlag={(repId, weekId) => {
+                  const idx = WEEKS.findIndex(w => w.id === weekId);
+                  if (idx >= 0) setWeekIdx(idx);
+                  setView(repId);
+                }}
                 state={stateForViews}
                 weekIdx={weekIdx}
                 isManager={isManager}
