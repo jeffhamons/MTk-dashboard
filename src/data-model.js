@@ -86,7 +86,7 @@ const REPS = [
     skips: [], links: {} },
   // APAC BD — activated 2026-07-10.
   { id: "dourlay",  name: "Paul Dourlay",            role: "Account Executive",  initials: "PD", hue: 160, region: "APAC", team: "newbiz",
-    email: "paul.dourlay@kineo.com.au",
+    email: "paul.dourlay@mindtools-kineo.com",
     skips: [], links: {} },
   { id: "andrew",   name: "Andrew Bennett",          role: "Account Executive",  initials: "AB", hue: 30,  region: "APAC", team: "newbiz",
     email: "andrew.bennett@kineo.com.au",
@@ -96,7 +96,7 @@ const REPS = [
     activeThrough: 10,
     skips: [], links: {} },
   { id: "annum",    name: "Annum Sikander",          role: "Account Executive",  initials: "AS", hue: 290, region: "APAC", team: "newbiz",
-    email: "annum.sikander@kineo.com.au",
+    email: "annum.sikander@mindtools-kineo.com",
     skips: [], links: {} },
   // APAC CS — activated 2026-07-10 (same skips as EMEA CS five).
   { id: "angela",   name: "Angela Beck",             role: "Customer Success Manager", initials: "AB", hue: 185, region: "APAC", team: "cs",
