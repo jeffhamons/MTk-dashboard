@@ -442,6 +442,13 @@ so neither the denominator nor the read state double-counts.
     `regionsUnderScope`, and `repsUnderScope`.
   - `tests/deliverables-retirement.test.mjs` checks `deliverablesForWeek`
     retirement behavior.
+  - `tests/home-deliverable-denominator.test.mjs` pins the completion
+    denominator on both sides of the w11/w12 retirement boundary, the
+    absolute-vs-quarter-relative week index, and rep-view/rollup/Home
+    agreement.
+  - `tests/deliverables-lint.test.mjs` is the standing guard: outside
+    `src/data-model.js`, the only legal use of `DELIVERABLES` is
+    `DELIVERABLES.find(...)`. See "Deliverable retirement" below.
   - `tests/quarter-finals.test.mjs` checks `attBuildQuarterFinal` NB and CS
     shapes.
   - `tests/team-briefs-helpers.test.mjs` checks audience expansion, scoped
@@ -518,6 +525,14 @@ live outside this repo). Do not assume landing the PR updates the live
 - RLS is the only real backstop for data access.
 - Week id is a string like w5.
 - Week index is a number like 5.
+- Never enumerate `DELIVERABLES` outside `src/data-model.js`. The raw array
+  ignores `activeThrough`, so a retired deliverable stays in the denominator
+  forever and that surface silently disagrees with every other one. Use
+  `deliverablesForWeek(weekIndex)` for a shared column set, or
+  `activeDeliverablesFor(rep, weekIndex)` for one rep's own count.
+  `DELIVERABLES.find(...)` is the one exemption: resolving a deliverable's
+  metadata by id must stay retirement-agnostic so historical asks on retired
+  deliverables keep rendering. `tests/deliverables-lint.test.mjs` enforces this.
 - Storage and URL state use the string week id unless a Supabase function
   explicitly expects integer week index.
 - CS monthly has no target; renewal MTD is null and should render as an em
