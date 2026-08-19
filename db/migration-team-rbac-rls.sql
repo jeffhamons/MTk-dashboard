@@ -648,6 +648,8 @@ insert into public.reps (rep_id, name, team_id, region, active) values
   -- roster-parity guard stays satisfied against REPS[].
   ('andrew',  'Andrew Bennett',           'newbiz', 'APAC', false),
   ('annum',   'Annum Sikander',           'newbiz', 'APAC', true),
+  -- APAC BD Lead — started 2026-08-17.
+  ('keri',    'Keri Walker',              'newbiz', 'APAC', true),
   -- APAC CS — activated 2026-07-10.
   ('angela',  'Angela Beck',              'cs',     'APAC', true),
   ('sarah',   'Sarah Flynn',              'cs',     'APAC', true),
