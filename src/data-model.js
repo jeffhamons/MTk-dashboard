@@ -98,6 +98,11 @@ const REPS = [
   { id: "annum",    name: "Annum Sikander",          role: "Account Executive",  initials: "AS", hue: 290, region: "APAC", team: "newbiz",
     email: "annum.sikander@mindtools-kineo.com",
     skips: [], links: {} },
+  // APAC BD Lead — signed 2026-07-30, started 2026-08-17. Manages Paul Dourlay
+  // and Annum Sikander; closes the vacancy left by Aravind Balan's departure.
+  { id: "keri",     name: "Keri Walker",             role: "Business Development Lead (APAC)", initials: "KW", hue: 5,   region: "APAC", team: "newbiz",
+    email: "keri.walker@mindtools-kineo.com",
+    skips: [], links: {} },
   // APAC CS — activated 2026-07-10 (same skips as EMEA CS five).
   { id: "angela",   name: "Angela Beck",             role: "Customer Success Manager", initials: "AB", hue: 185, region: "APAC", team: "cs",
     email: "angela.beck@mindtools-kineo.com",
