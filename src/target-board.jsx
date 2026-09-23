@@ -198,7 +198,7 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
         <span className="tb-row__bar tb-row__bar--cs">
           <span className="tb-row__seg tb-row__seg--ren" style={{ width: `${renW}%`, background: window.attTierColor(p) }} />
           {csExp > 0 && (
-            <span className="tb-row__seg tb-row__seg--exp" style={{ left: `${renW}%`, width: `${expW}%` }} title={`Expansion $${window.attFmtK(csExp)}`} />
+            <span className="tb-row__seg tb-row__seg--exp" style={{ left: `${renW}%`, width: `${expW}%` }} title={`Expansion ${window.attFmtMoneyK(csExp, window.attRepCurrency(rep))}`} />
           )}
           {capW < 99.5 && <span className="tb-row__cap" style={{ left: `${capW}%` }} title="Renewal target" />}
         </span>
@@ -225,7 +225,7 @@ function TBRow({ rep, rank, period, kind, isOpen, onToggle, isManager, myRepId, 
         {kind === "cs" ? (
           <span className="tb-row__pct tb-row__pct--cs">
             <span className="tb-row__pct-num" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
-            {csExp > 0 && <span className="tb-row__pct-exp">+${window.attFmtK(csExp)} exp</span>}
+            {csExp > 0 && <span className="tb-row__pct-exp">+{window.attFmtMoneyK(csExp, window.attRepCurrency(rep))} exp</span>}
           </span>
         ) : (
           <span className="tb-row__pct" style={{ color: window.attPctColor(p) }}>{window.attPctText(p)}</span>
@@ -386,12 +386,9 @@ function TBBoardByRegion({ list, missing, kind, period, openSet, toggle, isManag
 }
 
 // ── Display-currency conversion + rollup grain (issues #17, #18, #27) ────────
-// #17: attainment amounts do NOT arrive in the rep's native region currency.
-// The nightly Salesforce sync writes every figure — snapshot, closed-won deal,
-// renewal book row, cs_quarterly_targets — in GBP (window.ATT_SOURCE_CURRENCY).
-// The old helpers assumed US→USD / APAC→AUD and converted FROM the region
-// currency, so a US rep's £250,000 target was read as $250,000 and then
-// FX-multiplied again. Convert from each row's own declared currency instead.
+// #17: convert from each row's own declared currency (rep.currency, the rep's
+// region currency — see attNativeCurrency in attainment-data.jsx), never from
+// a single board-wide source currency.
 //
 // #18: this file rolls a region up by summing the per-rep rows that are
 // VISIBLE on this board (rep grain). src/cs-performance.jsx and
@@ -430,6 +427,9 @@ function tbRepTarget(rep, kind, period) {
 // pct pairs numerator with denominator: only reps with a POSITIVE target
 // contribute to either side of the ratio, so a rep with no target can never
 // inflate or deflate the percentage (the same pairing discipline as issue #14).
+// `won` follows the same pairing whenever any rep has a target, so a card
+// reading "won of target" never divides everyone's renewals by a target only
+// two reps carry. With no targets at all it is the plain total.
 function tbRollup(list, kind, period, displayCurrency, missingCount) {
   let won = null, target = null, pairWon = null, pairTarget = null;
   let counted = 0, noTarget = 0;
@@ -448,6 +448,7 @@ function tbRollup(list, kind, period, displayCurrency, missingCount) {
     }
   }
   const pct = pairTarget != null && pairTarget > 0 ? Math.round((pairWon || 0) / pairTarget * 100) : null;
+  if (pairTarget != null) won = pairWon;
   return { won, target, pct, counted, noTarget, missing: missingCount || 0 };
 }
 
