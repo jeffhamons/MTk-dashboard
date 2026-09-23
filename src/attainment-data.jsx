@@ -42,28 +42,35 @@ function attNum(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-// ── Source currency of every attainment amount (issue #17) ────────────────────
-// The nightly Salesforce sync (agents/sf_attainment_sync.py) writes
-// attainment_snapshot, closed_won_deals, renewal_book and cs_quarterly_targets
-// in GBP — the finance reporting currency — regardless of which region the rep
-// belongs to. Neither attainment_snapshot nor cs_quarterly_targets carries a
-// currency column (see db/migration-attainment-v2.sql), so the currency cannot
-// be read per row; it is pinned here.
+// ── Currency of every attainment amount (issue #17, corrected) ───────────────
+// The Salesforce sync (jeff-os agents/sf_attainment_sync.py — rep_currency /
+// rep_amount) writes each rep's attainment_snapshot, closed_won_deals,
+// renewal_book and cs_quarterly_targets figures in THAT REP'S OWN currency:
+// the rep's region currency (US → USD, EMEA → GBP, APAC → AUD), the same
+// currency their target letter is written in. Foreign-currency deals are
+// converted into it server-side.
 //
-// Do NOT infer it from the rep's region. That was the bug: a US rep's £250,000
-// renewal target was labelled "$250,000" and then FX-converted as if it were
-// already USD, double-counting the rate. Amounts are tagged with this currency
-// at assembly time and converted from it into the viewer's display currency.
+// Issue #17 read this as "everything is GBP" and tagged every row GBP. That
+// made a US rep's $174,446 render as "£174,446" and skip conversion under the
+// GBP toggle, so every region/team total mixing US and EMEA reps was wrong.
+// The currency is resolved per rep from window.REPS → window.REGIONS.
+// ATT_SOURCE_CURRENCY is only the fallback for a rep with no known region.
 const ATT_SOURCE_CURRENCY = "GBP";
 
-// Currency an assembled rep row's amounts are denominated in. Rows built by
-// attBuildLive carry it explicitly; sample/legacy rows fall back to the source
-// currency rather than to the rep's region.
-function attRepCurrency(rep) {
-  return (rep && rep.currency) || ATT_SOURCE_CURRENCY;
+function attNativeCurrency(repId) {
+  const rep = (window.REPS || []).find(r => r.id === repId);
+  const region = rep && (window.REGIONS || []).find(g => g.id === rep.region);
+  return (region && region.currency) || ATT_SOURCE_CURRENCY;
 }
 
-// Convert an amount OUT of the attainment source currency into `to`.
+// Currency an assembled rep row's amounts are denominated in. Rows built by
+// attBuildLive carry it explicitly; sample/legacy rows fall back to the rep's
+// region currency.
+function attRepCurrency(rep) {
+  return (rep && rep.currency) || attNativeCurrency(rep && rep.id);
+}
+
+// Convert an amount from currency `from` into `to`.
 // Returns null for null (never a fabricated 0).
 function attConvert(n, from, to) {
   if (n == null) return null;
@@ -265,7 +272,7 @@ function attMissingRoster(haveIds) {
         pct: { mtd: null, qtd: null, ytd: null },
         won: { mtd: null, qtd: null, ytd: null },
         target: { mtd: null, qtd: null, ytd: null },
-        quotaQ: null, deals: [], currency: ATT_SOURCE_CURRENCY, syncedAt: null,
+        quotaQ: null, deals: [], currency: attNativeCurrency(rep.id), syncedAt: null,
       });
     } else if (rep.team === "cs") {
       missingCs.push({
@@ -274,7 +281,7 @@ function attMissingRoster(haveIds) {
         qTarget: null, qTargetSource: null,
         ramp: [], book: [], upsell: null, cross: null, multi: null,
         effective: `FY${ATT_QUARTER.fy} renewal plan`,
-        currency: ATT_SOURCE_CURRENCY, syncedAt: null,
+        currency: attNativeCurrency(rep.id), syncedAt: null,
       });
     }
   }
@@ -312,7 +319,7 @@ function attBuildLive(snapshots, deals, book, ramps) {
         target: { mtd: attNum(row.nb_mtd_target), qtd: attNum(row.nb_qtd_target), ytd: attNum(row.nb_annual_target) },
         quotaQ: attNum(row.nb_qtd_target),
         deals: (dealsBy[row.rep_id] || []).map(d => ({ acct: d.account, amt: attNum(d.amount) || 0, date: attFmtDate(d.close_date) })),
-        currency: ATT_SOURCE_CURRENCY,
+        currency: attNativeCurrency(row.rep_id),
         syncedAt,
       });
     } else {
@@ -361,7 +368,7 @@ function attBuildLive(snapshots, deals, book, ramps) {
         cross: null,
         multi: null,
         effective: `FY${fy} renewal plan`,
-        currency: ATT_SOURCE_CURRENCY,
+        currency: attNativeCurrency(row.rep_id),
         syncedAt,
       });
     }
@@ -496,7 +503,7 @@ Object.assign(window, {
   attBuildQuarterFinal, attQuarterFinalOptions, loadQuarterFinals, ATT_QF_SAMPLE,
   attCurrency, attCurrencyForRegion,
   // Nullable/currency/freshness helpers (issues #13/#15/#16/#17/#19/#21/#27).
-  attNum, ATT_SOURCE_CURRENCY, attRepCurrency, attConvert,
+  attNum, ATT_SOURCE_CURRENCY, attNativeCurrency, attRepCurrency, attConvert,
   attFmtMoney, attFmtMoneyK, attFmtDateTime, attCurrencyBadge,
   ATT_STALE_HOURS, attSyncState, attMissingRoster,
 });

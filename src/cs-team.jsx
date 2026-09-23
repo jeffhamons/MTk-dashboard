@@ -114,7 +114,7 @@ function CsttActuals({ rep, attainment }) {
   const pctColor = window.attPctColor ? window.attPctColor(c.pct) : "var(--ink)";
   const barColor = window.attTierColor ? window.attTierColor(c.pct) : "var(--brand)";
   const barWidth = window.attBarWidth ? window.attBarWidth(c.pct) : (c.pct == null ? 0 : Math.min(100, c.pct));
-  const F = window.attFmtFull || (n => String(Math.round(n || 0)));
+  const F = (n) => window.attFmtMoney(n, c.currency);
   return (
     <div style={{ border: "1px solid var(--ink-10)", borderRadius: 10, padding: "12px 14px", background: "var(--ink-02, #fafafa)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
