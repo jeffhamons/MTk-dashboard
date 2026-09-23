@@ -288,6 +288,20 @@ function attMissingRoster(haveIds) {
   return { missingNb, missingCs };
 }
 
+// Newest/oldest syncedAt across the given assembled rows. The board passes only
+// the rows it shows, so a departed rep's leftover snapshot (hidden by
+// activeThrough) cannot trip the stale banner for everyone else.
+function attSyncWindow(rows) {
+  let newest = null, oldest = null;
+  for (const r of (rows || [])) {
+    const t = r && r.syncedAt;
+    if (!t) continue;
+    if (!newest || t > newest) newest = t;
+    if (!oldest || t < oldest) oldest = t;
+  }
+  return { newest, oldest };
+}
+
 // ── Live assembly: snapshot + deal/book/ramp tables → ATT_NB / ATT_CS ─────────
 function attBuildLive(snapshots, deals, book, ramps) {
   const byRep = (rows) => { const m = {}; for (const r of (rows || [])) (m[r.rep_id] ||= []).push(r); return m; };
@@ -505,5 +519,5 @@ Object.assign(window, {
   // Nullable/currency/freshness helpers (issues #13/#15/#16/#17/#19/#21/#27).
   attNum, ATT_SOURCE_CURRENCY, attNativeCurrency, attRepCurrency, attConvert,
   attFmtMoney, attFmtMoneyK, attFmtDateTime, attCurrencyBadge,
-  ATT_STALE_HOURS, attSyncState, attMissingRoster,
+  ATT_STALE_HOURS, attSyncState, attSyncWindow, attMissingRoster,
 });

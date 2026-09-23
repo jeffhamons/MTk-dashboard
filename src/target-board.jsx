@@ -516,11 +516,6 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   // Issue #21: attainment_snapshot.synced_at, surfaced at last. `oldest` drives
   // the staleness call — one rep stuck three days back is a broken sync even if
   // everyone else refreshed an hour ago.
-  const syncNewest = window.attSyncState ? window.attSyncState(hist ? null : (data.sync && data.sync.newest)) : null;
-  const syncOldest = window.attSyncState ? window.attSyncState(hist ? null : (data.sync && data.sync.oldest)) : null;
-  const showSync = !hist && !loadError && !!(data.sync && data.sync.newest);
-  const syncStale = showSync && syncOldest && syncOldest.stale;
-
   const toggle = (id) => setOpenSet(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
 
   // Reps who departed mid-cycle drop off the current standings. Historical
@@ -534,6 +529,14 @@ function LeaderboardView({ authedUser, activeTeam, viewerScope, regionPill }) {
   };
   const NB = (board.nb || []).filter(visible).filter(inRegion);
   const CS = (board.cs || []).filter(visible).filter(inRegion);
+
+  // The window covers only the rows on this board: a departed rep's leftover
+  // snapshot (filtered out by `visible`) must not flag everyone else as stale.
+  const shownSync = window.attSyncWindow ? window.attSyncWindow(NB.concat(CS)) : (data.sync || {});
+  const syncNewest = window.attSyncState ? window.attSyncState(hist ? null : shownSync.newest) : null;
+  const syncOldest = window.attSyncState ? window.attSyncState(hist ? null : shownSync.oldest) : null;
+  const showSync = !hist && !loadError && !!shownSync.newest;
+  const syncStale = showSync && syncOldest && syncOldest.stale;
 
   // Issue #19: roster reps the sync never wrote a row for. Same visibility and
   // region gates as the real rows, plus the RLS-shaped rule that a non-manager
