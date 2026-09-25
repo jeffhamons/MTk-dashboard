@@ -119,6 +119,7 @@ function emptyForm() {
     invisible: [{ task: "", context: "" }],
     big_win:   { win: "", why: "" },
     hype:      [{ source: "", quote: "" }],
+    ideas:     [{ idea: "", fix: "" }],
     updated_at: null,
     updated_by: null,
   };
@@ -336,6 +337,7 @@ function WinsFormView({ authedUser, activeTeam, viewerScope, regionPill }) {
           invisible:  row.invisible  || [],
           big_win:    row.big_win    || { win: "", why: "" },
           hype:       row.hype       || [],
+          ideas:      row.ideas      || [],
           updated_at: row.updated_at || null,
           updated_by: row.updated_by || null,
         });
@@ -380,6 +382,10 @@ function WinsFormView({ authedUser, activeTeam, viewerScope, regionPill }) {
   function setHype(idx, field, val) { update({ hype: form.hype.map((r,i) => i===idx ? {...r,[field]:val} : r) }); }
   function addHype() { update({ hype: [...form.hype, { source:"", quote:"" }] }); }
   function delHype(idx) { if (form.hype.length<=1) return; update({ hype: form.hype.filter((_,i)=>i!==idx) }); }
+
+  function setIdea(idx, field, val) { update({ ideas: form.ideas.map((r,i) => i===idx ? {...r,[field]:val} : r) }); }
+  function addIdea() { update({ ideas: [...form.ideas, { idea:"", fix:"" }] }); }
+  function delIdea(idx) { if (form.ideas.length<=1) return; update({ ideas: form.ideas.filter((_,i)=>i!==idx) }); }
 
   const lastSaved = form.updated_at
     ? new Date(form.updated_at).toLocaleTimeString([], { hour:"numeric", minute:"2-digit" })
@@ -529,6 +535,21 @@ function WinsFormView({ authedUser, activeTeam, viewerScope, regionPill }) {
               </WFTableRow>
             ))}
             {canEdit && <WFAddRow onClick={addHype} />}
+          </WFSection>
+
+          {/* ── 5. Idea to Improve (Don-ate an Idea) ── */}
+          <WFSection title="Don-ate an Idea 💡" time="~1 min"
+            hint="Something we could try or do better — totally optional, no blocker required. Not a complaint, just a thought.">
+            <WFTableHead col1="Idea to Improve / Could We Try…"
+              col2="Possible Fix (optional)" withDel={canEdit} />
+            {form.ideas.map((row, idx) => (
+              <WFTableRow key={idx} withDel={canEdit}>
+                <WFTextarea value={row.idea} onChange={v => setIdea(idx,"idea",v)} placeholder="We could do X, Y, or Z better…" readOnly={!canEdit} />
+                <WFTextarea value={row.fix}  onChange={v => setIdea(idx,"fix",v)}  placeholder="One way we might fix it…" readOnly={!canEdit} />
+                {canEdit && <WFDel onClick={() => delIdea(idx)} disabled={form.ideas.length<=1} />}
+              </WFTableRow>
+            ))}
+            {canEdit && <WFAddRow onClick={addIdea} />}
           </WFSection>
 
           {/* ── Footer ── */}

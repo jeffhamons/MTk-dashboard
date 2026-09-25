@@ -784,6 +784,7 @@ async function loadWins(weekIndex, repId) {
     invisible:  data.invisible  || [],
     big_win:    data.big_win    || { win: "", why: "" },
     hype:       data.hype       || [],
+    ideas:      data.ideas      || [],
     updated_at: data.updated_at || null,
     updated_by: data.updated_by || null,
   };
@@ -798,6 +799,7 @@ async function loadAllWinsForWeek(weekIndex) {
     out[row.rep_id] = {
       worked_on: row.worked_on || [], invisible: row.invisible || [],
       big_win: row.big_win || { win:"", why:"" }, hype: row.hype || [],
+      ideas: row.ideas || [],
       updated_at: row.updated_at || null, updated_by: row.updated_by || null,
     };
   }
@@ -811,6 +813,7 @@ async function saveWins(weekIndex, repId, formData, updatedByEmail) {
       rep_id: repId, week_index: weekIndex,
       worked_on: formData.worked_on || [], invisible: formData.invisible || [],
       big_win: formData.big_win || {}, hype: formData.hype || [],
+      ideas: formData.ideas || [],
       updated_at: new Date().toISOString(), updated_by: updatedByEmail || null,
     },
     { onConflict: "rep_id,week_index" }
